@@ -141,3 +141,16 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# --- KvittoApp ---
+dist/
+dev-dist/
+.vite/
+*.local
+apps/web/public/vendor/
+apps/server/data/
+apps/server/*.sqlite
+apps/server/*.sqlite-*
+.env
+.env.*
+!.env.example
