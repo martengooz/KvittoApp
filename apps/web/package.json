@@ -1,0 +1,29 @@
+{
+  "name": "@kvitto/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-vendor": "node scripts/copy-opencv.mjs",
+    "dev": "npm run prepare-vendor && vite",
+    "build": "npm run prepare-vendor && tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "npm run prepare-vendor && tsc -p tsconfig.json --noEmit",
+    "verify": "node e2e/verify.mjs",
+    "verify:pipeline": "PIPELINE=1 BASE_URL=http://127.0.0.1:5173 node e2e/verify.mjs"
+  },
+  "dependencies": {
+    "@kvitto/shared": "*",
+    "dexie": "^4.4.6",
+    "@anthropic-ai/sdk": "^0.125.0"
+  },
+  "devDependencies": {
+    "@techstark/opencv-js": "4.11.0-release.1",
+    "@types/node": "^22.15.0",
+    "playwright-core": "^1.63.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.5",
+    "vite-plugin-pwa": "^1.3.0",
+    "workbox-window": "^7.3.0"
+  }
+}

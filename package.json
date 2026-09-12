@@ -1,0 +1,28 @@
+{
+  "name": "kvittoapp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Offline-first PWA for scanning and indexing (primarily Swedish) receipts, with a companion sync server.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:web dev:server",
+    "dev:web": "npm run dev --workspace @kvitto/web",
+    "dev:server": "npm run dev --workspace @kvitto/server",
+    "build": "npm run build --workspace @kvitto/shared && npm run build --workspace @kvitto/web && npm run build --workspace @kvitto/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "rm -rf apps/*/dist packages/*/dist apps/*/node_modules/.vite"
+  },
+  "devDependencies": {
+    "npm-run-all2": "^8.0.4",
+    "typescript": "~5.9.3"
+  }
+}
