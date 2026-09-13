@@ -11,7 +11,10 @@
 import { formatBytes } from '@kvitto/shared';
 
 import { createCropEditor, type CropEditor } from '../components/crop-editor.js';
+import { banner, emptyState } from '../components/ui.js';
 import { el, nextFrame, replaceChildren } from '../core/dom.js';
+import { icon } from '../core/icons.js';
+import { haptic } from '../core/platform.js';
 import { router } from '../core/router.js';
 import { getSettings, isAiConfigured } from '../core/settings.js';
 import { toast } from '../core/toast.js';
@@ -295,25 +298,27 @@ export function scanView(): HTMLElement {
         {
           class: 'scan-button',
           type: 'button',
-          on: { click: () => void startCamera() },
+          on: {
+            click: () => {
+              haptic('impact');
+              void startCamera();
+            },
+          },
         },
-        el('span', { class: 'scan-button__icon', 'aria-hidden': 'true', text: '📷' }),
+        icon('camera', { size: 56, className: 'scan-button__icon', weight: 1.4 }),
         el('span', { text: 'Skanna kvitto' }),
       ),
-      el('p', { class: 'muted', text: 'Lägg kvittot på ett jämnt underlag och håll kameran rakt ovanför.' }),
+      el('p', { class: 'muted', style: 'font-size:15px;max-width:30ch',
+        text: 'Lägg kvittot på ett jämnt underlag och håll kameran rakt ovanför.' }),
+      el('button', {
+        class: 'btn btn--plain',
+        type: 'button',
+        text: 'Välj bild från galleriet',
+        on: { click: openFilePicker },
+      }),
       el(
         'div',
-        { class: 'row row--wrap', style: 'justify-content:center' },
-        el('button', {
-          class: 'btn btn--ghost btn--sm',
-          type: 'button',
-          text: 'Välj bild från galleriet',
-          on: { click: openFilePicker },
-        }),
-      ),
-      el(
-        'div',
-        { class: 'status-line', style: 'margin-top:0.75rem' },
+        { class: 'status-line', style: 'margin-top:8px' },
         el('span', {
           class: [
             'status-dot',
@@ -332,21 +337,19 @@ export function scanView(): HTMLElement {
         ? null
         : el(
             'div',
-            { class: 'banner banner--info', style: 'margin-top:1rem;text-align:left' },
-            el('span', { 'aria-hidden': 'true', text: '💡' }),
-            el(
-              'div',
-              { class: 'banner__body' },
-              el('strong', { text: 'Ingen AI-tolkning inställd' }),
-              el('p', { text: 'Du kan skanna och spara ändå — och fylla i uppgifterna själv.' }),
-              el('button', {
-                class: 'btn btn--sm btn--ghost',
+            { style: 'margin-top:12px;text-align:left;width:100%' },
+            banner({
+              tone: 'info',
+              title: 'Ingen AI-tolkning inställd',
+              body: 'Du kan skanna och spara ändå — och fylla i uppgifterna själv.',
+              actions: el('button', {
+                class: 'btn btn--sm btn--plain',
                 type: 'button',
-                style: 'margin-top:0.5rem',
+                style: 'padding-left:0;margin-top:4px',
                 text: 'Öppna inställningar',
                 on: { click: () => router.navigate('/settings') },
               }),
-            ),
+            }),
           ),
     );
   }
@@ -364,10 +367,9 @@ export function scanView(): HTMLElement {
         'div',
         { class: 'camera-controls' },
         el('button', {
-          class: 'btn btn--ghost btn--sm',
+          class: 'camera-button',
           type: 'button',
           text: 'Avbryt',
-          style: 'color:#fff;border-color:rgb(255 255 255 / 45%)',
           on: {
             click: () => {
               stopCamera();
@@ -380,20 +382,28 @@ export function scanView(): HTMLElement {
           class: 'shutter',
           type: 'button',
           'aria-label': 'Ta bild',
-          on: { click: () => void captureFrame(video) },
-        }),
-        el('button', {
-          class: 'btn btn--ghost btn--sm',
-          type: 'button',
-          text: 'Galleri',
-          style: 'color:#fff;border-color:rgb(255 255 255 / 45%)',
           on: {
             click: () => {
-              stopCamera();
-              openFilePicker();
+              haptic('impact');
+              void captureFrame(video);
             },
           },
         }),
+        el(
+          'button',
+          {
+            class: 'camera-button',
+            type: 'button',
+            'aria-label': 'Välj från galleriet',
+            on: {
+              click: () => {
+                stopCamera();
+                openFilePicker();
+              },
+            },
+          },
+          icon('photo', { size: 26 }),
+        ),
       ),
     );
   }
@@ -402,7 +412,7 @@ export function scanView(): HTMLElement {
     return el(
       'div',
       { class: 'empty-state' },
-      el('div', { class: 'spinner' }),
+      el('div', { class: 'spinner', style: 'width:28px;height:28px' }),
       el('p', { class: 'empty-state__title', text: 'Behandlar bilden…' }),
       el('p', { text: 'Hittar kvittots kanter, rätar ut och förbättrar kontrasten.' }),
     );
@@ -419,32 +429,19 @@ export function scanView(): HTMLElement {
       'div',
       { class: 'crop' },
       lowConfidence
-        ? el(
-            'div',
-            { class: 'banner banner--warning' },
-            el('span', { 'aria-hidden': 'true', text: '⚠️' }),
-            el(
-              'div',
-              { class: 'banner__body' },
-              el('strong', { text: 'Osäker på kvittots kanter' }),
-              el('p', { text: 'Tryck på "Justera hörn" och dra dem på plats om beskärningen blev fel.' }),
-            ),
-          )
+        ? banner({
+            tone: 'warning',
+            title: 'Osäker på kvittots kanter',
+            body: 'Tryck på "Justera hörn" och dra dem på plats om beskärningen blev fel.',
+          })
         : null,
-      ...result.notes.map((note) =>
-        el(
-          'div',
-          { class: 'banner banner--info' },
-          el('span', { 'aria-hidden': 'true', text: 'ℹ️' }),
-          el('div', { class: 'banner__body', text: note }),
-        ),
-      ),
+      ...result.notes.map((note) => banner({ tone: 'info', body: note })),
       preview,
       el(
         'div',
-        { class: 'row row--wrap' },
+        { class: 'stack stack--wrap', style: 'justify-content:center' },
         el('button', {
-          class: 'btn btn--ghost btn--sm',
+          class: 'btn btn--sm',
           type: 'button',
           text: state.showOriginal ? 'Visa resultat' : 'Justera hörn',
           on: {
@@ -454,19 +451,25 @@ export function scanView(): HTMLElement {
             },
           },
         }),
-        el('button', {
-          class: 'btn btn--ghost btn--sm',
-          type: 'button',
-          text: '↻ Rotera',
-          on: {
-            click: () => {
-              state.rotation = ((state.rotation + 90) % 360) as 0 | 90 | 180 | 270;
-              void reprocess();
+        el(
+          'button',
+          {
+            class: 'btn btn--sm',
+            type: 'button',
+            'aria-label': 'Rotera',
+            on: {
+              click: () => {
+                haptic('selection');
+                state.rotation = ((state.rotation + 90) % 360) as 0 | 90 | 180 | 270;
+                void reprocess();
+              },
             },
           },
-        }),
+          icon('rotate', { size: 18 }),
+          el('span', { text: 'Rotera' }),
+        ),
         el('button', {
-          class: 'btn btn--ghost btn--sm',
+          class: 'btn btn--sm',
           type: 'button',
           text: 'Ta om',
           on: {
@@ -488,9 +491,9 @@ export function scanView(): HTMLElement {
       ),
       el(
         'div',
-        { class: 'row' },
+        { class: 'stack' },
         el('button', {
-          class: 'btn btn--ghost grow',
+          class: 'btn grow',
           type: 'button',
           text: 'Spara utan tolkning',
           on: { click: () => void save(false) },
@@ -499,7 +502,12 @@ export function scanView(): HTMLElement {
           class: 'btn btn--primary grow',
           type: 'button',
           text: isAiConfigured() ? 'Spara och tolka' : 'Spara',
-          on: { click: () => void save(isAiConfigured()) },
+          on: {
+            click: () => {
+              haptic('impact');
+              void save(isAiConfigured());
+            },
+          },
         }),
       ),
     );
@@ -533,9 +541,9 @@ export function scanView(): HTMLElement {
       editor.element,
       el(
         'div',
-        { class: 'row', style: 'margin-top:0.6rem' },
+        { class: 'stack', style: 'margin-top:10px' },
         el('button', {
-          class: 'btn btn--ghost btn--sm',
+          class: 'btn btn--sm',
           type: 'button',
           text: 'Hela bilden',
           on: { click: () => editor.reset() },

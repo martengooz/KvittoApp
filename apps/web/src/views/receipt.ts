@@ -8,6 +8,7 @@
  */
 
 import {
+  formatDate,
   formatDateTime,
   formatMoney,
   formatQuantity,
@@ -21,13 +22,16 @@ import {
   type Tag,
 } from '@kvitto/shared';
 
+import { banner, emptyState, listGroup, row as listRow } from '../components/ui.js';
 import { el, replaceChildren } from '../core/dom.js';
+import { icon } from '../core/icons.js';
+import { canShare, haptic, share } from '../core/platform.js';
 import { bus } from '../core/events.js';
 import { router, type RouteContext } from '../core/router.js';
 import { isAiConfigured } from '../core/settings.js';
 import { confirmDialog, toast } from '../core/toast.js';
 import { parseReceipt } from '../ai/index.js';
-import { blobUrl } from '../db/blobs.js';
+import { blobUrl, getBlob } from '../db/blobs.js';
 import { getReceiptBundle, liveCategories, liveTags, type ReceiptBundle } from '../db/queries.js';
 import {
   addItem,
@@ -88,9 +92,22 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       imageSrc
         ? el(
             'details',
-            { class: 'section' },
-            el('summary', { class: 'section__title', text: 'Kvittobild' }),
-            el('img', { class: 'preview-image', src: imageSrc, alt: 'Skannat kvitto', loading: 'lazy' }),
+            { class: 'list-group' },
+            el('summary', {
+              class: 'list-group__title',
+              style: 'cursor:pointer;color:var(--tint)',
+              text: 'Visa kvittobild',
+            }),
+            el(
+              'div',
+              { class: 'pad' },
+              el('img', {
+                class: 'preview-image',
+                src: imageSrc,
+                alt: 'Skannat kvitto',
+                loading: 'lazy',
+              }),
+            ),
           )
         : null,
       renderFacts(receipt, categories),
@@ -107,54 +124,34 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       return el(
         'div',
         { class: 'banner banner--info' },
-        el('div', { class: 'spinner', style: 'width:18px;height:18px;border-width:2px' }),
-        el('div', { class: 'banner__body', text: 'Tolkar kvittot med AI…' }),
+        el('div', { class: 'spinner', style: 'width:20px;height:20px;flex:none' }),
+        el('div', { class: 'banner__body' }, el('strong', { text: 'Tolkar kvittot med AI…' })),
       );
     }
     if (receipt.status === 'failed') {
-      return el(
-        'div',
-        { class: 'banner banner--danger' },
-        el('span', { 'aria-hidden': 'true', text: '⚠️' }),
-        el(
-          'div',
-          { class: 'banner__body' },
-          el('strong', { text: 'Tolkningen misslyckades' }),
-          el('p', { text: receipt.extraction?.error ?? 'Okänt fel.' }),
-        ),
-      );
+      return banner({
+        tone: 'danger',
+        title: 'Tolkningen misslyckades',
+        body: receipt.extraction?.error ?? 'Okänt fel.',
+      });
     }
     if (receipt.status === 'draft') {
-      return el(
-        'div',
-        { class: 'banner banner--warning' },
-        el('span', { 'aria-hidden': 'true', text: '📝' }),
-        el(
-          'div',
-          { class: 'banner__body' },
-          el('strong', { text: 'Inte tolkat än' }),
-          el('p', {
-            text: isAiConfigured()
-              ? 'Tryck på "Tolka med AI" nedan, eller fyll i uppgifterna själv.'
-              : 'Ställ in en AI-leverantör under Inställningar, eller fyll i uppgifterna själv.',
-          }),
-        ),
-      );
+      return banner({
+        tone: 'warning',
+        title: 'Inte tolkat än',
+        body: isAiConfigured()
+          ? 'Tryck på "Tolka med AI" nedan, eller fyll i uppgifterna själv.'
+          : 'Ställ in en AI-leverantör under Inställningar, eller fyll i uppgifterna själv.',
+      });
     }
 
     const warnings = receipt.extraction?.warnings ?? [];
     if (warnings.length > 0 && receipt.status !== 'confirmed') {
-      return el(
-        'div',
-        { class: 'banner banner--warning' },
-        el('span', { 'aria-hidden': 'true', text: '🔍' }),
-        el(
-          'div',
-          { class: 'banner__body' },
-          el('strong', { text: 'Värt att kontrollera' }),
-          el('ul', { style: 'margin:0.3rem 0 0;padding-left:1.1rem' }, ...warnings.map((warning) => el('li', { text: warning }))),
-        ),
-      );
+      return banner({
+        tone: 'warning',
+        title: 'Värt att kontrollera',
+        body: el('ul', {}, ...warnings.map((warning) => el('li', { text: warning }))),
+      });
     }
     return null;
   }
@@ -164,11 +161,11 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       'div',
       { class: 'detail-hero' },
       el('input', {
+        class: 'detail-merchant',
         type: 'text',
         value: receipt.merchant.name ?? '',
         placeholder: 'Butikens namn',
         'aria-label': 'Butik',
-        style: 'font-size:1.15rem;font-weight:600',
         on: {
           change: (event) => {
             const name = (event.target as HTMLInputElement).value.trim() || null;
@@ -185,14 +182,11 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
   function renderFacts(receipt: Receipt, categories: Category[]): HTMLElement {
     const receiptCategories = categories.filter((category) => category.scope !== 'item');
 
-    return el(
-      'section',
-      { class: 'section' },
-      el('h2', { class: 'section__title', text: 'Uppgifter' }),
-      el(
-        'div',
-        { class: 'card card--pad' },
-        field('Datum', el('input', {
+    return listGroup(
+      { title: 'Uppgifter' },
+      listRow({
+        label: 'Datum',
+        trailing: el('input', {
           type: 'text',
           value: receipt.purchasedAt ?? '',
           placeholder: 'ÅÅÅÅ-MM-DD',
@@ -215,25 +209,38 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
               void updateReceipt(receipt.id, { purchasedAt: parsed });
             },
           },
-        })),
-        field('Totalt', moneyInput(receipt.total, (value) => updateReceipt(receipt.id, { total: value }))),
-        field('Öresavrundning', moneyInput(receipt.roundingAmount, (value) =>
+        }),
+      }),
+      listRow({
+        label: 'Totalt',
+        trailing: moneyInput(receipt.total, (value) => updateReceipt(receipt.id, { total: value })),
+      }),
+      listRow({
+        label: 'Öresavrundning',
+        trailing: moneyInput(receipt.roundingAmount, (value) =>
           updateReceipt(receipt.id, { roundingAmount: value }),
-        )),
-        field('Betalsätt', el('input', {
+        ),
+      }),
+      listRow({
+        label: 'Betalsätt',
+        trailing: el('input', {
           type: 'text',
           value: receipt.paymentMethod ?? '',
-          placeholder: 'Kontokort, Swish, kontant…',
+          placeholder: 'Kontokort',
           on: {
             change: (event) => {
               const value = (event.target as HTMLInputElement).value.trim() || null;
               void updateReceipt(receipt.id, { paymentMethod: value });
             },
           },
-        })),
-        field('Kategori', el(
+        }),
+      }),
+      listRow({
+        label: 'Kategori',
+        trailing: el(
           'select',
           {
+            'aria-label': 'Kategori',
             on: {
               change: (event) => {
                 const value = (event.target as HTMLSelectElement).value || null;
@@ -241,30 +248,36 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
               },
             },
           },
-          el('option', { value: '', text: '— ingen —', selected: receipt.categoryId === null }),
+          el('option', { value: '', text: 'Ingen', selected: receipt.categoryId === null }),
           ...receiptCategories.map((category) =>
             el('option', {
               value: category.id,
-              text: `${category.icon ?? ''} ${category.name}`.trim(),
+              text: category.name,
               selected: receipt.categoryId === category.id,
             }),
           ),
-        )),
-        field('Anteckning', el('textarea', {
+        ),
+      }),
+      el(
+        'div',
+        { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:6px' },
+        el('span', { class: 'field__label', style: 'margin:0', text: 'Anteckning' }),
+        el('textarea', {
           value: receipt.notes ?? '',
           placeholder: 'Egna anteckningar…',
           rows: 2,
+          style: 'background:var(--fill-tertiary);border-radius:8px;padding:8px 10px;text-align:left',
           on: {
             change: (event) => {
               const value = (event.target as HTMLTextAreaElement).value.trim() || null;
               void updateReceipt(receipt.id, { notes: value });
             },
           },
-        })),
-        receipt.merchant.orgNumber
-          ? el('p', { class: 'faint', text: `Org.nr ${receipt.merchant.orgNumber}` })
-          : null,
+        }),
       ),
+      receipt.merchant.orgNumber
+        ? listRow({ label: 'Org.nr', value: receipt.merchant.orgNumber })
+        : null,
     );
   }
 
@@ -273,8 +286,8 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
 
     return el(
       'section',
-      { class: 'section' },
-      el('h2', { class: 'section__title', text: 'Etiketter och samlingar' }),
+      { class: 'list-group' },
+      el('h2', { class: 'list-group__title', text: 'Etiketter och samlingar' }),
       el(
         'div',
         { class: 'chip-row' },
@@ -300,7 +313,7 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
         el('button', {
           class: 'chip',
           type: 'button',
-          text: '+ Ny etikett',
+          text: 'Ny etikett',
           on: {
             click: () => {
               const name = prompt('Namn på etiketten');
@@ -318,21 +331,25 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
 
     return el(
       'section',
-      { class: 'section' },
+      { class: 'list-group' },
       el(
         'div',
-        { class: 'row row--between' },
-        el('h2', { class: 'section__title', style: 'margin:0', text: `Varor (${items.length})` }),
+        { class: 'stack stack--between pad', style: 'margin-bottom:7px' },
+        el('h2', { class: 'list-group__title', style: 'margin:0;padding:0', text: `Varor (${items.length})` }),
         el('button', {
-          class: 'btn btn--ghost btn--sm',
+          class: 'btn btn--sm btn--plain',
           type: 'button',
-          text: '+ Lägg till rad',
+          text: 'Lägg till',
           on: { click: () => void addItem(receipt.id) },
         }),
       ),
-      items.length === 0
-        ? el('p', { class: 'muted', text: 'Inga varor registrerade på det här kvittot.' })
-        : el('div', { class: 'list' }, ...items.map((item) => renderItem(item, itemCategories))),
+      el(
+        'div',
+        { class: 'inset-list' },
+        items.length === 0
+          ? el('div', { class: 'row muted', text: 'Inga varor registrerade.' })
+          : el('div', {}, ...items.map((item) => renderItem(item, itemCategories))),
+      ),
     );
   }
 
@@ -342,23 +359,26 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       { class: 'item-editor' },
       el(
         'div',
-        { class: 'row' },
+        { class: 'stack' },
         el('input', {
           class: 'grow',
           type: 'text',
           value: item.name,
           'aria-label': 'Varunamn',
+          style: 'background:none;padding:0;min-height:24px;font-weight:500',
           on: {
             change: (event) => {
               void updateItem(item.id, { name: (event.target as HTMLInputElement).value.trim() || 'Namnlös' });
             },
           },
         }),
-        el('button', {
-          class: 'btn btn--ghost btn--sm btn--icon',
+        el(
+          'button',
+          {
+          class: 'btn btn--sm btn--icon btn--plain',
           type: 'button',
           'aria-label': `Ta bort ${item.name}`,
-          text: '🗑',
+          style: 'color:var(--danger)',
           on: {
             click: async () => {
               const confirmed = await confirmDialog({
@@ -370,7 +390,9 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
               if (confirmed) void deleteItem(item.id);
             },
           },
-        }),
+          },
+          icon('trash', { size: 18 }),
+        ),
       ),
       el(
         'div',
@@ -445,33 +467,36 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     const mismatch = difference !== null && Math.abs(difference) > 0.51;
 
     return el(
-      'section',
-      { class: 'section' },
-      el('h2', { class: 'section__title', text: 'Summering' }),
-      el(
-        'div',
-        { class: 'card card--pad' },
-        el(
-          'div',
-          { class: 'kv-list' },
-          kv('Varor', formatMoney(linesTotal, receipt.currency)),
-          receipt.discountTotal ? kv('Rabatt', formatMoney(-receipt.discountTotal, receipt.currency)) : null,
-          receipt.roundingAmount ? kv('Öresavrundning', formatMoney(receipt.roundingAmount, receipt.currency)) : null,
-          receipt.depositTotal ? kv('Varav pant', formatMoney(receipt.depositTotal, receipt.currency)) : null,
-          kv('Att betala', formatMoney(receipt.total, receipt.currency)),
-        ),
-        mismatch
-          ? el('p', {
-              class: 'banner banner--warning',
-              style: 'margin:0.75rem 0 0',
-              text: `Raderna summerar till ${formatMoney(expected, receipt.currency)}, ` +
-                `${formatMoney(Math.abs(difference), receipt.currency)} ifrån totalen.`,
-            })
+      'div',
+      {},
+      listGroup(
+        { title: 'Summering' },
+        listRow({ label: 'Varor', value: formatMoney(linesTotal, receipt.currency) }),
+        receipt.discountTotal
+          ? listRow({ label: 'Rabatt', value: formatMoney(-receipt.discountTotal, receipt.currency) })
           : null,
-        receipt.vatLines.length > 0
-          ? el(
+        receipt.roundingAmount
+          ? listRow({ label: 'Öresavrundning', value: formatMoney(receipt.roundingAmount, receipt.currency) })
+          : null,
+        receipt.depositTotal
+          ? listRow({ label: 'Varav pant', value: formatMoney(receipt.depositTotal, receipt.currency) })
+          : null,
+        listRow({ label: 'Att betala', value: formatMoney(receipt.total, receipt.currency) }),
+      ),
+      mismatch
+        ? banner({
+            tone: 'warning',
+            body:
+              `Raderna summerar till ${formatMoney(expected, receipt.currency)}, ` +
+              `${formatMoney(Math.abs(difference), receipt.currency)} ifrån totalen.`,
+          })
+        : null,
+      receipt.vatLines.length > 0
+        ? listGroup(
+            { title: 'Moms' },
+            el(
               'div',
-              { class: 'table-scroll', style: 'margin-top:0.75rem' },
+              { class: 'row table-scroll' },
               el(
                 'table',
                 { class: 'totals-table' },
@@ -502,9 +527,9 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
                   ),
                 ),
               ),
-            )
-          : null,
-      ),
+            ),
+          )
+        : null,
     );
   }
 
@@ -512,58 +537,83 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     const extraction = receipt.extraction;
     if (!extraction) return null;
 
-    return el(
-      'details',
-      { class: 'section' },
-      el('summary', { class: 'section__title', text: 'Tolkningsdetaljer' }),
-      el(
-        'div',
-        { class: 'card card--pad kv-list' },
-        kv('Leverantör', extraction.provider),
-        kv('Modell', extraction.model),
-        kv('Tolkat', formatDateTime(new Date(extraction.at).toISOString().slice(0, 19))),
-        extraction.durationMs !== null ? kv('Tid', `${extraction.durationMs} ms`) : null,
-        extraction.inputTokens !== null
-          ? kv('Tokens', `${extraction.inputTokens} in / ${extraction.outputTokens ?? '?'} ut`)
-          : null,
-      ),
+    return listGroup(
+      { title: 'Tolkningsdetaljer' },
+      listRow({ label: 'Leverantör', value: extraction.provider }),
+      listRow({ label: 'Modell', value: extraction.model }),
+      listRow({
+        label: 'Tolkat',
+        value: formatDateTime(new Date(extraction.at).toISOString().slice(0, 19)),
+      }),
+      extraction.durationMs !== null
+        ? listRow({ label: 'Tid', value: `${extraction.durationMs} ms` })
+        : null,
+      extraction.inputTokens !== null
+        ? listRow({
+            label: 'Tokens',
+            value: `${extraction.inputTokens} in / ${extraction.outputTokens ?? '?'} ut`,
+          })
+        : null,
     );
   }
 
   function renderActions(receipt: Receipt): HTMLElement {
-    return el(
-      'section',
-      { class: 'section' },
-      el(
-        'div',
-        { class: 'row row--wrap' },
-        isAiConfigured()
-          ? el('button', {
-              class: 'btn btn--primary grow',
-              type: 'button',
-              disabled: parsing || receipt.status === 'processing',
-              text: receipt.status === 'parsed' || receipt.status === 'confirmed' ? 'Tolka om' : 'Tolka med AI',
-              on: { click: () => void runParse() },
-            })
-          : null,
-        receipt.status !== 'confirmed'
-          ? el('button', {
-              class: 'btn btn--ghost grow',
-              type: 'button',
-              text: '✓ Markera som granskat',
-              on: {
-                click: () => {
-                  void updateReceipt(receipt.id, { status: 'confirmed' });
-                  toast('Markerat som granskat.', { kind: 'success' });
-                },
-              },
-            })
-          : el('span', { class: 'pill pill--success', text: '✓ Granskat' }),
-      ),
+    const rows: HTMLElement[] = [];
+
+    if (isAiConfigured()) {
+      rows.push(
+        el('button', {
+          class: 'row',
+          type: 'button',
+          style: 'color:var(--tint);justify-content:center;font-weight:600',
+          disabled: parsing || receipt.status === 'processing',
+          text: receipt.status === 'parsed' || receipt.status === 'confirmed' ? 'Tolka om' : 'Tolka med AI',
+          on: { click: () => void runParse() },
+        }),
+      );
+    }
+
+    if (receipt.status !== 'confirmed') {
+      rows.push(
+        el('button', {
+          class: 'row',
+          type: 'button',
+          style: 'color:var(--tint);justify-content:center',
+          text: 'Markera som granskat',
+          on: {
+            click: () => {
+              void updateReceipt(receipt.id, { status: 'confirmed' });
+              toast('Markerat som granskat.', { kind: 'success' });
+            },
+          },
+        }),
+      );
+    }
+
+    // The system share sheet, where the platform has one. On iOS this offers
+    // Files, Mail, Messages and every share extension the user has installed,
+    // which is a better export story than anything the app could build.
+    if (canShare()) {
+      rows.push(
+        el(
+          'button',
+          {
+            class: 'row',
+            type: 'button',
+            style: 'color:var(--tint);justify-content:center',
+            on: { click: () => void shareReceipt(receipt) },
+          },
+          icon('share', { size: 18 }),
+          el('span', { text: 'Dela kvitto' }),
+        ),
+      );
+    }
+
+    rows.push(
       el('button', {
-        class: 'btn btn--ghost btn--block',
+        class: 'row',
         type: 'button',
-        style: 'margin-top:0.75rem;color:var(--danger)',
+        style: 'color:var(--danger);justify-content:center',
         text: 'Ta bort kvittot',
         on: {
           click: async () => {
@@ -581,6 +631,40 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
         },
       }),
     );
+
+    return listGroup({}, ...rows);
+  }
+
+  /** Hands the receipt to the system share sheet, image included when possible. */
+  async function shareReceipt(receipt: Receipt): Promise<void> {
+    haptic('impact');
+    const merchant = receipt.merchant.name ?? 'Kvitto';
+    const summary = [
+      merchant,
+      formatDate(receipt.purchasedAt),
+      receipt.total === null ? null : formatMoney(receipt.total, receipt.currency),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    const files: File[] = [];
+    const stored = await getBlob(receipt.imageId);
+    if (stored) {
+      const extension = stored.mimeType === 'image/png' ? 'png' : 'jpg';
+      files.push(
+        new File([stored.data], `kvitto-${formatDate(receipt.purchasedAt)}.${extension}`, {
+          type: stored.mimeType,
+        }),
+      );
+    }
+
+    // Not every platform accepts files; fall back to text rather than failing.
+    const withFiles = { title: merchant, text: summary, files };
+    const result = canShare(withFiles)
+      ? await share(withFiles)
+      : await share({ title: merchant, text: summary });
+
+    if (result === 'failed') toast('Kunde inte dela kvittot.', { kind: 'error' });
   }
 
   await refresh();
@@ -589,16 +673,8 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
 
 // --- small helpers --------------------------------------------------------
 
-function field(label: string, control: HTMLElement): HTMLElement {
-  return el('label', { class: 'field' }, el('span', { class: 'field__label', text: label }), control);
-}
-
 function labelled(label: string, control: HTMLElement): HTMLElement {
   return el('label', { style: 'display:block' }, el('span', { class: 'field__label', text: label }), control);
-}
-
-function kv(key: string, value: string): HTMLElement {
-  return el('div', { class: 'kv' }, el('span', { class: 'kv__key', text: key }), el('span', { class: 'kv__value', text: value }));
 }
 
 /**
@@ -633,16 +709,14 @@ function moneyInput(value: number | null, onCommit: (value: number | null) => Pr
 }
 
 function notFound(): HTMLElement {
-  return el(
-    'div',
-    { class: 'empty-state' },
-    el('div', { class: 'empty-state__icon', 'aria-hidden': 'true', text: '🤷' }),
-    el('p', { class: 'empty-state__title', text: 'Kvittot hittades inte' }),
-    el('button', {
+  return emptyState({
+    icon: 'receipt',
+    title: 'Kvittot hittades inte',
+    action: el('button', {
       class: 'btn btn--primary',
       type: 'button',
       text: 'Till kvittolistan',
       on: { click: () => router.navigate('/receipts') },
     }),
-  );
+  });
 }

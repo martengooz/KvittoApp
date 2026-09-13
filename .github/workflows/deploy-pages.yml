@@ -1,0 +1,92 @@
+# Publishes the PWA to GitHub Pages.
+#
+# Only `apps/web/dist` is uploaded, so the companion server, its Dockerfile and
+# the receipt fixtures never reach the public site — the artifact is built here
+# rather than served from a directory in the repository.
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source:
+# "GitHub Actions". Leave the branch/folder option behind; it is what causes the
+# whole repository to be published.
+
+name: Deploy PWA to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    # Nothing outside these paths changes the published site.
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a run finish rather than cancelling it: a half-deployed site is worse
+# than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve the Pages base path
+        id: base
+        # A project site lives at /<repo>/; a user or organisation site
+        # (<owner>.github.io) and any custom domain live at the root.
+        run: |
+          repo="${GITHUB_REPOSITORY#*/}"
+          owner="${GITHUB_REPOSITORY%%/*}"
+          if [ -f apps/web/public/CNAME ] || [ "$repo" = "${owner,,}.github.io" ]; then
+            echo "path=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/${repo}/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Typecheck and test
+        run: |
+          npm run build --workspace @kvitto/shared
+          npm test --workspace @kvitto/shared
+          npm run typecheck --workspace @kvitto/web
+
+      - name: Build the PWA
+        env:
+          KVITTO_BASE: ${{ steps.base.outputs.path }}
+        run: npm run build --workspace @kvitto/web
+
+      - name: Disable Jekyll processing
+        run: touch apps/web/dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

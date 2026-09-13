@@ -104,7 +104,7 @@ try {
     ['#/receipts', '.empty-state, .receipt-card'],
     ['#/purchases', '.empty-state, .purchase-row'],
     ['#/collections', '.stat-grid'],
-    ['#/settings', '.settings-group'],
+    ['#/settings', '.list-group'],
     ['#/scan', '.scan-button'],
   ]) {
     await page.goto(`${BASE}/${hash}`, { waitUntil: 'domcontentloaded' });

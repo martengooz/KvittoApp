@@ -14,8 +14,10 @@ import {
   type Category,
 } from '@kvitto/shared';
 
+import { actionSheet, chip as chipControl, emptyState, searchField } from '../components/ui.js';
 import { debounce, el, replaceChildren } from '../core/dom.js';
 import { bus } from '../core/events.js';
+import { icon } from '../core/icons.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
 import { getSettings } from '../core/settings.js';
@@ -53,8 +55,8 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
   router.onTeardown(unsubscribe);
 
   const summaryHost = el('div', {});
-  const listHost = el('div', { class: 'card' });
-  const filtersHost = el('div', { class: 'filter-bar' });
+  const listHost = el('div', { class: 'inset-list' });
+  const filtersHost = el('div', { style: 'display:grid;gap:10px;margin-bottom:14px' });
 
   function updateUrl(): void {
     const query = paramsFromFilter(filter).toString();
@@ -100,51 +102,61 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
 
   replaceChildren(
     filtersHost,
-    el('input', {
-      type: 'search',
-      placeholder: 'Sök vara, t.ex. mjölk…',
+    searchField({
       value: filter.query ?? '',
-      'aria-label': 'Sök bland köpta varor',
-      on: { input: (event) => applySearch((event.target as HTMLInputElement).value.trim()) },
+      placeholder: 'Sök vara, t.ex. mjölk',
+      label: 'Sök bland köpta varor',
+      onInput: applySearch,
     }),
     el(
       'div',
-      { class: 'row' },
+      { class: 'stack stack--between pad' },
       el(
-        'div',
-        { class: 'grow' },
-        el(
-          'select',
-          {
-            'aria-label': 'Sortera efter',
-            on: {
-              change: (event) => {
-                filter.sort = (event.target as HTMLSelectElement).value as ItemSortKey;
-                onFilterChange();
-              },
+        'button',
+        {
+          class: 'btn btn--sm btn--plain',
+          type: 'button',
+          style: 'padding-left:0',
+          on: {
+            click: async () => {
+              const chosen = await actionSheet({
+                title: 'Sortera efter',
+                selected: (filter.sort ?? 'date') as ItemSortKey,
+                options: Object.entries(SORT_LABELS).map(([value, label]) => ({
+                  value: value as ItemSortKey,
+                  label,
+                })),
+              });
+              if (!chosen) return;
+              filter.sort = chosen;
+              onFilterChange();
             },
           },
-          ...Object.entries(SORT_LABELS).map(([value, label]) =>
-            el('option', { value, text: label, selected: (filter.sort ?? 'date') === value }),
-          ),
-        ),
+        },
+        el('span', { text: `Sortera: ${SORT_LABELS[(filter.sort ?? 'date') as ItemSortKey]}` }),
+        icon('chevron-right', { size: 12, weight: 2.4, className: 'row__chevron' }),
       ),
-      el('button', {
-        class: 'btn btn--ghost btn--sm',
-        type: 'button',
-        text: (filter.direction ?? 'desc') === 'desc' ? '↓' : '↑',
-        'aria-label': 'Byt sorteringsordning',
-        on: {
-          click: () => {
-            filter.direction = (filter.direction ?? 'desc') === 'desc' ? 'asc' : 'desc';
-            onFilterChange();
+      el(
+        'button',
+        {
+          class: 'btn btn--sm btn--plain',
+          type: 'button',
+          style: 'padding-right:0',
+          'aria-label': 'Byt sorteringsordning',
+          on: {
+            click: () => {
+              filter.direction = (filter.direction ?? 'desc') === 'desc' ? 'asc' : 'desc';
+              onFilterChange();
+            },
           },
         },
-      }),
+        icon('arrow-up-arrow-down', { size: 16 }),
+        el('span', { text: (filter.direction ?? 'desc') === 'desc' ? 'Fallande' : 'Stigande' }),
+      ),
     ),
     el(
       'div',
-      { class: 'row' },
+      { class: 'stack pad' },
       el('input', {
         type: 'date',
         value: filter.from ?? '',
@@ -190,28 +202,20 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
     el(
       'div',
       { class: 'chip-row' },
-      el('button', {
-        class: 'chip',
-        type: 'button',
-        'aria-pressed': String(filter.includeDiscounts ?? false),
-        text: 'Visa rabattrader',
-        on: {
-          click: () => {
-            filter.includeDiscounts = !filter.includeDiscounts;
-            onFilterChange();
-          },
+      chipControl({
+        label: 'Rabattrader',
+        pressed: filter.includeDiscounts ?? false,
+        onToggle: () => {
+          filter.includeDiscounts = !filter.includeDiscounts;
+          onFilterChange();
         },
       }),
-      el('button', {
-        class: 'chip',
-        type: 'button',
-        'aria-pressed': String(filter.includeDeposits ?? false),
-        text: 'Visa pant',
-        on: {
-          click: () => {
-            filter.includeDeposits = !filter.includeDeposits;
-            onFilterChange();
-          },
+      chipControl({
+        label: 'Pant',
+        pressed: filter.includeDeposits ?? false,
+        onToggle: () => {
+          filter.includeDeposits = !filter.includeDeposits;
+          onFilterChange();
         },
       }),
     ),
@@ -241,23 +245,16 @@ function renderChipRow(
     'div',
     { class: 'chip-row', role: 'group', 'aria-label': label },
     ...options.map((option) =>
-      el(
-        'button',
-        {
-          class: 'chip',
-          type: 'button',
-          'aria-pressed': String(active.has(option.id)),
-          on: {
-            click: () => {
-              if (active.has(option.id)) active.delete(option.id);
-              else active.add(option.id);
-              onChange([...active]);
-            },
-          },
+      chipControl({
+        label: option.name,
+        pressed: active.has(option.id),
+        dotColor: option.color,
+        onToggle: () => {
+          if (active.has(option.id)) active.delete(option.id);
+          else active.add(option.id);
+          onChange([...active]);
         },
-        el('span', { class: 'pill__dot', style: `background:${option.color}` }),
-        option.name,
-      ),
+      }),
     ),
   );
 }
@@ -269,13 +266,11 @@ function renderRows(
   onMore: () => void,
 ): HTMLElement {
   if (rows.length === 0) {
-    return el(
-      'div',
-      { class: 'empty-state' },
-      el('div', { class: 'empty-state__icon', 'aria-hidden': 'true', text: '🔍' }),
-      el('p', { class: 'empty-state__title', text: 'Inga varor matchar' }),
-      el('p', { text: 'Prova en annan sökning, eller skanna fler kvitton.' }),
-    );
+    return emptyState({
+      icon: 'search',
+      title: 'Inga varor matchar',
+      body: 'Prova en annan sökning, eller skanna fler kvitton.',
+    });
   }
 
   const container = el('div', {});
@@ -286,9 +281,9 @@ function renderRows(
   if (rows.length > limit) {
     container.appendChild(
       el('button', {
-        class: 'btn btn--ghost btn--block',
+        class: 'row',
         type: 'button',
-        style: 'margin-top:0.5rem',
+        style: 'color:var(--tint);justify-content:center;font-weight:500',
         text: `Visa ${Math.min(PAGE_SIZE, rows.length - limit)} till (${rows.length - limit} kvar)`,
         on: { click: onMore },
       }),

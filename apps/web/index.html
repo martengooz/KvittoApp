@@ -2,19 +2,37 @@
 <html lang="sv">
   <head>
     <meta charset="utf-8" />
+    <!--
+      `viewport-fit=cover` lets the layout reach under the notch and home
+      indicator; the CSS then pays that back with `env(safe-area-inset-*)`.
+      `interactive-widget` keeps the tab bar from being pushed off-screen by
+      the software keyboard.
+    -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#102a4a" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)" />
+
+    <!-- Tints the iOS status bar and the Android task switcher. -->
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Skanna, tolka och sök i dina kvitton — helt offline." />
+
+    <!-- Home Screen app on iOS. `black-translucent` puts the app content
+         under the status bar, which the safe-area padding accounts for. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Kvitto" />
+    <!-- Stops Safari linkifying receipt numbers and totals as phone numbers. -->
+    <meta name="format-detection" content="telephone=no" />
+
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!--launch-screens-->
+
     <title>KvittoApp</title>
   </head>
   <body>
@@ -25,7 +43,7 @@
       </div>
     </div>
     <noscript>
-      <p style="padding: 2rem; font: 1rem system-ui">
+      <p style="padding: 2rem; font: 1rem -apple-system, system-ui, sans-serif">
         KvittoApp kräver JavaScript för att kunna skanna och tolka kvitton.
       </p>
     </noscript>

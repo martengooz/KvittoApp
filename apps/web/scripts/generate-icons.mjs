@@ -9,6 +9,8 @@
  * build never needs to run it.
  */
 import { deflateSync } from 'node:zlib';
+
+import { launchScreenVariants } from './launch-screens.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,8 +53,11 @@ function insideRoundedRect(x, y, left, top, right, bottom, radius) {
  * @param {number} inset  Fraction of the canvas to keep clear around the art.
  *                        Maskable icons need the content inside the middle 80 %.
  * @param {number} bgRadius Corner radius of the background plate, 0 for full bleed.
+ * @param {boolean} [plate=true] Draw the coloured plate behind the receipt.
+ *   Launch screens set this false: the plate is the same navy as the screen
+ *   they sit on, so drawing it would only produce a faint invisible square.
  */
-function makeIcon({ inset, bgRadius }) {
+function makeIcon({ inset, bgRadius, plate = true }) {
   // Receipt body, in normalised canvas coordinates.
   const scale = 1 - inset * 2;
   const map = (value) => inset + value * scale;
@@ -66,17 +71,19 @@ function makeIcon({ inset, bgRadius }) {
   return (x, y) => {
     let pixel = TRANSPARENT;
 
-    // Background plate.
-    if (bgRadius === 0) {
-      pixel = NAVY;
-    } else if (insideRoundedRect(x, y, 0, 0, 1, 1, bgRadius)) {
-      pixel = NAVY;
-    }
-    if (pixel[3] === 0) return pixel;
+    if (plate) {
+      // Background plate.
+      if (bgRadius === 0) {
+        pixel = NAVY;
+      } else if (insideRoundedRect(x, y, 0, 0, 1, 1, bgRadius)) {
+        pixel = NAVY;
+      }
+      if (pixel[3] === 0) return pixel;
 
-    // Smooth diagonal lift so the plate is not a flat slab.
-    const lift = Math.max(0, Math.min(1, 1 - (x + y) / 1.6));
-    pixel = blend(pixel, [...NAVY_LIGHT.slice(0, 3), Math.round(lift * 150)]);
+      // Smooth diagonal lift so the plate is not a flat slab.
+      const lift = Math.max(0, Math.min(1, 1 - (x + y) / 1.6));
+      pixel = blend(pixel, [...NAVY_LIGHT.slice(0, 3), Math.round(lift * 150)]);
+    }
 
     // Torn bottom edge: a triangular wave under the receipt body.
     const width = right - left;
@@ -209,3 +216,82 @@ for (const [name, size, sampler] of outputs) {
   await writeFile(join(publicDir, name), png);
   console.log(`[icons] ${name} (${size}x${size}, ${(png.length / 1024).toFixed(1)} kB)`);
 }
+
+// --- iOS launch screens ---------------------------------------------------
+//
+// Geometry comes from `launch-screens.mjs`, which the Vite build also reads to
+// emit the matching `<link>` tags — one table, so images and tags cannot drift.
+
+/** Draws the receipt glyph centred on the launch background. */
+function launchSampler(width, height, iconPx) {
+  const glyph = makeIcon({ inset: 0.06, bgRadius: 0.22, plate: false });
+  const left = (width - iconPx) / 2;
+  const top = (height - iconPx) / 2;
+
+  return (x, y) => {
+    const px = x * width;
+    const py = y * height;
+    if (px < left || px >= left + iconPx || py < top || py >= top + iconPx) {
+      return NAVY;
+    }
+    // Composite over the ground rather than returning the glyph's own
+    // transparency, or the launch screen shows through to white at the edges.
+    return blend(NAVY, glyph((px - left) / iconPx, (py - top) / iconPx));
+  };
+}
+
+/** Renders a non-square canvas by sampling in normalised coordinates. */
+function renderRect(width, height, sampler) {
+  const pixels = Buffer.alloc(width * height * 4);
+  for (let py = 0; py < height; py += 1) {
+    for (let px = 0; px < width; px += 1) {
+      // One sample per pixel: launch screens are a flat ground plus a rounded
+      // icon, so the supersampling the icons need buys nothing here.
+      const [r, g, b, a] = sampler((px + 0.5) / width, (py + 0.5) / height);
+      const offset = (py * width + px) * 4;
+      pixels[offset] = r;
+      pixels[offset + 1] = g;
+      pixels[offset + 2] = b;
+      pixels[offset + 3] = a;
+    }
+  }
+  return pixels;
+}
+
+function encodePngRect(width, height, pixels) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+
+  const stride = width * 4;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    raw[y * (stride + 1)] = 0;
+    pixels.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(raw, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+await mkdir(join(publicDir, 'launch'), { recursive: true });
+let launchBytes = 0;
+
+for (const variant of launchScreenVariants()) {
+  const iconPx = Math.round(Math.min(variant.width, variant.height) * 0.26);
+  const pixels = renderRect(variant.width, variant.height, launchSampler(variant.width, variant.height, iconPx));
+  const png = encodePngRect(variant.width, variant.height, pixels);
+  await writeFile(join(publicDir, variant.file), png);
+  launchBytes += png.length;
+}
+
+console.log(
+  `[icons] ${launchScreenVariants().length} launch screens ` +
+    `(${(launchBytes / 1024 / 1024).toFixed(2)} MB total)`,
+);
