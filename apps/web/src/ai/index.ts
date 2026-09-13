@@ -8,6 +8,7 @@ import { validateExtraction, type NormalizedExtraction } from '@kvitto/shared';
 import { getSettings, isAiConfigured, type AiProvider } from '../core/settings.js';
 import { db } from '../db/db.js';
 import { getBlob } from '../db/blobs.js';
+import { resolveCompany } from '../db/companies.js';
 import { applyExtraction, updateReceipt } from '../db/repo.js';
 import { getDeviceToken } from '../sync/identity.js';
 
@@ -61,6 +62,33 @@ export interface ParseOutcome {
  * because the scan itself is still valuable: the image is saved, and the user
  * can retry, switch provider, or fill the receipt in by hand.
  */
+/**
+ * Resolves the extracted organisation number to a stored company.
+ *
+ * Never throws and never blocks the extraction's result: a failed lookup is a
+ * missing link, not a failed parse.
+ */
+async function linkCompany(receiptId: string, orgNumber: string | null): Promise<void> {
+  if (!orgNumber) return;
+  try {
+    const receipt = await db.receipts.get(receiptId);
+    if (!receipt || receipt.companyId) return;
+
+    const outcome = await resolveCompany(orgNumber, {
+      receiptText: receipt.ocr?.text,
+      cacheOnly: !getSettings().company.autoLookup,
+    });
+    if (outcome.status === 'skipped') return;
+
+    await updateReceipt(receiptId, {
+      companyId: outcome.company.id,
+      merchant: { ...receipt.merchant, name: receipt.merchant.name ?? outcome.company.name },
+    });
+  } catch (error) {
+    console.warn('Company lookup after extraction failed', error);
+  }
+}
+
 export async function parseReceipt(
   receiptId: string,
   options: { signal?: AbortSignal } = {},
@@ -124,6 +152,11 @@ export async function parseReceipt(
       warnings,
       error: null,
     });
+
+    // The model may have read an organisation number the OCR pass missed (or
+    // never ran on). Same cache-first rule: a company already stored costs
+    // nothing and never reaches the network.
+    await linkCompany(receiptId, response.extraction.merchant.orgNumber);
 
     return { ok: true, extraction: response.extraction, response, warnings, error: null };
   } catch (error) {

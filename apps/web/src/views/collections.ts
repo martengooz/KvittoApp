@@ -8,7 +8,9 @@
 
 import { formatMoney, formatMonth, type Category, type Tag } from '@kvitto/shared';
 
+import { listGroup, row as listRow } from '../components/ui.js';
 import { el, replaceChildren } from '../core/dom.js';
+import { icon } from '../core/icons.js';
 import { bus } from '../core/events.js';
 import { router } from '../core/router.js';
 import { confirmDialog, toast } from '../core/toast.js';
@@ -66,11 +68,8 @@ export async function collectionsView(): Promise<HTMLElement> {
 function renderOverview(summary: SpendSummary): HTMLElement {
   return el(
     'section',
-    { class: 'section' },
-    el('h2', { class: 'section__title', text: 'Översikt' }),
-    el(
-      'div',
-      { class: 'stat-grid' },
+    { class: 'list-group' },
+    el('div', { class: 'stat-grid' },
       stat(String(summary.receiptCount), 'kvitton'),
       stat(String(summary.itemCount), 'varor'),
       stat(formatMoney(summary.total), 'totalt'),
@@ -83,13 +82,11 @@ function renderSpendByCategory(summary: SpendSummary, categories: Map<string, Ca
   if (rows.length === 0) return null;
   const max = Math.max(...rows.map((row) => row.total));
 
-  return el(
-    'section',
-    { class: 'section' },
-    el('h2', { class: 'section__title', text: 'Utgifter per kategori' }),
+  return listGroup(
+    { title: 'Utgifter per kategori' },
     el(
       'div',
-      { class: 'card card--pad bar-chart' },
+      { class: 'bar-chart' },
       ...rows.map((row) => {
         const category = row.categoryId ? categories.get(row.categoryId) : undefined;
         return el(
@@ -117,13 +114,11 @@ function renderSpendByMonth(summary: SpendSummary): HTMLElement | null {
   if (rows.length < 2) return null;
   const max = Math.max(...rows.map((row) => row.total));
 
-  return el(
-    'section',
-    { class: 'section' },
-    el('h2', { class: 'section__title', text: 'Utgifter per månad' }),
+  return listGroup(
+    { title: 'Utgifter per månad' },
     el(
       'div',
-      { class: 'card card--pad bar-chart' },
+      { class: 'bar-chart' },
       ...rows.map((row) =>
         el(
           'div',
@@ -142,160 +137,160 @@ function renderSpendByMonth(summary: SpendSummary): HTMLElement | null {
 }
 
 function renderTags(tags: Tag[], counts: Map<string, number>): HTMLElement {
-  return el(
-    'section',
-    { class: 'section' },
+  const rows: HTMLElement[] = tags.map((tag) =>
     el(
       'div',
-      { class: 'row row--between' },
-      el('h2', { class: 'section__title', style: 'margin:0', text: 'Etiketter' }),
-      el('button', {
-        class: 'btn btn--ghost btn--sm',
-        type: 'button',
-        text: '+ Ny',
+      { class: 'row' },
+      el('input', {
+        type: 'color',
+        value: tag.color,
+        'aria-label': `Färg för ${tag.name}`,
         on: {
-          click: () => {
-            const name = prompt('Namn på etiketten');
-            if (name?.trim()) void createTag(name);
+          change: (event) => void updateTag(tag.id, { color: (event.target as HTMLInputElement).value }),
+        },
+      }),
+      el('input', {
+        class: 'row__label',
+        type: 'text',
+        value: tag.name,
+        'aria-label': 'Etikettens namn',
+        style: 'text-align:left',
+        on: {
+          change: (event) => {
+            const name = (event.target as HTMLInputElement).value.trim();
+            if (name) void updateTag(tag.id, { name });
           },
         },
       }),
+      el('button', {
+        class: 'row__value',
+        type: 'button',
+        style: 'background:none;border:0;font:inherit;color:var(--tint);cursor:pointer',
+        text: `${counts.get(tag.id) ?? 0} kvitton`,
+        on: { click: () => router.navigate(`/receipts?tag=${encodeURIComponent(tag.id)}`) },
+      }),
+      el(
+        'button',
+        {
+          class: 'btn btn--sm btn--icon btn--plain',
+          type: 'button',
+          'aria-label': `Ta bort ${tag.name}`,
+          style: 'color:var(--danger)',
+          on: {
+            click: async () => {
+              const confirmed = await confirmDialog({
+                title: 'Ta bort etiketten?',
+                message: `"${tag.name}" tas bort från alla kvitton som har den.`,
+                confirmLabel: 'Ta bort',
+                destructive: true,
+              });
+              if (confirmed) {
+                await deleteTag(tag.id);
+                toast('Etiketten togs bort.');
+              }
+            },
+          },
+        },
+        icon('trash', { size: 18 }),
+      ),
     ),
-    tags.length === 0
-      ? el('p', { class: 'muted', text: 'Skapa etiketter för att gruppera kvitton i samlingar.' })
-      : el(
-          'div',
-          { class: 'card' },
-          ...tags.map((tag) =>
-            el(
-              'div',
-              { class: 'row', style: 'padding:0.6rem 0.75rem;border-bottom:1px solid var(--border)' },
-              el('input', {
-                type: 'color',
-                value: tag.color,
-                'aria-label': `Färg för ${tag.name}`,
-                style: 'width:34px;min-height:34px;padding:2px;flex:none',
-                on: {
-                  change: (event) => {
-                    void updateTag(tag.id, { color: (event.target as HTMLInputElement).value });
-                  },
-                },
-              }),
-              el('input', {
-                class: 'grow',
-                type: 'text',
-                value: tag.name,
-                'aria-label': 'Etikettens namn',
-                on: {
-                  change: (event) => {
-                    const name = (event.target as HTMLInputElement).value.trim();
-                    if (name) void updateTag(tag.id, { name });
-                  },
-                },
-              }),
-              el('button', {
-                class: 'btn btn--ghost btn--sm',
-                type: 'button',
-                text: `${counts.get(tag.id) ?? 0} kvitton`,
-                on: { click: () => router.navigate(`/receipts?tag=${encodeURIComponent(tag.id)}`) },
-              }),
-              el('button', {
-                class: 'btn btn--ghost btn--sm btn--icon',
-                type: 'button',
-                'aria-label': `Ta bort ${tag.name}`,
-                text: '🗑',
-                on: {
-                  click: async () => {
-                    const confirmed = await confirmDialog({
-                      title: 'Ta bort etiketten?',
-                      message: `"${tag.name}" tas bort från alla kvitton som har den.`,
-                      confirmLabel: 'Ta bort',
-                      destructive: true,
-                    });
-                    if (confirmed) {
-                      await deleteTag(tag.id);
-                      toast('Etiketten togs bort.');
-                    }
-                  },
-                },
-              }),
-            ),
-          ),
-        ),
+  );
+
+  rows.push(
+    el('button', {
+      class: 'row',
+      type: 'button',
+      style: 'color:var(--tint);justify-content:center;font-weight:500',
+      text: 'Ny etikett',
+      on: {
+        click: () => {
+          const name = prompt('Namn på etiketten');
+          if (name?.trim()) void createTag(name);
+        },
+      },
+    }),
+  );
+
+  return listGroup(
+    {
+      title: 'Etiketter',
+      footer: 'Etiketter grupperar kvitton i samlingar — en resa, ett projekt, allt avdragsgillt.',
+    },
+    ...rows,
   );
 }
 
 function renderCategories(categories: Category[]): HTMLElement {
-  return el(
-    'details',
-    { class: 'section' },
-    el('summary', { class: 'section__title', text: `Kategorier (${categories.length})` }),
+  const rows: HTMLElement[] = categories.map((category) =>
     el(
       'div',
-      { class: 'card' },
-      ...categories.map((category) =>
-        el(
-          'div',
-          { class: 'row', style: 'padding:0.6rem 0.75rem;border-bottom:1px solid var(--border)' },
-          el('input', {
-            type: 'color',
-            value: category.color,
-            'aria-label': `Färg för ${category.name}`,
-            style: 'width:34px;min-height:34px;padding:2px;flex:none',
-            on: {
-              change: (event) => {
-                void updateCategory(category.id, { color: (event.target as HTMLInputElement).value });
-              },
-            },
-          }),
-          el('input', {
-            class: 'grow',
-            type: 'text',
-            value: category.name,
-            'aria-label': 'Kategorinamn',
-            on: {
-              change: (event) => {
-                const name = (event.target as HTMLInputElement).value.trim();
-                if (name) void updateCategory(category.id, { name });
-              },
-            },
-          }),
-          el('span', { class: 'pill', text: scopeLabel(category.scope) }),
-          el('button', {
-            class: 'btn btn--ghost btn--sm btn--icon',
-            type: 'button',
-            'aria-label': `Ta bort ${category.name}`,
-            text: '🗑',
-            on: {
-              click: async () => {
-                const confirmed = await confirmDialog({
-                  title: 'Ta bort kategorin?',
-                  message: `Kvitton och varor i "${category.name}" blir okategoriserade.`,
-                  confirmLabel: 'Ta bort',
-                  destructive: true,
-                });
-                if (confirmed) {
-                  await deleteCategory(category.id);
-                  toast('Kategorin togs bort.');
-                }
-              },
-            },
-          }),
-        ),
-      ),
-      el('button', {
-        class: 'btn btn--ghost btn--block',
-        type: 'button',
-        text: '+ Ny kategori',
+      { class: 'row' },
+      el('input', {
+        type: 'color',
+        value: category.color,
+        'aria-label': `Färg för ${category.name}`,
         on: {
-          click: () => {
-            const name = prompt('Namn på kategorin');
-            if (name?.trim()) void createCategory({ name: name.trim() });
+          change: (event) =>
+            void updateCategory(category.id, { color: (event.target as HTMLInputElement).value }),
+        },
+      }),
+      el('input', {
+        class: 'row__label',
+        type: 'text',
+        value: category.name,
+        'aria-label': 'Kategorinamn',
+        style: 'text-align:left',
+        on: {
+          change: (event) => {
+            const name = (event.target as HTMLInputElement).value.trim();
+            if (name) void updateCategory(category.id, { name });
           },
         },
       }),
+      el('span', { class: 'pill', text: scopeLabel(category.scope) }),
+      el(
+        'button',
+        {
+          class: 'btn btn--sm btn--icon btn--plain',
+          type: 'button',
+          'aria-label': `Ta bort ${category.name}`,
+          style: 'color:var(--danger)',
+          on: {
+            click: async () => {
+              const confirmed = await confirmDialog({
+                title: 'Ta bort kategorin?',
+                message: `Kvitton och varor i "${category.name}" blir okategoriserade.`,
+                confirmLabel: 'Ta bort',
+                destructive: true,
+              });
+              if (confirmed) {
+                await deleteCategory(category.id);
+                toast('Kategorin togs bort.');
+              }
+            },
+          },
+        },
+        icon('trash', { size: 18 }),
+      ),
     ),
   );
+
+  rows.push(
+    el('button', {
+      class: 'row',
+      type: 'button',
+      style: 'color:var(--tint);justify-content:center;font-weight:500',
+      text: 'Ny kategori',
+      on: {
+        click: () => {
+          const name = prompt('Namn på kategorin');
+          if (name?.trim()) void createCategory({ name: name.trim() });
+        },
+      },
+    }),
+  );
+
+  return listGroup({ title: `Kategorier (${categories.length})` }, ...rows);
 }
 
 function scopeLabel(scope: Category['scope']): string {

@@ -1,6 +1,8 @@
 /** Transient status messages, anchored above the bottom navigation. */
 
 import { el } from './dom.js';
+import { icon, type IconName } from './icons.js';
+import { haptic } from './platform.js';
 
 export type ToastKind = 'info' | 'success' | 'error';
 
@@ -19,12 +21,20 @@ export interface ToastOptions {
   action?: { label: string; onClick: () => void };
 }
 
+const TOAST_ICON: Record<ToastKind, IconName> = {
+  info: 'info-circle',
+  success: 'checkmark-circle',
+  error: 'xmark-circle',
+};
+
 export function toast(message: string, options: ToastOptions = {}): void {
   const { kind = 'info', durationMs = kind === 'error' ? 6000 : 3500 } = options;
+  haptic(kind === 'error' ? 'error' : kind === 'success' ? 'success' : 'selection');
 
   const node = el(
     'div',
     { class: ['toast', `toast--${kind}`] },
+    icon(TOAST_ICON[kind], { size: 20, className: 'toast__icon' }),
     el('span', { class: 'toast__message', text: message }),
     options.action
       ? el('button', {
@@ -71,13 +81,17 @@ export function confirmDialog(options: {
       el(
         'form',
         { method: 'dialog', class: 'dialog__body' },
-        el('h2', { class: 'dialog__title', text: options.title }),
-        el('p', { class: 'dialog__message', text: options.message }),
+        el(
+          'div',
+          { class: 'dialog__content' },
+          el('h2', { class: 'dialog__title', text: options.title }),
+          el('p', { class: 'dialog__message', text: options.message }),
+        ),
         el(
           'div',
           { class: 'dialog__actions' },
           el('button', {
-            class: 'btn btn--ghost',
+            class: 'btn',
             type: 'button',
             text: options.cancelLabel ?? 'Avbryt',
             on: { click: () => close(false) },

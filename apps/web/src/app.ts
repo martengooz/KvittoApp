@@ -1,53 +1,61 @@
 /**
- * The application shell: header, routed outlet, bottom navigation.
+ * The application shell: navigation bar, routed outlet, tab bar.
  *
- * Views are code-split so the initial load only carries the shell and whichever
- * screen was opened — the settings and receipt-detail screens in particular
- * pull in code most sessions never touch.
+ * Follows the iOS navigation model. Top-level tabs get a large title that
+ * scrolls away and hands over to a centred inline title in the bar; pushed
+ * screens (a single receipt) get a back chevron and the inline title from the
+ * start, as a navigation stack would.
+ *
+ * Views are code-split, so a session only downloads the screens it opens.
  */
 
 import { el, replaceChildren } from './core/dom.js';
 import { bus } from './core/events.js';
+import { icon, type IconName } from './core/icons.js';
+import { haptic } from './core/platform.js';
 import { router, type RouteContext } from './core/router.js';
 import { getSettings } from './core/settings.js';
 import { countPending, getSyncState } from './sync/engine.js';
 
-interface NavEntry {
+interface TabEntry {
   path: string;
   label: string;
-  icon: string;
-  modifier?: string;
+  icon: IconName;
+  title: string;
 }
 
-const NAV: NavEntry[] = [
-  { path: '/receipts', label: 'Kvitton', icon: '🧾' },
-  { path: '/purchases', label: 'Köp', icon: '🔍' },
-  { path: '/scan', label: 'Skanna', icon: '＋', modifier: 'nav-item--scan' },
-  { path: '/collections', label: 'Samlingar', icon: '🏷️' },
-  { path: '/settings', label: 'Inställningar', icon: '⚙️' },
+const TABS: TabEntry[] = [
+  { path: '/receipts', label: 'Kvitton', icon: 'receipt', title: 'Kvitton' },
+  { path: '/purchases', label: 'Köp', icon: 'search', title: 'Alla köp' },
+  { path: '/scan', label: 'Skanna', icon: 'camera', title: 'Skanna' },
+  { path: '/collections', label: 'Samlingar', icon: 'tag', title: 'Samlingar' },
+  { path: '/settings', label: 'Inställningar', icon: 'gear', title: 'Inställningar' },
 ];
 
-const TITLES: Record<string, string> = {
-  '/receipts': 'Kvitton',
-  '/purchases': 'Alla köp',
-  '/scan': 'Skanna',
-  '/collections': 'Samlingar',
-  '/settings': 'Inställningar',
+/** Screens pushed on top of a tab, which get a back button instead of a tab. */
+const PUSHED_TITLES: Record<string, string> = {
   '/receipt': 'Kvitto',
 };
 
-export function mountApp(container: HTMLElement): void {
-  const title = el('h1', { class: 'app-header__title', text: 'Kvitton' });
-  const statusSlot = el('div', { class: 'app-header__actions' });
-  const outlet = el('main', { class: 'app-main', id: 'main' });
-  const nav = el('nav', { class: 'app-nav', 'aria-label': 'Huvudnavigering' }, buildNav());
+/** How far the page scrolls before the large title hands over to the bar. */
+const TITLE_HANDOVER_PX = 28;
 
-  replaceChildren(
-    container,
-    el('header', { class: 'app-header' }, title, statusSlot),
-    outlet,
-    nav,
+export function mountApp(container: HTMLElement): void {
+  const leading = el('div', { class: 'app-header__leading' });
+  const inlineTitle = el('h1', { class: 'app-header__title', text: 'Kvitton' });
+  const actions = el('div', { class: 'app-header__actions' });
+  const header = el(
+    'header',
+    { class: 'app-header', dataset: { scrolled: 'false' } },
+    el('div', { class: 'app-header__bar' }, leading, inlineTitle, actions),
   );
+
+  const largeTitle = el('h1', { class: 'large-title', text: 'Kvitton' });
+  const outlet = el('div', { id: 'view-outlet' });
+  const main = el('main', { class: 'app-main', id: 'main' }, largeTitle, outlet);
+  const nav = el('nav', { class: 'app-nav', 'aria-label': 'Flikar' }, buildTabBar());
+
+  replaceChildren(container, header, main, nav);
 
   applyTheme();
   bus.on('settings:changed', applyTheme);
@@ -55,17 +63,27 @@ export function mountApp(container: HTMLElement): void {
   registerRoutes();
   router.start(outlet);
 
-  const syncUpdates = (): void => void updateStatus(statusSlot);
-  bus.on('sync:state', syncUpdates);
-  bus.on('data:changed', syncUpdates);
-  bus.on('net:online', syncUpdates);
+  const chrome = (): void => updateChrome({ header, leading, inlineTitle, largeTitle, nav });
+  const status = (): void => void updateStatus(actions);
+
+  bus.on('sync:state', status);
+  bus.on('data:changed', status);
+  bus.on('net:online', status);
   window.addEventListener('hashchange', () => {
-    updateChrome(title, nav);
-    syncUpdates();
+    chrome();
+    status();
   });
 
-  updateChrome(title, nav);
-  syncUpdates();
+  // Drives the large-title handover. Passive, because it never preventDefaults
+  // and a blocking listener here would make scrolling feel heavy.
+  const onScroll = (): void => {
+    if (header.dataset['pushed'] === 'true') return;
+    header.dataset['scrolled'] = String(window.scrollY > TITLE_HANDOVER_PX);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  chrome();
+  status();
 }
 
 function registerRoutes(): void {
@@ -80,69 +98,122 @@ function registerRoutes(): void {
     .fallback(notFoundView);
 }
 
-function notFoundView(context: RouteContext): HTMLElement {
-  return el(
-    'div',
-    { class: 'empty-state' },
-    el('div', { class: 'empty-state__icon', 'aria-hidden': 'true', text: '🧭' }),
-    el('p', { class: 'empty-state__title', text: 'Sidan finns inte' }),
-    el('p', { text: context.path }),
-    el('button', {
+async function notFoundView(context: RouteContext): Promise<HTMLElement> {
+  const { emptyState } = await import('./components/ui.js');
+  return emptyState({
+    icon: 'compass',
+    title: 'Sidan finns inte',
+    body: context.path,
+    action: el('button', {
       class: 'btn btn--primary',
       type: 'button',
       text: 'Till kvittolistan',
       on: { click: () => router.navigate('/receipts') },
     }),
-  );
+  });
 }
 
-function buildNav(): HTMLElement {
+function buildTabBar(): HTMLElement {
   return el(
     'div',
     { class: 'app-nav__inner' },
-    ...NAV.map((entry) =>
+    ...TABS.map((tab) =>
       el(
         'a',
-        { class: ['nav-item', entry.modifier], href: `#${entry.path}`, 'data-path': entry.path },
-        el('span', { class: 'nav-item__icon', 'aria-hidden': 'true', text: entry.icon }),
-        el('span', { text: entry.label }),
+        {
+          class: 'nav-item',
+          href: `#${tab.path}`,
+          dataset: { path: tab.path },
+          on: { click: () => haptic('selection') },
+        },
+        el('span', { class: 'nav-item__icon' }, icon(tab.icon, { size: 26, weight: 1.7 })),
+        el('span', { text: tab.label }),
       ),
     ),
   );
 }
 
-function updateChrome(title: HTMLElement, nav: HTMLElement): void {
+interface Chrome {
+  header: HTMLElement;
+  leading: HTMLElement;
+  inlineTitle: HTMLElement;
+  largeTitle: HTMLElement;
+  nav: HTMLElement;
+}
+
+function updateChrome(chrome: Chrome): void {
   const path = location.hash.replace(/^#/, '').split('?')[0] ?? '/';
   const base = `/${path.split('/').filter(Boolean)[0] ?? 'receipts'}`;
-  title.textContent = TITLES[base] ?? 'KvittoApp';
-  document.title = base === '/receipts' ? 'KvittoApp' : `${title.textContent} — KvittoApp`;
+  const tab = TABS.find((entry) => entry.path === base);
+  const pushedTitle = PUSHED_TITLES[base];
+  const title = tab?.title ?? pushedTitle ?? 'KvittoApp';
 
-  for (const link of nav.querySelectorAll<HTMLAnchorElement>('.nav-item')) {
-    const isCurrent = link.dataset['path'] === base;
-    if (isCurrent) link.setAttribute('aria-current', 'page');
+  chrome.inlineTitle.textContent = title;
+  chrome.largeTitle.textContent = title;
+  document.title = base === '/receipts' ? 'KvittoApp' : `${title} — KvittoApp`;
+
+  // A pushed screen keeps the compact bar and shows a back chevron; a tab
+  // shows the large title until it is scrolled away.
+  const pushed = tab === undefined && pushedTitle !== undefined;
+  chrome.header.dataset['pushed'] = String(pushed);
+  chrome.largeTitle.hidden = pushed;
+
+  if (pushed) {
+    chrome.header.dataset['scrolled'] = 'true';
+    replaceChildren(
+      chrome.leading,
+      el(
+        'button',
+        {
+          class: 'bar-button',
+          type: 'button',
+          'aria-label': 'Tillbaka',
+          on: {
+            click: () => {
+              haptic('selection');
+              // Prefer real back navigation so the browser keeps its history,
+              // and only synthesise a destination when there is nothing to
+              // go back to (a cold load straight into a receipt).
+              if (history.length > 1) history.back();
+              else router.navigate('/receipts');
+            },
+          },
+        },
+        icon('chevron-left', { size: 20, weight: 2.4 }),
+        el('span', { text: 'Kvitton' }),
+      ),
+    );
+  } else {
+    chrome.header.dataset['scrolled'] = String(window.scrollY > TITLE_HANDOVER_PX);
+    replaceChildren(chrome.leading);
+  }
+
+  for (const link of chrome.nav.querySelectorAll<HTMLAnchorElement>('.nav-item')) {
+    const current = link.dataset['path'] === base;
+    if (current) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
 }
 
-/** Compact sync indicator in the header. */
+/** Compact sync indicator in the navigation bar. */
 async function updateStatus(slot: HTMLElement): Promise<void> {
   const state = await getSyncState();
   const pending = await countPending();
 
   if (state.status === 'unpaired') {
-    replaceChildren(slot, pending > 0 ? el('span', { class: 'pill', text: `${pending} osparade` }) : null);
+    replaceChildren(slot);
     return;
   }
 
   const label =
     state.status === 'syncing'
-      ? 'Synkar…'
+      ? 'Synkar'
       : state.status === 'offline'
         ? 'Offline'
         : state.status === 'error'
           ? 'Synkfel'
           : pending > 0
-            ? `${pending} väntar`
+            ? String(pending)
             : 'Synkad';
 
   const tone =
@@ -164,7 +235,7 @@ async function updateStatus(slot: HTMLElement): Promise<void> {
   );
 }
 
-/** Applies the theme choice to the document root. */
+/** Applies the theme choice to the document root and the status-bar colour. */
 function applyTheme(): void {
   const { theme } = getSettings().ui;
   if (theme === 'system') document.documentElement.removeAttribute('data-theme');

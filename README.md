@@ -9,12 +9,42 @@ VAT table and every line item; everything lands in IndexedDB on the device. The
 app works with no network at all. When a server is configured, it syncs in the
 background — and if it never is, nothing is lost.
 
+The interface follows Apple's Human Interface Guidelines: inset grouped lists,
+a large title that collapses into the navigation bar, a translucent tab bar,
+action sheets, and the iOS system colour roles in both appearances.
+
 ```
 packages/shared   Domain model, sync contracts, Swedish parsers, extraction prompt
 apps/web          The PWA (vanilla TypeScript + Vite)
 apps/server       Companion sync server (Fastify + SQLite)
 fixtures/receipts Real receipt photographs used by the verification harness
 ```
+
+## Deploying to GitHub Pages
+
+`.github/workflows/deploy-pages.yml` builds the PWA and publishes **only**
+`apps/web/dist` — the sync server, its Dockerfile and the receipt fixtures never
+reach the public site, because the artifact is built in CI rather than served
+from a directory in the repository.
+
+One-time setup: **Settings → Pages → Build and deployment → Source: "GitHub
+Actions"**. That replaces the current "deploy from a branch / root directory"
+setting, which is what publishes the whole repository today.
+
+Push to `main` and the workflow does the rest. The base path is worked out
+automatically: a project site is served from `/<repo>/`, so the build sets
+`KVITTO_BASE=/KvittoApp/`, while a custom domain (add a `CNAME` file to
+`apps/web/public/`) or a `<owner>.github.io` repository gets `/`. To build for a
+sub-path locally:
+
+```bash
+KVITTO_BASE=/KvittoApp/ npm run build --workspace @kvitto/web
+```
+
+Two consequences worth knowing about. HTTPS means the camera works — a secure
+context is required for `getUserMedia`, and Pages provides one. And the ~11 MB
+OpenCV runtime plus ~450 kB of iOS launch screens are served from Pages but kept
+out of the service worker's precache, so a first visit downloads about 500 kB.
 
 ## Quick start
 
@@ -125,6 +155,49 @@ the lines add up to the total, does the VAT table agree — and anything
 suspicious is surfaced as a "worth checking" prompt rather than silently
 trusted. Every field is editable.
 
+### The interface
+
+Built to iOS conventions rather than generic web ones, because the app is used
+one-handed in a shop:
+
+- **System colour roles**, not a bespoke palette. Everything is expressed as
+  `--label`, `--fill-tertiary`, `--separator` and so on, using Apple's published
+  values for light and dark appearance, so dark mode is a palette swap rather
+  than overrides scattered through the stylesheet.
+- **SF Pro via `-apple-system`**, which on iOS also opts the app into Dynamic
+  Type: the user's text-size setting scales the whole interface.
+- **Inset grouped lists** with hairline separators inset from the leading edge,
+  a large title that hands over to a centred inline title on scroll, and a
+  translucent tab bar — the patterns iOS Settings and Mail use.
+- **Action sheets** rather than dropdowns for choosing between several options,
+  and UIAlertController-shaped alerts for confirmations.
+- **Icons** drawn to SF Symbols' conventions — 24-unit grid, rounded caps,
+  matching stroke weight. Original paths, since SF Symbols itself cannot be
+  redistributed with a web app.
+
+### iOS integration
+
+- **Native switches.** Safari 17.4+ renders `<input type="checkbox" switch>` as
+  the real iOS control, with its own animation and accessibility semantics. It
+  is feature-detected by measuring the control, and everywhere else the same
+  element gets a CSS stand-in — so the markup never branches.
+- **Launch screens.** 30 `apple-touch-startup-image` variants, one per supported
+  device and orientation, because Safari has no scaling fallback and shows a
+  white flash without an exact match. Generated from one device table that the
+  build also reads to emit the `<link>` tags, so images and tags cannot drift.
+- **Web Share.** A receipt can be handed to the system share sheet with its
+  image attached, which on iOS means Files, Mail, Messages and every share
+  extension the user has installed — a better export story than anything the app
+  could build itself.
+- **Safe areas** throughout, `black-translucent` status bar, `viewport-fit=cover`,
+  and `interactive-widget=resizes-content` so the software keyboard does not
+  shove the tab bar off-screen.
+- **Haptics** where the platform has them. Safari on iOS does not implement the
+  Vibration API, so this is a deliberate no-op there rather than one of the
+  hacks that fake it; it still works on Android.
+- An **install hint** on iOS only, since there is no `beforeinstallprompt` to
+  trigger and the only thing that helps is saying where the button is.
+
 ### Storage and sync
 
 All data lives in IndexedDB. Images are content-addressed by SHA-256, so the
@@ -142,7 +215,7 @@ that makes the app useful.
 # Against the production bundle, driving the UI as a user would
 npm run build --workspace @kvitto/web
 npx vite preview --port 4179 --host 127.0.0.1   # in apps/web
-npm run verify --workspace @kvitto/web
+BASE_URL=http://127.0.0.1:4179 npm run verify --workspace @kvitto/web
 
 # Against the dev server: pushes every fixture receipt through the real
 # pipeline and writes the processed images to apps/web/e2e/output/

@@ -31,7 +31,7 @@ import type {
   Quad,
 } from './types.js';
 
-/** The OpenCV module, as exposed by `importScripts('/vendor/opencv.js')`. */
+/** The OpenCV module, as loaded by the CV worker at runtime. */
 // The upstream typings describe the module's shape but not its many enum
 // constants as a single object, so the worker treats it structurally.
 type CV = typeof import('@techstark/opencv-js');

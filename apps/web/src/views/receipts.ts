@@ -7,8 +7,10 @@
 
 import { formatDate, formatMoney, formatMonth, type Category, type Receipt, type Tag } from '@kvitto/shared';
 
+import { actionSheet, chip, emptyState, searchField } from '../components/ui.js';
 import { debounce, el, replaceChildren } from '../core/dom.js';
 import { bus } from '../core/events.js';
+import { icon } from '../core/icons.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
 import { blobUrl } from '../db/blobs.js';
@@ -74,28 +76,24 @@ export async function receiptsView(context: RouteContext): Promise<HTMLElement> 
     replaceChildren(listHost, await renderList(receipts, categories, tags, tagLinks));
   }
 
+  const onFilterChange = (): void => {
+    updateUrl();
+    void refresh();
+  };
+
   replaceChildren(
     root,
     el(
       'div',
-      { class: 'filter-bar' },
-      el('input', {
-        type: 'search',
-        placeholder: 'Sök butik, vara eller anteckning…',
+      { style: 'display:grid;gap:10px;margin-bottom:14px' },
+      searchField({
         value: filter.query ?? '',
-        'aria-label': 'Sök bland kvitton',
-        on: {
-          input: (event) => applySearch((event.target as HTMLInputElement).value.trim()),
-        },
+        placeholder: 'Butik, vara eller anteckning',
+        label: 'Sök bland kvitton',
+        onInput: applySearch,
       }),
-      renderQuickFilters(filter, () => {
-        updateUrl();
-        void refresh();
-      }),
-      renderSortRow(filter, () => {
-        updateUrl();
-        void refresh();
-      }),
+      renderQuickFilters(filter, onFilterChange),
+      el('div', { class: 'pad' }, renderSortRow(filter, onFilterChange)),
     ),
     summaryHost,
     listHost,
@@ -107,16 +105,12 @@ export async function receiptsView(context: RouteContext): Promise<HTMLElement> 
 
 function renderQuickFilters(filter: ReceiptFilter, onChange: () => void): HTMLElement {
   const toggle = (active: boolean, label: string, apply: (on: boolean) => void): HTMLElement =>
-    el('button', {
-      class: 'chip',
-      type: 'button',
-      'aria-pressed': String(active),
-      text: label,
-      on: {
-        click: () => {
-          apply(!active);
-          onChange();
-        },
+    chip({
+      label,
+      pressed: active,
+      onToggle: () => {
+        apply(!active);
+        onChange();
       },
     });
 
@@ -140,35 +134,55 @@ function renderQuickFilters(filter: ReceiptFilter, onChange: () => void): HTMLEl
 }
 
 function renderSortRow(filter: ReceiptFilter, onChange: () => void): HTMLElement {
-  const select = el(
-    'select',
-    {
-      'aria-label': 'Sortera efter',
-      on: {
-        change: (event) => {
-          filter.sort = (event.target as HTMLSelectElement).value as ReceiptSortKey;
-          onChange();
+  const key = (filter.sort ?? 'date') as ReceiptSortKey;
+  const descending = (filter.direction ?? 'desc') === 'desc';
+
+  return el(
+    'div',
+    { class: 'stack stack--between' },
+    el(
+      'button',
+      {
+        class: 'btn btn--sm btn--plain',
+        type: 'button',
+        style: 'padding-left:0',
+        on: {
+          click: async () => {
+            const chosen = await actionSheet({
+              title: 'Sortera efter',
+              selected: key,
+              options: Object.entries(SORT_LABELS).map(([value, label]) => ({
+                value: value as ReceiptSortKey,
+                label,
+              })),
+            });
+            if (!chosen) return;
+            filter.sort = chosen;
+            onChange();
+          },
         },
       },
-    },
-    ...Object.entries(SORT_LABELS).map(([value, label]) =>
-      el('option', { value, text: label, selected: (filter.sort ?? 'date') === value }),
+      el('span', { text: `Sortera: ${SORT_LABELS[key]}` }),
+      icon('chevron-right', { size: 12, weight: 2.4, className: 'row__chevron' }),
+    ),
+    el(
+      'button',
+      {
+        class: 'btn btn--sm btn--plain',
+        type: 'button',
+        style: 'padding-right:0',
+        'aria-label': descending ? 'Sorterar fallande' : 'Sorterar stigande',
+        on: {
+          click: () => {
+            filter.direction = descending ? 'asc' : 'desc';
+            onChange();
+          },
+        },
+      },
+      icon('arrow-up-arrow-down', { size: 16 }),
+      el('span', { text: descending ? 'Fallande' : 'Stigande' }),
     ),
   );
-
-  const direction = el('button', {
-    class: 'btn btn--ghost btn--sm',
-    type: 'button',
-    text: (filter.direction ?? 'desc') === 'desc' ? '↓ Fallande' : '↑ Stigande',
-    on: {
-      click: () => {
-        filter.direction = (filter.direction ?? 'desc') === 'desc' ? 'asc' : 'desc';
-        onChange();
-      },
-    },
-  });
-
-  return el('div', { class: 'row' }, el('div', { class: 'grow' }, select), direction);
 }
 
 async function renderList(
@@ -178,33 +192,35 @@ async function renderList(
   tagLinks: Map<string, string[]>,
 ): Promise<HTMLElement> {
   if (receipts.length === 0) {
-    return el(
-      'div',
-      { class: 'empty-state' },
-      el('div', { class: 'empty-state__icon', 'aria-hidden': 'true', text: '🧾' }),
-      el('p', { class: 'empty-state__title', text: 'Inga kvitton här' }),
-      el('p', { text: 'Skanna ditt första kvitto, eller ändra filtren ovan.' }),
-      el('button', {
+    return emptyState({
+      icon: 'receipt',
+      title: 'Inga kvitton här',
+      body: 'Skanna ditt första kvitto, eller ändra filtren ovan.',
+      action: el('button', {
         class: 'btn btn--primary',
         type: 'button',
         text: 'Skanna kvitto',
         on: { click: () => router.navigate('/scan') },
       }),
-    );
+    });
   }
 
+  // Grouped by month into inset cards, the way a sectioned table view reads.
   const container = el('div', {});
   let currentMonth: string | null = null;
+  let group: HTMLElement | null = null;
 
   for (const receipt of receipts) {
     const month = receipt.purchasedAt?.slice(0, 7) ?? 'okänt';
     if (month !== currentMonth) {
       currentMonth = month;
       container.appendChild(
-        el('h2', { class: 'list-group__heading', text: formatMonth(receipt.purchasedAt) }),
+        el('h2', { class: 'section-heading', text: formatMonth(receipt.purchasedAt) }),
       );
+      group = el('div', { class: 'inset-list' });
+      container.appendChild(group);
     }
-    container.appendChild(await renderCard(receipt, categories, tags, tagLinks));
+    group?.appendChild(await renderCard(receipt, categories, tags, tagLinks));
   }
   return container;
 }
@@ -233,7 +249,7 @@ async function renderCard(
       { class: 'receipt-card__thumb' },
       thumb
         ? el('img', { src: thumb, alt: '', loading: 'lazy', decoding: 'async' })
-        : el('span', { 'aria-hidden': 'true', text: '🧾' }),
+        : icon('receipt', { size: 20 }),
     ),
     el(
       'span',
@@ -265,6 +281,7 @@ async function renderCard(
       ),
     ),
     el('span', { class: 'receipt-card__amount', text: formatMoney(receipt.total, receipt.currency) }),
+    icon('chevron-right', { size: 12, className: 'row__chevron', weight: 2.4 }),
   );
 }
 

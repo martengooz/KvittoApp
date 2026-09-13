@@ -18,8 +18,14 @@ import type { DetectionSource, PipelineOptions, WorkerRequest, WorkerResponse } 
 
 type CV = typeof import('@techstark/opencv-js');
 
-/** Where `scripts/copy-opencv.mjs` puts the runtime. */
-const OPENCV_URL = '/vendor/opencv.js';
+/**
+ * Where `scripts/copy-opencv.mjs` puts the runtime.
+ *
+ * Built from `BASE_URL` rather than hard-coded to `/vendor/...`, because a
+ * GitHub Pages project site is served from `/<repo>/` and an absolute path
+ * would resolve against the domain root and 404.
+ */
+const OPENCV_URL = `${import.meta.env.BASE_URL}vendor/opencv.js`;
 
 const scope = self as unknown as DedicatedWorkerGlobalScope & {
   cv?: unknown;
@@ -46,7 +52,7 @@ let cvPromise: Promise<CV> | null = null;
  */
 function loadOpenCv(): Promise<CV> {
   cvPromise ??= (async () => {
-    const response = await fetch(new URL(OPENCV_URL, scope.location.origin));
+    const response = await fetch(new URL(OPENCV_URL, scope.location.href));
     if (!response.ok) {
       throw new Error(`Could not fetch opencv.js (${response.status} ${response.statusText}).`);
     }

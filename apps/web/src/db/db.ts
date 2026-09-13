@@ -16,7 +16,7 @@
  */
 
 import Dexie, { type EntityTable } from 'dexie';
-import type { Category, Receipt, ReceiptItem, ReceiptTag, Tag } from '@kvitto/shared';
+import type { Category, Company, Receipt, ReceiptItem, ReceiptTag, Tag } from '@kvitto/shared';
 
 /** A stored image, addressed by the SHA-256 of its bytes. */
 export interface StoredBlob {
@@ -56,6 +56,7 @@ export class KvittoDatabase extends Dexie {
   categories!: EntityTable<Category, 'id'>;
   tags!: EntityTable<Tag, 'id'>;
   receiptTags!: EntityTable<ReceiptTag, 'id'>;
+  companies!: EntityTable<Company, 'id'>;
   blobs!: EntityTable<StoredBlob, 'id'>;
   kv!: EntityTable<KeyValue, 'key'>;
   pendingExtractions!: EntityTable<PendingExtraction, 'id'>;
@@ -77,6 +78,9 @@ export class KvittoDatabase extends Dexie {
       categories: 'id, name, parentId, scope, sortOrder, updatedAt, dirty, deletedAt',
       tags: 'id, name, updatedAt, dirty, deletedAt',
       receiptTags: 'id, receiptId, tagId, updatedAt, dirty, deletedAt, [receiptId+tagId]',
+      // Keyed by the unformatted organisation number, so a lookup for a
+      // company already known is a primary-key hit rather than an API call.
+      companies: 'id, orgNumber, name, updatedAt, dirty, deletedAt',
       blobs: 'id, createdAt, uploaded, role',
       kv: 'key',
       pendingExtractions: 'id, receiptId, createdAt, lastAttemptAt',
@@ -90,6 +94,8 @@ export const db = new KvittoDatabase();
 export const SYNC_TABLES = {
   categories: () => db.categories,
   tags: () => db.tags,
+  // Before receipts: a receipt may reference a company.
+  companies: () => db.companies,
   receipts: () => db.receipts,
   items: () => db.items,
   receiptTags: () => db.receiptTags,
