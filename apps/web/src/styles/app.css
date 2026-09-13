@@ -1059,6 +1059,10 @@ input.detail-merchant {
   color: var(--label);
   min-height: 32px;
   padding: 0;
+  /* Registered company names run long — `BAUHAUS & CO KOMMANDITBOLAG` does not
+     fit a phone at 22 px. An input cannot wrap, so an ellipsis is the honest
+     signal that there is more; focusing the field still reveals all of it. */
+  text-overflow: ellipsis;
 }
 
 .detail-total {

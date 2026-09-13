@@ -7,7 +7,15 @@
  * filtering that would otherwise need a compound index per combination.
  */
 
-import { tokenizeQuery, type Category, type ID, type Receipt, type ReceiptItem, type Tag } from '@kvitto/shared';
+import {
+  tokenizeQuery,
+  type Category,
+  type Company,
+  type ID,
+  type Receipt,
+  type ReceiptItem,
+  type Tag,
+} from '@kvitto/shared';
 import { db } from './db.js';
 
 export type ReceiptSortKey = 'date' | 'total' | 'merchant' | 'added' | 'items';
@@ -61,6 +69,8 @@ export interface ReceiptBundle {
   receipt: Receipt;
   items: ReceiptItem[];
   tags: Tag[];
+  /** The registry company this receipt is linked to, when it has one. */
+  company: Company | null;
 }
 
 // --- primitive fetches ----------------------------------------------------
@@ -119,7 +129,9 @@ export async function getReceiptBundle(id: ID): Promise<ReceiptBundle | null> {
     .filter((tag): tag is Tag => tag !== undefined)
     .sort((a, b) => a.name.localeCompare(b.name, 'sv'));
 
-  return { receipt, items, tags };
+  const company = receipt.companyId ? ((await db.companies.get(receipt.companyId)) ?? null) : null;
+
+  return { receipt, items, tags, company: company?.deletedAt === 0 ? company : null };
 }
 
 // --- receipts -------------------------------------------------------------

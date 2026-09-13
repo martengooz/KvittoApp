@@ -53,8 +53,15 @@ CREATE TABLE IF NOT EXISTS blobs (
 );
 `;
 
-/** The five entity tables share a shape, so their DDL is generated. */
-const ENTITY_TABLE_NAMES = ['receipts', 'items', 'categories', 'tags', 'receipt_tags'] as const;
+/** The entity tables all share a shape, so their DDL is generated. */
+const ENTITY_TABLE_NAMES = [
+  'companies',
+  'receipts',
+  'items',
+  'categories',
+  'tags',
+  'receipt_tags',
+] as const;
 
 function entityDdl(table: string): string {
   return `

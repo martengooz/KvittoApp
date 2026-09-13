@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare-vendor": "node scripts/copy-opencv.mjs",
+    "prepare-vendor": "node scripts/prepare-vendor.mjs",
     "dev": "npm run prepare-vendor && vite",
     "build": "npm run prepare-vendor && tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
@@ -13,9 +13,10 @@
     "verify:pipeline": "PIPELINE=1 BASE_URL=http://127.0.0.1:5173 node e2e/verify.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "@kvitto/shared": "*",
     "dexie": "^4.4.6",
-    "@anthropic-ai/sdk": "^0.125.0"
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@techstark/opencv-js": "4.11.0-release.1",

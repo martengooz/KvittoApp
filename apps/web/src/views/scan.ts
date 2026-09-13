@@ -23,6 +23,8 @@ import type { PipelineResult, Quad } from '../cv/types.js';
 import { parseReceipt } from '../ai/index.js';
 import { putBlob } from '../db/blobs.js';
 import { createReceipt } from '../db/repo.js';
+import { enrichFromImage } from '../ocr/enrich.js';
+import { ocrClient } from '../ocr/client.js';
 
 type Stage = 'idle' | 'camera' | 'processing' | 'review';
 
@@ -62,7 +64,12 @@ export function scanView(): HTMLElement {
   // Downloading OpenCV takes a moment; start it now so it overlaps with the
   // user lining up the shot rather than adding to the wait after the shutter.
   void cvClient.warmup().then(() => {
-    if (!disposed && state.stage === 'idle') render();
+    if (disposed) return;
+    if (state.stage === 'idle') render();
+    // The OCR runtime is a separate download. Start it only once OpenCV is in:
+    // the two compete for the same connection, and a scan cannot begin without
+    // OpenCV whereas it merely finishes later without Tesseract.
+    void ocrClient.warmup();
   });
 
   function releaseUrls(): void {
@@ -245,9 +252,26 @@ export function scanView(): HTMLElement {
       status: 'draft',
     });
 
+    // Reads the organisation number and the date off the receipt itself, and
+    // links its company. Deliberately not awaited: it takes a few seconds, and
+    // the detail view picks the result up when it lands.
+    //
+    // It reads `state.source`, the untouched capture, rather than the processed
+    // scan — measured against the fixtures, the enhancement that makes a good
+    // scan makes a materially worse OCR input. See `ocr/prepare.ts`.
+    const reading = state.source
+      ? enrichFromImage(receipt.id, state.source).catch((error: unknown) => {
+          console.warn('OCR enrichment failed', error);
+          return null;
+        })
+      : Promise.resolve(null);
+
     if (!andParse) {
       toast('Kvittot sparades.', { kind: 'success' });
       router.navigate(`/receipt/${receipt.id}`);
+      void reading.then((outcome) => {
+        if (outcome?.company) toast(`Företag: ${outcome.company.name}`, { kind: 'success' });
+      });
       return;
     }
 

@@ -15,6 +15,7 @@ import {
   normalizeSearchName,
   type Category,
   type ID,
+  type Merchant,
   type NormalizedExtraction,
   type Receipt,
   type ReceiptItem,
@@ -71,6 +72,7 @@ export function blankReceipt(input: CreateReceiptInput): Receipt {
     terminalId: null,
     cashier: null,
     categoryId: null,
+    companyId: null,
     notes: null,
     source: input.source,
     imageId: input.imageId,
@@ -78,6 +80,7 @@ export function blankReceipt(input: CreateReceiptInput): Receipt {
     thumbId: input.thumbId ?? null,
     status: input.status ?? 'draft',
     extraction: null,
+    ocr: null,
     itemCount: 0,
   };
 }
@@ -107,6 +110,7 @@ export async function applyExtraction(
   provenance: NonNullable<Receipt['extraction']>,
 ): Promise<void> {
   const categoryBySlug = await slugToCategoryId();
+  const before = await db.receipts.get(receiptId);
 
   await db.transaction('rw', db.receipts, db.items, async () => {
     const now = Date.now();
@@ -142,8 +146,8 @@ export async function applyExtraction(
     await db.receipts.update(
       receiptId,
       touch({
-        merchant: extraction.merchant,
-        purchasedAt: extraction.purchasedAt,
+        merchant: keepKnown(before?.merchant, extraction.merchant),
+        purchasedAt: extraction.purchasedAt ?? before?.purchasedAt ?? null,
         currency: extraction.currency,
         total: extraction.total,
         subtotal: extraction.subtotal,
@@ -163,6 +167,25 @@ export async function applyExtraction(
     );
   });
   announce('receipts', 'items');
+}
+
+/**
+ * Overlays a fresh merchant on what was already known, keeping a field the
+ * model left blank.
+ *
+ * The two sources are not equivalent. The on-device OCR pass contributes a
+ * checksum-verified organisation number and the registry name that number
+ * resolved to; a model that simply did not read them returns `null`, which says
+ * nothing. Letting that null win would throw away the better fact — and, on a
+ * re-parse, a correction the user typed in by hand.
+ */
+function keepKnown(previous: Merchant | undefined, next: Merchant): Merchant {
+  if (!previous) return next;
+  const merged = { ...next };
+  for (const key of Object.keys(merged) as (keyof Merchant)[]) {
+    merged[key] ??= previous[key];
+  }
+  return merged;
 }
 
 /** Tombstones a receipt along with its items and tag links. */
@@ -441,7 +464,7 @@ export async function purgeTombstones(olderThanMs = 30 * 24 * 60 * 60 * 1000): P
   }
 
   for (const id of imageIds) releaseBlobUrl(id);
-  if (removed > 0) announce('receipts', 'items', 'categories', 'tags', 'receiptTags');
+  if (removed > 0) announce('receipts', 'items', 'categories', 'tags', 'receiptTags', 'companies');
   return removed;
 }
 
@@ -449,7 +472,17 @@ export async function purgeTombstones(olderThanMs = 30 * 24 * 60 * 60 * 1000): P
 export async function eraseAllData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.receipts, db.items, db.categories, db.tags, db.receiptTags, db.blobs, db.kv, db.pendingExtractions],
+    [
+      db.receipts,
+      db.items,
+      db.categories,
+      db.tags,
+      db.receiptTags,
+      db.companies,
+      db.blobs,
+      db.kv,
+      db.pendingExtractions,
+    ],
     async () => {
       await Promise.all([
         db.receipts.clear(),
@@ -457,13 +490,17 @@ export async function eraseAllData(): Promise<void> {
         db.categories.clear(),
         db.tags.clear(),
         db.receiptTags.clear(),
+        db.companies.clear(),
         db.blobs.clear(),
         db.pendingExtractions.clear(),
         // Settings and the device identity survive a data wipe on purpose.
         db.kv.where('key').startsWith('sync:').delete(),
         db.kv.where('key').equals('categories:seeded').delete(),
+        // Including the negative lookup cache: with no receipts left, an org
+        // number that was "not found" deserves a fresh chance.
+        db.kv.where('key').startsWith('companies:').delete(),
       ]);
     },
   );
-  announce('receipts', 'items', 'categories', 'tags', 'receiptTags');
+  announce('receipts', 'items', 'categories', 'tags', 'receiptTags', 'companies');
 }

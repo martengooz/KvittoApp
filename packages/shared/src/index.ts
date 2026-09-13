@@ -7,3 +7,6 @@ export * from './categories.js';
 export * from './format.js';
 export * from './ids.js';
 export * from './prompt.js';
+export * from './orgnumber.js';
+export * from './fuzzy.js';
+export * from './receipt-scan.js';

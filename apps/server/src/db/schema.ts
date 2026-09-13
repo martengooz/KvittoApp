@@ -86,6 +86,12 @@ export const tags = sqliteTable(
   (table) => [index('tags_account_rev_idx').on(table.accountId, table.rev)],
 );
 
+export const companies = sqliteTable(
+  'companies',
+  syncColumns,
+  (table) => [index('companies_account_rev_idx').on(table.accountId, table.rev)],
+);
+
 export const receiptTags = sqliteTable(
   'receipt_tags',
   syncColumns,
@@ -103,6 +109,7 @@ export const blobs = sqliteTable('blobs', {
 
 /** Entity tables, keyed by the wire protocol's entity kind. */
 export const ENTITY_TABLES = {
+  companies,
   receipts,
   items,
   categories,

@@ -7,6 +7,7 @@
  * at boot and cached in memory, so reads are synchronous everywhere else.
  */
 
+import { APIVERKET_BASE_URL } from '../api/apiverket.js';
 import { db } from '../db/db.js';
 import { bus } from './events.js';
 
@@ -67,6 +68,19 @@ export interface SyncSettings {
   syncImages: boolean;
 }
 
+/**
+ * Company lookup against Apiverket, keyed off the organisationsnummer that OCR
+ * finds on the receipt. Separate from {@link AiSettings} because it is a plain
+ * registry lookup rather than a model call, and it has its own key.
+ */
+export interface CompanySettings {
+  /** Apiverket key (`sk_test_…` / `sk_live_…`). Device-local, never synced. */
+  apiKey: string;
+  baseUrl: string;
+  /** Look the company up automatically after a scan finds an org number. */
+  autoLookup: boolean;
+}
+
 export interface UiSettings {
   theme: 'system' | 'light' | 'dark';
   /** Show discount and pant rows in the purchases list. */
@@ -76,9 +90,11 @@ export interface UiSettings {
 export interface AppSettings {
   ai: AiSettings;
   image: ImageSettings;
+  company: CompanySettings;
   sync: SyncSettings;
   ui: UiSettings;
 }
+
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ai: {
@@ -98,6 +114,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     maxDimension: 1568,
     quality: 0.9,
     keepOriginal: false,
+  },
+  company: {
+    apiKey: '',
+    baseUrl: APIVERKET_BASE_URL,
+    autoLookup: true,
   },
   sync: {
     serverUrl: '',
@@ -162,6 +183,7 @@ export function redactSettings(settings: AppSettings): AppSettings {
   return {
     ...settings,
     ai: { ...settings.ai, apiKey: settings.ai.apiKey ? '••••••••' : '' },
+    company: { ...settings.company, apiKey: settings.company.apiKey ? '••••••••' : '' },
   };
 }
 

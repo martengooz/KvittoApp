@@ -16,6 +16,7 @@ import {
   parseAmount,
   parseLocalDateTime,
   type Category,
+  type Company,
   type ItemUnit,
   type Receipt,
   type ReceiptItem,
@@ -31,6 +32,7 @@ import { router, type RouteContext } from '../core/router.js';
 import { isAiConfigured } from '../core/settings.js';
 import { confirmDialog, toast } from '../core/toast.js';
 import { parseReceipt } from '../ai/index.js';
+import { enrichReceipt, verifyCompanyName } from '../ocr/enrich.js';
 import { blobUrl, getBlob } from '../db/blobs.js';
 import { getReceiptBundle, liveCategories, liveTags, type ReceiptBundle } from '../db/queries.js';
 import {
@@ -51,6 +53,7 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
 
   const root = el('div', {});
   let parsing = false;
+  let reading = false;
 
   const unsubscribe = bus.on('data:changed', () => void refresh());
   router.onTeardown(unsubscribe);
@@ -74,6 +77,34 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     if (outcome.ok) toast('Kvittot tolkades.', { kind: 'success' });
     else if (outcome.error) toast(outcome.error, { kind: 'error' });
     await refresh();
+  }
+
+  /**
+   * Re-reads the stored image and re-links the company.
+   *
+   * Offered as an explicit action as well as running after a scan, because a
+   * receipt saved before OCR existed has no reading at all, and because a user
+   * who has just pasted an API key wants the lookup now.
+   */
+  async function runEnrich(): Promise<void> {
+    if (reading) return;
+    reading = true;
+    await refresh();
+    try {
+      const outcome = await enrichReceipt(id!);
+      if (!outcome.ok) {
+        toast(outcome.reason ?? 'Kvittot kunde inte läsas av.', { kind: 'error' });
+      } else if (outcome.company) {
+        toast(`Företag: ${outcome.company.name}`, { kind: 'success' });
+      } else {
+        toast(describeLookup(outcome.lookupReason), { kind: 'info' });
+      }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Avläsningen misslyckades.', { kind: 'error' });
+    } finally {
+      reading = false;
+      await refresh();
+    }
   }
 
   async function render(
@@ -111,9 +142,11 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
           )
         : null,
       renderFacts(receipt, categories),
+      renderCompany(receipt, bundle.company),
       renderTags(receipt.id, bundle.tags, tags),
       renderItems(receipt, items, categories),
       renderTotals(receipt, items),
+      renderReading(receipt),
       renderProvenance(receipt),
       renderActions(receipt),
     );
@@ -275,7 +308,8 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
           },
         }),
       ),
-      receipt.merchant.orgNumber
+      // Only when there is no company section below to carry it.
+      receipt.merchant.orgNumber && !receipt.companyId
         ? listRow({ label: 'Org.nr', value: receipt.merchant.orgNumber })
         : null,
     );
@@ -533,6 +567,139 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     );
   }
 
+  /**
+   * The registry company, and how much to trust the link.
+   *
+   * Only the basics are shown. The full registry payload is stored on the
+   * record — a later feature can use it without a second lookup — but a receipt
+   * archive is not a company-register browser, so the detail view stays to the
+   * handful of fields that tell the user *which* company this is.
+   */
+  function renderCompany(receipt: Receipt, company: Company | null): HTMLElement | null {
+    const orgNumber = receipt.merchant.orgNumber;
+    if (!company) {
+      if (!orgNumber) return null;
+      return listGroup(
+        { title: 'Företag', footer: companyFooter(receipt) },
+        listRow({ label: 'Org.nr', value: orgNumber }),
+        el('button', {
+          class: 'row',
+          type: 'button',
+          style: 'color:var(--tint);justify-content:center',
+          disabled: reading,
+          text: reading ? 'Läser…' : 'Hämta företagsuppgifter',
+          on: { click: () => void runEnrich() },
+        }),
+      );
+    }
+
+    const verdict = verifyCompanyName(company, receipt.ocr);
+    return listGroup(
+      { title: 'Företag', footer: companyFooter(receipt) },
+      listRow({ label: 'Namn', value: company.name }),
+      listRow({ label: 'Org.nr', value: company.orgNumber }),
+      company.legalForm ? listRow({ label: 'Bolagsform', value: company.legalForm }) : null,
+      company.status ? listRow({ label: 'Status', value: company.status }) : null,
+      company.city ? listRow({ label: 'Ort', value: company.city }) : null,
+      company.industry ? listRow({ label: 'Bransch', value: company.industry }) : null,
+      renderNameCheck(company, verdict),
+    );
+  }
+
+  /**
+   * Whether the registered name actually appears on the paper.
+   *
+   * This is the check that catches a misread organisation number whose digits
+   * happen to satisfy the checksum: the registry will answer for *some*
+   * company, and the only thing that says it is the right one is its name
+   * turning up in the receipt's own text.
+   */
+  function renderNameCheck(
+    company: Company,
+    verdict: ReturnType<typeof verifyCompanyName>,
+  ): HTMLElement {
+    const score = verdict?.score ?? company.nameMatchScore;
+    const confirmed = verdict?.confirmed ?? company.nameConfirmed;
+
+    if (score === null || score === undefined) {
+      return listRow({ label: 'Namnkontroll', value: 'Ej kontrollerat' });
+    }
+
+    const percent = `${Math.round(score * 100)} %`;
+    return listRow({
+      label: 'Namnkontroll',
+      trailing: el(
+        'span',
+        {
+          class: 'row__value',
+          style: `color:var(--${confirmed ? 'success' : 'warning'})`,
+          text: confirmed ? `Hittat på kvittot · ${percent}` : `Osäker träff · ${percent}`,
+        },
+      ),
+    });
+  }
+
+  function companyFooter(receipt: Receipt): string | undefined {
+    const ocr = receipt.ocr;
+    if (!ocr) return 'Kvittots text har inte lästs av på den här enheten.';
+    const best = ocr.orgNumbers[0];
+    if (best?.repaired) {
+      return 'Organisationsnumret behövde teckenrättas för att gå ihop — kontrollera det mot kvittot.';
+    }
+    return undefined;
+  }
+
+  /** Turns a skipped lookup into something the user can act on. */
+  function describeLookup(reason: string | null): string {
+    switch (reason) {
+      case 'not-configured':
+        return 'Inget företagsuppslag gjordes — lägg in en API-nyckel under Inställningar.';
+      case 'invalid-org-number':
+        return 'Inget giltigt organisationsnummer hittades på kvittot.';
+      case 'not-found':
+        return 'Organisationsnumret finns inte i registret.';
+      case 'unauthorised':
+        return 'API-nyckeln för företagsuppslag avvisades.';
+      case 'rate-limited':
+        return 'Kvoten för företagsuppslag är slut. Försök igen senare.';
+      case 'offline':
+        return 'Kunde inte nå företagsregistret. Försök igen när du är uppkopplad.';
+      case 'unavailable':
+        return 'Företagsregistret svarade inte som väntat.';
+      default:
+        return 'Kvittot lästes av, men inget företag kunde kopplas.';
+    }
+  }
+
+  function renderReading(receipt: Receipt): HTMLElement | null {
+    const ocr = receipt.ocr;
+    if (!ocr) return null;
+
+    return listGroup(
+      { title: 'Avläsning på enheten' },
+      listRow({ label: 'Textsäkerhet', value: `${ocr.confidence} %` }),
+      listRow({
+        label: 'Läst',
+        value: formatDateTime(new Date(ocr.at).toISOString().slice(0, 19)),
+      }),
+      ocr.durationMs !== null ? listRow({ label: 'Tid', value: `${ocr.durationMs} ms` }) : null,
+      ocr.orgNumbers.length > 1
+        ? listRow({
+            label: 'Fler org.nr',
+            value: ocr.orgNumbers.slice(1).map((candidate) => candidate.value).join(', '),
+          })
+        : null,
+      el('button', {
+        class: 'row',
+        type: 'button',
+        style: 'color:var(--tint);justify-content:center',
+        disabled: reading,
+        text: reading ? 'Läser…' : 'Läs av kvittot igen',
+        on: { click: () => void runEnrich() },
+      }),
+    );
+  }
+
   function renderProvenance(receipt: Receipt): HTMLElement | null {
     const extraction = receipt.extraction;
     if (!extraction) return null;
@@ -559,6 +726,21 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
 
   function renderActions(receipt: Receipt): HTMLElement {
     const rows: HTMLElement[] = [];
+
+    // Only when no reading exists yet — once there is one, the same action
+    // lives in the reading section next to what it produced.
+    if (!receipt.ocr && receipt.imageId) {
+      rows.push(
+        el('button', {
+          class: 'row',
+          type: 'button',
+          style: 'color:var(--tint);justify-content:center',
+          disabled: reading,
+          text: reading ? 'Läser…' : 'Läs av kvittot på enheten',
+          on: { click: () => void runEnrich() },
+        }),
+      );
+    }
 
     if (isAiConfigured()) {
       rows.push(

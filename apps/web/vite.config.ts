@@ -101,9 +101,16 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // OpenCV is fetched on demand and runtime-cached instead (see below),
-        // so a fresh install does not pull 11 MB before the first scan.
-        globIgnores: ['**/vendor/opencv.js', '**/launch/*.png'],
+        // OpenCV and the OCR runtime are fetched on demand and runtime-cached
+        // instead (see below), so a fresh install does not pull ~23 MB before
+        // the first scan — and the two of them together would otherwise be most
+        // of what a browser is willing to keep.
+        globIgnores: [
+          '**/vendor/opencv.js',
+          '**/vendor/tesseract/**',
+          '**/vendor/tessdata/**',
+          '**/launch/*.png',
+        ],
         navigateFallback: withBase('index.html'),
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -120,6 +127,20 @@ export default defineConfig({
               cacheName: 'kvitto-opencv',
               // The file is version-pinned in package.json, so a hit is always valid.
               expiration: { maxEntries: 2, maxAgeSeconds: ONE_YEAR },
+              cacheableResponse: { statuses: [0, 200] },
+              matchOptions: { ignoreVary: true },
+            },
+          },
+          {
+            // The OCR runtime: one WASM core (~4 MB) and the language models.
+            // Cached exactly like OpenCV, and for the same reason — once a
+            // receipt has been read on this device, reading works offline.
+            urlPattern: /\/vendor\/(?:tesseract|tessdata)\/.*$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'kvitto-ocr',
+              // Two cores, two languages, the worker, and room to spare.
+              expiration: { maxEntries: 8, maxAgeSeconds: ONE_YEAR },
               cacheableResponse: { statuses: [0, 200] },
               matchOptions: { ignoreVary: true },
             },

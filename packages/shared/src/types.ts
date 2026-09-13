@@ -117,6 +117,27 @@ export interface ExtractionInfo {
   error: string | null;
 }
 
+/**
+ * What the on-device OCR pass found, kept alongside the AI extraction.
+ *
+ * Stored rather than recomputed because it is the evidence behind the company
+ * link: the fuzzy name check needs the receipt's own text, and re-running
+ * Tesseract to re-verify a name would cost seconds and a fresh image.
+ */
+export interface OcrInfo {
+  /** The recognised text, verbatim. */
+  text: string;
+  /** Mean word confidence, 0..100, as the engine reported it. */
+  confidence: number;
+  engine: string;
+  at: number;
+  durationMs: number | null;
+  /** Every organisation number the text yielded, best first. */
+  orgNumbers: { value: string; confidence: number; repaired: boolean }[];
+  /** Every plausible purchase date, best first. */
+  dates: { value: string; confidence: number }[];
+}
+
 export interface Receipt extends SyncMeta {
   id: ID;
   merchant: Merchant;
@@ -144,6 +165,8 @@ export interface Receipt extends SyncMeta {
   cashier: string | null;
 
   categoryId: ID | null;
+  /** The looked-up {@link Company}, keyed by organisation number. */
+  companyId: ID | null;
   notes: string | null;
   source: ReceiptSource;
 
@@ -156,6 +179,8 @@ export interface Receipt extends SyncMeta {
 
   status: ReceiptStatus;
   extraction: ExtractionInfo | null;
+  /** The on-device OCR pass, or null if it never ran. */
+  ocr: OcrInfo | null;
   /** Denormalised count so the list view does not need to join. */
   itemCount: number;
 }
@@ -213,6 +238,51 @@ export interface Category extends SyncMeta {
   sortOrder: number;
 }
 
+/**
+ * A company looked up from the registry by organisation number.
+ *
+ * Stored as its own entity rather than inline on the receipt for two reasons:
+ * every receipt from the same shop points at one row, and the lookup costs an
+ * API call that must never be repeated for a company already known.
+ */
+export interface Company extends SyncMeta {
+  /** The organisation number, unformatted (ten digits). Also the natural key. */
+  id: ID;
+  /** `NNNNNN-NNNN`. */
+  orgNumber: string;
+  /** Registered legal name, e.g. `AB Volvo (publ)`. */
+  name: string;
+  legalForm: string | null;
+  status: string | null;
+  active: boolean | null;
+  address: string | null;
+  postalCode: string | null;
+  city: string | null;
+  /** Primary SNI (industry) description, when the registry supplies one. */
+  industry: string | null;
+
+  /**
+   * The provider's complete response payload.
+   *
+   * Kept verbatim so a later feature can use a field the app does not surface
+   * today without spending another lookup. The UI reads only the flattened
+   * fields above.
+   */
+  raw: Record<string, unknown> | null;
+  /** Which provider answered, e.g. `apiverket`. */
+  source: string | null;
+  /** When the lookup happened. */
+  fetchedAt: number | null;
+
+  /**
+   * How well the registered name matched the text on the receipt that produced
+   * this lookup, 0..1, or null if never checked.
+   */
+  nameMatchScore: number | null;
+  /** True once a receipt's own text corroborated the registered name. */
+  nameConfirmed: boolean;
+}
+
 /** Free-form label on a receipt. Tags are how collections are built. */
 export interface Tag extends SyncMeta {
   id: ID;
@@ -228,10 +298,20 @@ export interface ReceiptTag extends SyncMeta {
 }
 
 /** Every entity kind that takes part in delta sync. */
-export const ENTITY_KINDS = ['receipts', 'items', 'categories', 'tags', 'receiptTags'] as const;
+export const ENTITY_KINDS = [
+  // Companies first: a receipt references one, so applying them in this order
+  // means an incoming receipt never points at a row that has not arrived yet.
+  'companies',
+  'receipts',
+  'items',
+  'categories',
+  'tags',
+  'receiptTags',
+] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export interface EntityMap {
+  companies: Company;
   receipts: Receipt;
   items: ReceiptItem;
   categories: Category;
