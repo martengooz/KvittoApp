@@ -4,7 +4,7 @@ import type { PairingQrPayload } from '@kvitto/shared';
 
 import { listGroup } from '../components/ui.js';
 import { appendClientDebug } from '../core/debug-log.js';
-import { el } from '../core/dom.js';
+import { el, nextFrame } from '../core/dom.js';
 import { router } from '../core/router.js';
 import { updateSettings } from '../core/settings.js';
 import { toast } from '../core/toast.js';
@@ -20,28 +20,35 @@ export async function pairScanView(): Promise<HTMLElement> {
     accept: 'image/*',
     class: 'visually-hidden',
   });
+  const cameraInput = el('input', {
+    type: 'file',
+    accept: 'image/*',
+    capture: 'environment',
+    class: 'visually-hidden',
+  });
   let completed = false;
+  let disposed = false;
+  let scanner: QrScanner | null = null;
 
-  const scanner = new QrScanner(video, (result) => void complete(result.data), {
-    preferredCamera: 'environment',
-    maxScansPerSecond: 8,
-    highlightScanRegion: true,
-    highlightCodeOutline: true,
-    returnDetailedScanResult: true,
+  router.onTeardown(() => {
+    disposed = true;
+    scanner?.destroy();
   });
 
-  router.onTeardown(() => scanner.destroy());
-
-  fileInput.addEventListener('change', () => {
-    const file = fileInput.files?.[0];
-    fileInput.value = '';
+  function handleImage(input: HTMLInputElement): void {
+    const file = input.files?.[0];
+    input.value = '';
     if (!file) return;
+    status.textContent = 'Läser QR-koden…';
     void decodePairingQr(file)
       .then((payload) => complete(JSON.stringify(payload)))
       .catch(() => {
         status.textContent = 'Ingen QR-kod hittades i bilden.';
       });
-  });
+  }
+
+  fileInput.addEventListener('change', () => handleImage(fileInput));
+  cameraInput.addEventListener('change', () => handleImage(cameraInput));
 
   async function complete(raw: string): Promise<void> {
     if (completed) return;
@@ -54,7 +61,7 @@ export async function pairScanView(): Promise<HTMLElement> {
     }
 
     completed = true;
-    scanner.stop();
+    scanner?.stop();
     status.textContent = 'Parkopplar…';
     try {
       await updateSettings({ sync: { serverUrl: payload.serverUrl } });
@@ -68,7 +75,7 @@ export async function pairScanView(): Promise<HTMLElement> {
     } catch (error) {
       completed = false;
       status.textContent = error instanceof Error ? error.message : String(error);
-      await scanner.start().catch(() => undefined);
+      await scanner?.start().catch(() => undefined);
     }
   }
 
@@ -88,23 +95,79 @@ export async function pairScanView(): Promise<HTMLElement> {
         class: 'row',
         type: 'button',
         style: 'color:var(--tint);justify-content:center;font-weight:600',
+        text: 'Ta bild av QR-kod',
+        on: { click: () => cameraInput.click() },
+      }),
+      el('button', {
+        class: 'row',
+        type: 'button',
+        style: 'color:var(--tint);justify-content:center;font-weight:600',
         text: 'Välj QR-bild',
         on: { click: () => fileInput.click() },
       }),
     ),
+    cameraInput,
     fileInput,
   );
 
-  void scanner.start().then(
-    () => {
-      status.textContent = 'Rikta kameran mot QR-koden.';
-    },
-    () => {
-      status.textContent = 'Kameran är inte tillgänglig. Välj en QR-bild istället.';
-    },
-  );
+  requestAnimationFrame(() => void startScanner());
 
   return root;
+
+  async function startScanner(): Promise<void> {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      status.textContent = window.isSecureContext
+        ? 'Livekameran stöds inte. Ta en bild av QR-koden istället.'
+        : 'Livekameran kräver HTTPS. Ta en bild av QR-koden istället.';
+      return;
+    }
+
+    try {
+      await nextFrame();
+      if (disposed || !root.isConnected) return;
+      scanner = new QrScanner(video, (result) => void complete(result.data), {
+        preferredCamera: 'environment',
+        maxScansPerSecond: 8,
+        highlightScanRegion: true,
+        highlightCodeOutline: true,
+        returnDetailedScanResult: true,
+      });
+      await scanner.start();
+      await waitForCameraFrame(video);
+      if (!disposed) status.textContent = 'Rikta kameran mot QR-koden.';
+    } catch (error) {
+      if (disposed) return;
+      scanner?.stop();
+      appendClientDebug('warn', 'Pairing camera unavailable', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      status.textContent = 'Kameran är inte tillgänglig. Ta en bild av QR-koden istället.';
+    }
+  }
+}
+
+async function waitForCameraFrame(video: HTMLVideoElement): Promise<void> {
+  const stream = video.srcObject instanceof MediaStream ? video.srcObject : null;
+  if (!stream?.getVideoTracks().some((track) => track.readyState === 'live')) {
+    throw new Error('Kameran startade utan bildström.');
+  }
+  if (video.videoWidth > 0 && video.videoHeight > 0) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('Kameran gav ingen bild.'));
+    }, 3000);
+    const onLoaded = (): void => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = (): void => {
+      window.clearTimeout(timeout);
+      video.removeEventListener('loadeddata', onLoaded);
+    };
+    video.addEventListener('loadeddata', onLoaded, { once: true });
+  });
 }
 
 export async function decodePairingQr(image: File | Blob | URL | string): Promise<PairingQrPayload> {

@@ -11,6 +11,7 @@
 import { formatBytes, formatRelativeTime } from '@kvitto/shared';
 
 import { banner, listGroup, row, segmented, switchRow } from '../components/ui.js';
+import { checkForAppUpdate } from '../core/app-update.js';
 import { el, replaceChildren } from '../core/dom.js';
 import { bus } from '../core/events.js';
 import { icon } from '../core/icons.js';
@@ -1076,6 +1077,24 @@ function renderDeveloperSection(): HTMLElement {
       icon: 'gear',
       iconColor: GLYPH.developer,
       onClick: () => router.navigate('/debug-log'),
+    }),
+    row({
+      label: 'Sök efter uppdatering',
+      value: 'Ny klientversion',
+      icon: 'rotate',
+      iconColor: GLYPH.developer,
+      onClick: () => {
+        void checkForAppUpdate()
+          .then((result) => {
+            if (result === 'current') toast('Du har den senaste versionen.', { kind: 'success' });
+            if (result === 'unsupported') {
+              toast('Uppdateringar hanteras inte av den här webbläsaren.', { kind: 'error' });
+            }
+          })
+          .catch((error) => {
+            toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
+          });
+      },
     }),
   );
 }

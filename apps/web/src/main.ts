@@ -9,6 +9,7 @@
 import './styles/app.css';
 
 import { mountApp } from './app.js';
+import { registerAppServiceWorker } from './core/app-update.js';
 import { installClientDebugLogging } from './core/debug-log.js';
 import { bus } from './core/events.js';
 import { loadSettings } from './core/settings.js';
@@ -36,7 +37,7 @@ async function boot(): Promise<void> {
   mountApp(container);
 
   // Everything below this point is best-effort and must never block the UI.
-  void registerServiceWorker();
+  void registerAppServiceWorker();
   void requestPersistentStorage();
   startAutoSync();
 
@@ -63,28 +64,6 @@ function watchOtherTabs(): void {
   channel.addEventListener('message', (event: MessageEvent<{ kinds: string[] }>) => {
     bus.emit('data:changed', { kinds: event.data?.kinds ?? [], echo: true });
   });
-}
-
-async function registerServiceWorker(): Promise<void> {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    const { registerSW } = await import('virtual:pwa-register');
-    registerSW({
-      immediate: true,
-      onNeedRefresh() {
-        toast('En ny version finns.', {
-          durationMs: 15_000,
-          action: { label: 'Ladda om', onClick: () => location.reload() },
-        });
-      },
-      onOfflineReady() {
-        toast('Appen fungerar nu offline.', { kind: 'success' });
-      },
-    });
-  } catch (error) {
-    // A failed registration only costs offline support, not the app.
-    console.warn('Service worker registration failed', error);
-  }
 }
 
 function renderFatal(container: HTMLElement, error: unknown): void {
