@@ -1,2 +1,0 @@
-import{A as o}from"./index-DTvgavuO.js";import"./index-DKPo6ZUj.js";function t(n){return new Proxy({},{get(r,e){if(typeof e!="symbol")throw new o(`\`${n}.${e}\` is not available in this environment; it needs a Node.js-compatible runtime`)}})}t("child_process");t("crypto");const a=t("fs");t("os");const c=t("path");t("stream");t("util");export{a as fs,c as path};
-//# sourceMappingURL=node.browser-DH84FWMq.js.map

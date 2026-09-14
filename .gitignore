@@ -154,3 +154,23 @@ apps/server/*.sqlite-*
 .env
 .env.*
 !.env.example
+
+# The built PWA once lived at the repository root, because GitHub Pages was
+# configured to publish the root directory. It is deployed from the Actions
+# workflow now, which builds apps/web and uploads only that — so a build at the
+# root is a stale duplicate that serves nothing and drifts a little further from
+# the real one with every deploy. These are anchored with a leading slash, so
+# they only cover the root and leave apps/web/index.html and friends alone.
+/index.html
+/manifest.webmanifest
+/sw.js
+/sw.js.map
+/workbox-*.js
+/workbox-*.js.map
+/assets/
+/vendor/
+/icons/
+/launch/
+/favicon.svg
+/apple-touch-icon.png
+/.nojekyll

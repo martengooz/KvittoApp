@@ -226,13 +226,24 @@ test('a receipt whose image has not synced yet waits instead of failing permanen
     payload: { deviceId: 'd1', changes: { receipts: [receipt('r-noimage', { imageId: 'a'.repeat(64) })] } },
   });
 
+  const before = Date.now();
   await (await import('../dist/llm/worker.js')).runPass(accountId, { size: 5 });
+  const after = Date.now();
 
   const jobs = await import('../dist/llm/jobs.js');
   const job = jobs.get('r-noimage');
   assert.equal(job?.state, 'pending', 'a missing image is temporary, so the job stays queued');
   assert.equal(job?.attempts, 1);
-  assert.ok(job && job.nextAttemptAt > Date.now(), 'and it is scheduled for later, not retried immediately');
+
+  // The retry is scheduled inside the first backoff window. Asserted as a range
+  // rather than "later than now" because the backoff uses *full* jitter — a
+  // uniform draw from [0, ceiling] — so a legitimate delay of zero exists and
+  // an assertion that excluded it would fail about one run in five.
+  const ceiling = Number(process.env['KVITTO_LLM_RETRY_BASE_MS']);
+  assert.ok(
+    job && job.nextAttemptAt >= before && job.nextAttemptAt <= after + ceiling,
+    `expected a retry scheduled within ${ceiling} ms of the attempt, got ${job?.nextAttemptAt} vs [${before}, ${after + ceiling}]`,
+  );
 
   await app.close();
 });
@@ -261,6 +272,7 @@ test('a failing model backs off and eventually parks the job', async () => {
   const parked = jobs.get('r-fail');
   assert.equal(parked?.attempts, 2);
   assert.equal(parked?.state, 'failed', 'KVITTO_LLM_MAX_ATTEMPTS=2, so it stops here');
+  assert.equal(parked?.nextAttemptAt, 0, 'a parked job carries no retry time at all');
   assert.match(parked?.lastError ?? '', /out of memory/);
 
   // And an operator can put it back. Other jobs from earlier tests may be
