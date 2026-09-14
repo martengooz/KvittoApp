@@ -5,7 +5,7 @@
  * reload and can be bookmarked or shared between the app's own screens.
  */
 
-import { formatDate, formatMoney, formatMonth, type Category, type Receipt, type Tag } from '@kvitto/shared';
+import { formatDate, formatMoney, formatMonth, type Category, type Receipt } from '@kvitto/shared';
 
 import { actionSheet, chip, emptyState, searchField } from '../components/ui.js';
 import { debounce, el, replaceChildren } from '../core/dom.js';
@@ -16,10 +16,9 @@ import type { RouteContext } from '../core/router.js';
 import { blobUrl } from '../db/blobs.js';
 import {
   categoriesById,
+  liveReceipts,
   receiptNeedsReview,
   searchReceipts,
-  tagIdsByReceipt,
-  tagsById,
   type ReceiptFilter,
   type ReceiptSortKey,
 } from '../db/queries.js';
@@ -39,8 +38,9 @@ export async function receiptsView(context: RouteContext): Promise<HTMLElement> 
   const unsubscribe = bus.on('data:changed', () => void refresh());
   router.onTeardown(unsubscribe);
 
-  const listHost = el('div', {});
+  const listHost = el('div', { class: 'receipt-list' });
   const summaryHost = el('div', {});
+  const filterPanel = el('div', { class: 'receipt-filter-panel', hidden: true });
 
   function updateUrl(): void {
     const params = paramsFromFilter(filter);
@@ -55,25 +55,15 @@ export async function receiptsView(context: RouteContext): Promise<HTMLElement> 
   }, 220);
 
   async function refresh(): Promise<void> {
-    const [receipts, categories, tags, tagLinks] = await Promise.all([
+    const [receipts, allReceipts, categories] = await Promise.all([
       searchReceipts(filter),
+      liveReceipts(),
       categoriesById(),
-      tagsById(),
-      tagIdsByReceipt(),
     ]);
 
-    const total = receipts.reduce((sum, receipt) => sum + (receipt.total ?? 0), 0);
-    replaceChildren(
-      summaryHost,
-      el(
-        'div',
-        { class: 'summary-bar' },
-        el('span', {}, `${receipts.length} kvitton`),
-        el('span', {}, el('strong', { text: formatMoney(total) })),
-      ),
-    );
+    replaceChildren(summaryHost, renderSummary(allReceipts, categories));
 
-    replaceChildren(listHost, await renderList(receipts, categories, tags, tagLinks));
+    replaceChildren(listHost, await renderList(receipts));
   }
 
   const onFilterChange = (): void => {
@@ -83,24 +73,126 @@ export async function receiptsView(context: RouteContext): Promise<HTMLElement> 
 
   replaceChildren(
     root,
+    summaryHost,
     el(
       'div',
-      { style: 'display:grid;gap:10px;margin-bottom:14px' },
-      searchField({
-        value: filter.query ?? '',
-        placeholder: 'Butik, vara eller anteckning',
-        label: 'Sök bland kvitton',
-        onInput: applySearch,
-      }),
-      renderQuickFilters(filter, onFilterChange),
-      el('div', { class: 'pad' }, renderSortRow(filter, onFilterChange)),
+      { class: 'receipt-tools' },
+      el(
+        'div',
+        { class: 'receipt-search-row' },
+        searchField({
+          value: filter.query ?? '',
+          placeholder: 'Sök butik eller vara',
+          label: 'Sök bland kvitton',
+          onInput: applySearch,
+        }),
+        el(
+          'button',
+          {
+            class: 'filter-button',
+            type: 'button',
+            'aria-label': 'Visa filter',
+            'aria-expanded': 'false',
+            on: {
+              click: (event) => {
+                filterPanel.hidden = !filterPanel.hidden;
+                (event.currentTarget as HTMLButtonElement).setAttribute(
+                  'aria-expanded',
+                  String(!filterPanel.hidden),
+                );
+              },
+            },
+          },
+          icon('filter', { size: 20 }),
+        ),
+      ),
+      filterPanel,
     ),
-    summaryHost,
     listHost,
+  );
+
+  replaceChildren(
+    filterPanel,
+    renderQuickFilters(filter, onFilterChange),
+    el('div', { class: 'pad' }, renderSortRow(filter, onFilterChange)),
   );
 
   await refresh();
   return root;
+}
+
+function renderSummary(receipts: Receipt[], categories: Map<string, Category>): HTMLElement {
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const today = now.toISOString().slice(0, 10);
+  const current = receipts.filter((receipt) => {
+    const date = receipt.purchasedAt?.slice(0, 10);
+    return date !== undefined && date >= monthStart && date <= today;
+  });
+  const total = current.reduce((sum, receipt) => sum + (receipt.total ?? 0), 0);
+  const totals = new Map<string, { name: string; amount: number }>();
+
+  for (const receipt of current) {
+    const category = receipt.categoryId ? categories.get(receipt.categoryId) : undefined;
+    const key = category?.id ?? 'other';
+    const entry = totals.get(key) ?? { name: category?.name ?? 'Övrigt', amount: 0 };
+    entry.amount += receipt.total ?? 0;
+    totals.set(key, entry);
+  }
+
+  const legend = [...totals.values()].sort((a, b) => b.amount - a.amount).slice(0, 4);
+  if (legend.length === 0) legend.push({ name: 'Inga köp ännu', amount: 0 });
+  const stops: string[] = [];
+  let cursor = 0;
+  legend.forEach((entry, index) => {
+    const end = total > 0 ? cursor + (entry.amount / total) * 100 : 100;
+    stops.push(`var(--k-ramp-${Math.min(index + 2, 5)}) ${cursor}% ${end}%`);
+    cursor = end;
+  });
+
+  const monthName = new Intl.DateTimeFormat('sv-SE', { month: 'long' }).format(now);
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousStart = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}-01`;
+  const previousEnd = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}-${String(Math.min(now.getDate(), new Date(previous.getFullYear(), previous.getMonth() + 1, 0).getDate())).padStart(2, '0')}`;
+  const previousTotal = receipts
+    .filter((receipt) => {
+      const date = receipt.purchasedAt?.slice(0, 10);
+      return date !== undefined && date >= previousStart && date <= previousEnd;
+    })
+    .reduce((sum, receipt) => sum + (receipt.total ?? 0), 0);
+  const difference = total - previousTotal;
+  const comparison = previousTotal === 0
+    ? `${current.length} kvitton hittills`
+    : `${formatMoney(Math.abs(difference))} ${difference >= 0 ? 'mer' : 'mindre'} än ${new Intl.DateTimeFormat('sv-SE', { month: 'long' }).format(previous)} vid samma datum`;
+
+  return el(
+    'section',
+    { class: 'receipt-summary' },
+    el('h2', { class: 'receipt-summary__title', text: `${monthName[0]?.toUpperCase() ?? ''}${monthName.slice(1)} hittills` }),
+    el(
+      'div',
+      { class: 'receipt-summary__content' },
+      el(
+        'div',
+        { class: 'receipt-donut', style: `background:conic-gradient(${stops.join(',')})` },
+        el('span', { text: formatMoney(total).replace(/\s*kr$/, '') }),
+      ),
+      el(
+        'div',
+        { class: 'receipt-legend' },
+        ...legend.map((entry, index) =>
+          el(
+            'div',
+            { class: 'receipt-legend__row' },
+            el('span', { class: `receipt-legend__dot receipt-legend__dot--${Math.min(index + 2, 5)}` }),
+            el('span', { class: 'truncate', text: entry.name }),
+            el('span', { class: 'receipt-legend__amount', text: formatMoney(entry.amount).replace(/\s*kr$/, '') }),
+          ),
+        ),
+      ),
+    ),
+    el('p', { class: 'receipt-summary__comparison', text: comparison }),
+  );
 }
 
 function renderQuickFilters(filter: ReceiptFilter, onChange: () => void): HTMLElement {
@@ -185,12 +277,7 @@ function renderSortRow(filter: ReceiptFilter, onChange: () => void): HTMLElement
   );
 }
 
-async function renderList(
-  receipts: Receipt[],
-  categories: Map<string, Category>,
-  tags: Map<string, Tag>,
-  tagLinks: Map<string, string[]>,
-): Promise<HTMLElement> {
+async function renderList(receipts: Receipt[]): Promise<HTMLElement> {
   if (receipts.length === 0) {
     return emptyState({
       icon: 'receipt',
@@ -205,7 +292,6 @@ async function renderList(
     });
   }
 
-  // Grouped by month into inset cards, the way a sectioned table view reads.
   const container = el('div', {});
   let currentMonth: string | null = null;
   let group: HTMLElement | null = null;
@@ -214,40 +300,39 @@ async function renderList(
     const month = receipt.purchasedAt?.slice(0, 7) ?? 'okänt';
     if (month !== currentMonth) {
       currentMonth = month;
-      container.appendChild(
-        el('h2', { class: 'section-heading', text: formatMonth(receipt.purchasedAt) }),
-      );
-      group = el('div', { class: 'inset-list' });
+      const monthReceipts = receipts.filter((candidate) => (candidate.purchasedAt?.slice(0, 7) ?? 'okänt') === month);
+      const reviewCount = monthReceipts.filter(receiptNeedsReview).length;
+      container.appendChild(el(
+        'div',
+        { class: 'section-heading' },
+        el('h2', { text: formatMonth(receipt.purchasedAt) }),
+        reviewCount > 0 ? el('span', { text: `${reviewCount} att granska` }) : null,
+      ));
+      group = el('div', { class: 'receipt-group' });
       container.appendChild(group);
     }
-    group?.appendChild(await renderCard(receipt, categories, tags, tagLinks));
+    group?.appendChild(await renderCard(receipt));
   }
   return container;
 }
 
-async function renderCard(
-  receipt: Receipt,
-  categories: Map<string, Category>,
-  tags: Map<string, Tag>,
-  tagLinks: Map<string, string[]>,
-): Promise<HTMLElement> {
+async function renderCard(receipt: Receipt): Promise<HTMLElement> {
   const thumb = await blobUrl(receipt.thumbId ?? receipt.imageId);
-  const category = receipt.categoryId ? categories.get(receipt.categoryId) : undefined;
-  const ownTags = (tagLinks.get(receipt.id) ?? [])
-    .map((id) => tags.get(id))
-    .filter((tag): tag is Tag => tag !== undefined);
+  const needsReview = receiptNeedsReview(receipt);
 
   return el(
     'button',
     {
-      class: 'receipt-card',
+      class: ['receipt-card', needsReview ? 'receipt-card--review' : ''],
       type: 'button',
       on: { click: () => router.navigate(`/receipt/${receipt.id}`) },
     },
     el(
       'span',
       { class: 'receipt-card__thumb' },
-      thumb
+      needsReview
+        ? icon('exclamation-triangle', { size: 20 })
+        : thumb
         ? el('img', { src: thumb, alt: '', loading: 'lazy', decoding: 'async' })
         : icon('receipt', { size: 20 }),
     ),
@@ -258,39 +343,15 @@ async function renderCard(
         class: 'receipt-card__title truncate',
         text: receipt.merchant.name ?? 'Okänd butik',
       }),
-      el(
-        'span',
-        { class: 'receipt-card__meta' },
-        [formatDate(receipt.purchasedAt), `${receipt.itemCount} varor`].join(' · '),
-      ),
-      el(
-        'span',
-        { class: 'receipt-card__tags' },
-        statusPill(receipt),
-        category
-          ? el(
-              'span',
-              { class: 'pill' },
-              el('span', { class: 'pill__dot', style: `background:${category.color}` }),
-              category.name,
-            )
-          : null,
-        ...ownTags.slice(0, 3).map((tag) =>
-          el('span', { class: 'pill' }, el('span', { class: 'pill__dot', style: `background:${tag.color}` }), tag.name),
-        ),
-      ),
+      el('span', {
+        class: ['receipt-card__meta', needsReview ? 'receipt-card__meta--review' : ''],
+        text: needsReview
+          ? 'Behöver granskas'
+          : [formatDate(receipt.purchasedAt), `${receipt.itemCount} varor`].join(' · '),
+      }),
     ),
     el('span', { class: 'receipt-card__amount', text: formatMoney(receipt.total, receipt.currency) }),
-    icon('chevron-right', { size: 12, className: 'row__chevron', weight: 2.4 }),
   );
-}
-
-function statusPill(receipt: Receipt): HTMLElement | null {
-  if (receipt.status === 'failed') return el('span', { class: 'pill pill--danger', text: 'Tolkning misslyckades' });
-  if (receipt.status === 'processing') return el('span', { class: 'pill pill--accent', text: 'Tolkar…' });
-  if (receipt.status === 'draft') return el('span', { class: 'pill pill--warning', text: 'Otolkat' });
-  if (receiptNeedsReview(receipt)) return el('span', { class: 'pill pill--warning', text: 'Granska' });
-  return null;
 }
 
 // --- URL <-> filter -------------------------------------------------------

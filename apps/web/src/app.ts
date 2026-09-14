@@ -140,8 +140,12 @@ function buildTabBar(): HTMLElement {
           dataset: { path: tab.path },
           on: { click: () => haptic('selection') },
         },
-        el('span', { class: 'nav-item__icon' }, icon(tab.icon, { size: 26, weight: 1.7 })),
-        el('span', { text: tab.label }),
+        el(
+          'span',
+          { class: ['nav-item__icon', tab.path === '/scan' ? 'nav-item__icon--scan' : ''] },
+          icon(tab.icon, { size: 24, weight: 2 }),
+        ),
+        el('span', { class: 'nav-item__label', text: tab.label }),
       ),
     ),
   );
@@ -171,6 +175,7 @@ function updateChrome(chrome: Chrome): void {
   const pushed = tab === undefined && pushedTitle !== undefined;
   chrome.header.dataset['pushed'] = String(pushed);
   chrome.largeTitle.hidden = pushed;
+  chrome.nav.hidden = pushed;
 
   if (pushed) {
     const settingsChild = base === '/debug-log' || base === '/pair-scan';
@@ -214,11 +219,27 @@ function updateChrome(chrome: Chrome): void {
 
 /** Compact sync indicator in the navigation bar. */
 async function updateStatus(slot: HTMLElement): Promise<void> {
+  const base = `/${location.hash.replace(/^#\/?/, '').split(/[/?]/)[0] ?? ''}`;
+  if (base === '/receipt') {
+    replaceChildren(
+      slot,
+      el('button', {
+        class: 'bar-edit-button',
+        type: 'button',
+        text: 'Redigera',
+        on: {
+          click: () => document.querySelector<HTMLElement>('.detail-edit-heading')?.scrollIntoView({ behavior: 'smooth' }),
+        },
+      }),
+    );
+    return;
+  }
+
   const state = await getSyncState();
   const pending = await countPending();
 
   if (state.status === 'unpaired') {
-    replaceChildren(slot);
+    replaceChildren(slot, el('span', { class: 'avatar-chip', text: 'K' }));
     return;
   }
 

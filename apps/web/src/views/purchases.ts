@@ -55,8 +55,8 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
   router.onTeardown(unsubscribe);
 
   const summaryHost = el('div', {});
-  const listHost = el('div', { class: 'inset-list' });
-  const filtersHost = el('div', { style: 'display:grid;gap:10px;margin-bottom:14px' });
+  const listHost = el('div', { class: 'purchase-list' });
+  const filtersHost = el('div', { class: 'purchase-filters' });
 
   function updateUrl(): void {
     const query = paramsFromFilter(filter).toString();
@@ -77,19 +77,7 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
   async function refresh(): Promise<void> {
     const [rows, categories] = await Promise.all([searchPurchases(filter), categoriesById()]);
 
-    const total = rows.reduce((sum, row) => sum + row.item.totalPrice, 0);
-    const quantity = rows.reduce((sum, row) => sum + (row.item.unit === 'st' ? row.item.quantity : 0), 0);
-
-    replaceChildren(
-      summaryHost,
-      el(
-        'div',
-        { class: 'summary-bar' },
-        el('span', {}, `${rows.length} rader`),
-        el('span', {}, el('strong', { text: formatMoney(total) })),
-        quantity > 0 ? el('span', { class: 'muted' }, `${formatQuantity(quantity)} st`) : null,
-      ),
-    );
+    replaceChildren(summaryHost, renderPurchaseHero(rows, filter.query));
 
     replaceChildren(listHost, renderRows(rows, categories, limit, () => {
       limit += PAGE_SIZE;
@@ -226,6 +214,63 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
   return root;
 }
 
+function renderPurchaseHero(rows: PurchaseRow[], query?: string): HTMLElement | null {
+  if (rows.length === 0) return null;
+  const queryMatches = query
+    ? rows.filter((row) => row.item.searchName.includes(query.toLocaleLowerCase('sv-SE')))
+    : rows;
+  const lead = queryMatches[0] ?? rows[0]!;
+  const source = rows.filter((row) => row.item.searchName === lead.item.searchName);
+  const chronological = [...source].sort((a, b) =>
+    (a.purchasedAt ?? '').localeCompare(b.purchasedAt ?? ''),
+  );
+  const prices = chronological
+    .map((row) => row.item.unitPrice ?? row.item.totalPrice / Math.max(row.item.quantity, 1))
+    .filter(Number.isFinite);
+  const average = prices.reduce((sum, price) => sum + price, 0) / Math.max(prices.length, 1);
+  const first = prices[0] ?? average;
+  const last = prices.at(-1) ?? average;
+  const change = first === 0 ? 0 : Math.round(((last - first) / first) * 100);
+  const samples = prices.slice(-9);
+  const max = Math.max(...samples, 1);
+  const item = lead.item;
+  const firstDate = chronological[0]?.purchasedAt;
+  const lastDate = chronological.at(-1)?.purchasedAt;
+
+  return el(
+    'section',
+    { class: 'purchase-hero' },
+    el(
+      'div',
+      { class: 'purchase-hero__heading' },
+      el('h2', { class: 'truncate', text: item.name }),
+      prices.length > 1
+        ? el('span', { class: 'purchase-hero__change', text: `${change >= 0 ? '+' : ''}${change} %` })
+        : null,
+    ),
+    el(
+      'div',
+      { class: 'purchase-hero__average' },
+      el('strong', { text: formatMoney(average).replace(/\s*kr$/, '') }),
+      el('span', { text: `kr/${formatUnit(item.unit) || 'st'} i snitt` }),
+    ),
+    el(
+      'div',
+      { class: 'purchase-hero__bars', 'aria-label': 'Prisutveckling' },
+      ...samples.map((price, index) =>
+        el('span', {
+          class: `purchase-hero__bar purchase-hero__bar--${Math.min(5, Math.floor(index / Math.max(samples.length / 5, 1)) + 1)}`,
+          style: `height:${Math.max(28, (price / max) * 100)}%`,
+        }),
+      ),
+    ),
+    el('p', {
+      class: 'purchase-hero__range',
+      text: firstDate && lastDate ? `${formatDate(firstDate)} — ${formatDate(lastDate)}` : `${rows.length} rader`,
+    }),
+  );
+}
+
 interface ChipOption {
   id: string;
   name: string;
@@ -273,7 +318,7 @@ function renderRows(
     });
   }
 
-  const container = el('div', {});
+  const container = el('div', { class: 'purchase-list__rows' });
   for (const row of rows.slice(0, limit)) {
     container.appendChild(renderRow(row, categories));
   }

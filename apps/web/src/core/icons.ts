@@ -31,6 +31,7 @@ export type IconName =
   | 'share'
   | 'crop'
   | 'arrow-up-arrow-down'
+  | 'filter'
   | 'cloud'
   | 'compass'
   | 'building';
@@ -124,6 +125,10 @@ const PATHS: Record<IconName, { d: string[]; fill?: boolean }> = {
   },
   'arrow-up-arrow-down': {
     d: ['M7 20V5', 'm3.5 8.5 3.5-4 3.5 4', 'M17 4v15', 'm13.5 15.5 3.5 4 3.5-4'],
+  },
+  filter: {
+    fill: true,
+    d: ['M3 5.25A1.25 1.25 0 0 1 4.25 4h15.5a1.25 1.25 0 0 1 .96 2.05L15 12.9v5.35a1 1 0 0 1-.45.84l-4 2.65A1 1 0 0 1 9 20.9v-8L3.29 6.05A1.25 1.25 0 0 1 3 5.25Z'],
   },
   cloud: {
     d: ['M7 18.5h10.2a3.8 3.8 0 0 0 .5-7.56 5.75 5.75 0 0 0-11.13-1.2A3.9 3.9 0 0 0 7 18.5Z'],

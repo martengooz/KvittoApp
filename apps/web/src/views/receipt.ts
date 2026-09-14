@@ -114,33 +114,66 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
   ): Promise<HTMLElement> {
     const { receipt, items } = bundle;
     const imageSrc = await blobUrl(receipt.imageId);
+    const imageDetails = imageSrc
+      ? el(
+          'details',
+          { class: 'list-group receipt-image-details' },
+          el('summary', {
+            class: 'list-group__title',
+            style: 'cursor:pointer;color:var(--tint)',
+            text: 'Kvittobild',
+          }),
+          el(
+            'div',
+            { class: 'pad' },
+            el('img', {
+              class: 'preview-image',
+              src: imageSrc,
+              alt: 'Skannat kvitto',
+              loading: 'lazy',
+            }),
+          ),
+        )
+      : null;
 
     return el(
       'div',
-      {},
+      { class: 'receipt-detail' },
       renderStatusBanner(receipt, parsing),
-      renderHeader(receipt),
-      imageSrc
-        ? el(
-            'details',
-            { class: 'list-group' },
-            el('summary', {
-              class: 'list-group__title',
-              style: 'cursor:pointer;color:var(--tint)',
-              text: 'Visa kvittobild',
-            }),
-            el(
-              'div',
-              { class: 'pad' },
-              el('img', {
-                class: 'preview-image',
-                src: imageSrc,
-                alt: 'Skannat kvitto',
-                loading: 'lazy',
-              }),
-            ),
-          )
-        : null,
+      renderPaper(receipt, items),
+      renderPaperChips(receipt, bundle.tags, categories),
+      el(
+        'div',
+        { class: 'receipt-primary-actions' },
+        receipt.status !== 'confirmed'
+          ? el('button', {
+              class: 'btn btn--primary grow',
+              type: 'button',
+              text: 'Allt stämmer',
+              on: {
+                click: () => {
+                  void updateReceipt(receipt.id, { status: 'confirmed' });
+                  toast('Markerat som granskat.', { kind: 'success' });
+                },
+              },
+            })
+          : el('div', { class: 'receipt-reviewed', text: `Granskat ${formatDate(receipt.purchasedAt)}` }),
+        imageDetails
+          ? el('button', {
+              class: 'btn receipt-image-button',
+              type: 'button',
+              text: 'Bild',
+              on: {
+                click: () => {
+                  imageDetails.open = !imageDetails.open;
+                  if (imageDetails.open) imageDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                },
+              },
+            })
+          : null,
+      ),
+      imageDetails,
+      el('h2', { class: 'detail-edit-heading', text: 'Redigera uppgifter' }),
       renderFacts(receipt, categories),
       renderCompany(receipt, bundle.company),
       renderTags(receipt.id, bundle.tags, tags),
@@ -149,6 +182,125 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       renderReading(receipt),
       renderProvenance(receipt),
       renderActions(receipt),
+    );
+  }
+
+  function renderPaper(receipt: Receipt, items: ReceiptItem[]): HTMLElement {
+    const visibleItems = items.slice(0, 6);
+    const hiddenCount = Math.max(0, items.length - visibleItems.length);
+    const itemTotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+
+    return el(
+      'section',
+      { class: 'receipt-paper' },
+      el('input', {
+        class: 'receipt-paper__merchant',
+        type: 'text',
+        value: receipt.merchant.name ?? '',
+        placeholder: 'Butikens namn',
+        'aria-label': 'Butik',
+        on: {
+          change: (event) => {
+            const name = (event.target as HTMLInputElement).value.trim() || null;
+            void updateReceipt(receipt.id, { merchant: { ...receipt.merchant, name } });
+          },
+        },
+      }),
+      el('p', {
+        class: 'receipt-paper__meta',
+        text: [receipt.merchant.city, receipt.merchant.orgNumber ? `ORG ${receipt.merchant.orgNumber}` : null]
+          .filter(Boolean)
+          .join(' · '),
+      }),
+      el('p', {
+        class: 'receipt-paper__meta receipt-paper__meta--date',
+        text: [receipt.purchasedAt?.replace('T', ' ').slice(0, 16), receipt.paymentMethod]
+          .filter(Boolean)
+          .join(' · '),
+      }),
+      el(
+        'div',
+        { class: 'receipt-paper__items' },
+        ...visibleItems.map((item) =>
+          el(
+            'div',
+            { class: ['receipt-paper__item', item.isDiscount ? 'receipt-paper__item--discount' : ''] },
+            el(
+              'span',
+              {},
+              item.name,
+              item.quantity !== 1 || item.unit !== 'st'
+                ? el('small', { text: ` ${formatQuantity(item.quantity)} ${formatUnit(item.unit)}` })
+                : null,
+            ),
+            el('span', { text: formatMoney(item.totalPrice, receipt.currency).replace(/\s*kr$/, '') }),
+          ),
+        ),
+        hiddenCount > 0
+          ? el(
+              'div',
+              { class: 'receipt-paper__item receipt-paper__item--more' },
+              el('span', { text: `+ ${hiddenCount} rader` }),
+              el('span', { text: formatMoney(items.slice(6).reduce((sum, item) => sum + item.totalPrice, 0)).replace(/\s*kr$/, '') }),
+            )
+          : null,
+      ),
+      el(
+        'div',
+        { class: 'receipt-paper__totals' },
+        paperTotalRow('Varor', receipt.subtotal ?? itemTotal, receipt.currency),
+        receipt.roundingAmount ? paperTotalRow('Öresavrundning', receipt.roundingAmount, receipt.currency) : null,
+        receipt.depositTotal ? paperTotalRow('Varav pant', receipt.depositTotal, receipt.currency) : null,
+        el(
+          'div',
+          { class: 'receipt-paper__pay' },
+          el('strong', { text: 'ATT BETALA' }),
+          el('strong', { text: formatMoney(receipt.total, receipt.currency).replace(/\s*kr$/, '') }),
+        ),
+      ),
+      el(
+        'div',
+        { class: 'receipt-paper__footer' },
+        el(
+          'div',
+          {},
+          ...receipt.vatLines.map((line) =>
+            el('span', { text: `MOMS ${line.rate}% · ${formatMoney(line.vat, receipt.currency).replace(/\s*kr$/, '')}` }),
+          ),
+        ),
+        receipt.status === 'confirmed'
+          ? el('span', { class: 'receipt-paper__status', text: `Granskat ${formatDate(receipt.purchasedAt)}` })
+          : null,
+      ),
+    );
+  }
+
+  function paperTotalRow(label: string, amount: number, currency: string): HTMLElement {
+    return el(
+      'div',
+      { class: 'receipt-paper__total-row' },
+      el('span', { text: label }),
+      el('span', { text: formatMoney(amount, currency).replace(/\s*kr$/, '') }),
+    );
+  }
+
+  function renderPaperChips(receipt: Receipt, currentTags: Tag[], categories: Category[]): HTMLElement {
+    const receiptCategories = categories.filter((category) => category.scope !== 'item');
+    const currentCategory = receiptCategories.find((category) => category.id === receipt.categoryId);
+    return el(
+      'div',
+      { class: 'receipt-paper-chips' },
+      currentCategory ? el('span', { class: 'chip chip--active', text: currentCategory.name }) : null,
+      ...currentTags.slice(0, 2).map((tag) => el('span', { class: 'chip', text: tag.name })),
+      el('button', {
+        class: 'chip',
+        type: 'button',
+        text: '+',
+        'aria-label': 'Redigera kategori och etiketter',
+        on: {
+          click: () => document.querySelector<HTMLElement>('.detail-edit-heading')?.scrollIntoView({ behavior: 'smooth' }),
+        },
+      }),
     );
   }
 
@@ -187,29 +339,6 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       });
     }
     return null;
-  }
-
-  function renderHeader(receipt: Receipt): HTMLElement {
-    return el(
-      'div',
-      { class: 'detail-hero' },
-      el('input', {
-        class: 'detail-merchant',
-        type: 'text',
-        value: receipt.merchant.name ?? '',
-        placeholder: 'Butikens namn',
-        'aria-label': 'Butik',
-        on: {
-          change: (event) => {
-            const name = (event.target as HTMLInputElement).value.trim() || null;
-            void updateReceipt(receipt.id, { merchant: { ...receipt.merchant, name } });
-          },
-        },
-      }),
-      receipt.total === null
-        ? el('div', { class: 'detail-total muted', text: 'Inget belopp än' })
-        : el('div', { class: 'detail-total', text: formatMoney(receipt.total, receipt.currency) }),
-    );
   }
 
   function renderFacts(receipt: Receipt, categories: Category[]): HTMLElement {

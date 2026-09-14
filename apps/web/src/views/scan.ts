@@ -324,17 +324,31 @@ export function scanView(): HTMLElement {
   }
 
   function renderIdle(): HTMLElement {
-    const cv = cvClient.status;
-    const aiReady = isAiConfigured();
-
     return el(
-      'div',
-      { class: 'scan-hero' },
+      'section',
+      { class: 'scan-capture' },
+      el(
+        'header',
+        { class: 'scan-capture__header' },
+        el('h2', { text: 'Skanna kvitto' }),
+        el('button', {
+          type: 'button',
+          text: 'Avbryt',
+          on: { click: () => router.navigate('/receipts') },
+        }),
+      ),
+      el(
+        'div',
+        { class: 'scan-viewfinder' },
+        el('div', { class: 'scan-viewfinder__paper' }),
+        el('span', { class: 'scan-viewfinder__hint', text: 'Håll kvar — beskär automatiskt' }),
+      ),
       el(
         'button',
         {
-          class: 'scan-button',
+          class: 'scan-shutter',
           type: 'button',
+          'aria-label': 'Öppna kameran',
           on: {
             click: () => {
               haptic('impact');
@@ -342,52 +356,32 @@ export function scanView(): HTMLElement {
             },
           },
         },
-        icon('camera', { size: 56, className: 'scan-button__icon', weight: 1.4 }),
-        el('span', { text: 'Skanna kvitto' }),
+        icon('camera', { size: 30, weight: 2 }),
       ),
-      el('p', { class: 'muted', style: 'font-size:15px;max-width:30ch',
-        text: 'Lägg kvittot på ett jämnt underlag och håll kameran rakt ovanför.' }),
-      el('button', {
-        class: 'btn btn--plain',
-        type: 'button',
-        text: 'Välj bild från galleriet',
-        on: { click: () => openFilePicker('library') },
-      }),
       el(
         'div',
-        { class: 'status-line', style: 'margin-top:8px' },
-        el('span', {
-          class: [
-            'status-dot',
-            cv.ready ? 'status-dot--ok' : cv.loading ? 'status-dot--busy' : 'status-dot--warn',
-          ],
+        { class: 'scan-capture__tools' },
+        el('button', {
+          type: 'button',
+          text: 'Galleri',
+          on: { click: () => openFilePicker('library') },
         }),
-        el('span', {
-          text: cv.ready
-            ? 'Bildbehandling redo — fungerar offline'
-            : cv.loading
-              ? 'Förbereder bildbehandling…'
-              : 'Bildbehandling laddas vid första skanningen',
+        el('button', {
+          type: 'button',
+          text: 'Flera sidor',
+          title: 'Flersidiga kvitton stöds inte ännu',
+          'aria-disabled': 'true',
+          on: { click: () => toast('Flersidiga kvitton stöds inte ännu.', { kind: 'info' }) },
+        }),
+        el('button', {
+          type: 'button',
+          text: 'Blixt',
+          title: 'Blixt kan väljas när kameran är öppen',
+          'aria-disabled': 'true',
+          on: { click: () => toast('Blixt kan väljas när kameran är öppen.', { kind: 'info' }) },
         }),
       ),
-      aiReady
-        ? null
-        : el(
-            'div',
-            { style: 'margin-top:12px;text-align:left;width:100%' },
-            banner({
-              tone: 'info',
-              title: 'Ingen AI-tolkning inställd',
-              body: 'Du kan skanna och spara ändå — och fylla i uppgifterna själv.',
-              actions: el('button', {
-                class: 'btn btn--sm btn--plain',
-                type: 'button',
-                style: 'padding-left:0;margin-top:4px',
-                text: 'Öppna inställningar',
-                on: { click: () => router.navigate('/settings') },
-              }),
-            }),
-          ),
+      el('p', { class: 'scan-capture__offline', text: 'Fungerar offline. Bilden stannar på telefonen.' }),
     );
   }
 
@@ -396,15 +390,13 @@ export function scanView(): HTMLElement {
     if (stream) video.srcObject = stream;
 
     return el(
-      'div',
-      { class: 'camera-stage' },
-      video,
-      el('p', { class: 'camera-hint', text: 'Få med hela kvittot i bild' }),
+      'section',
+      { class: 'scan-capture scan-capture--live' },
       el(
-        'div',
-        { class: 'camera-controls' },
+        'header',
+        { class: 'scan-capture__header' },
+        el('h2', { text: 'Skanna kvitto' }),
         el('button', {
-          class: 'camera-button',
           type: 'button',
           text: 'Avbryt',
           on: {
@@ -415,8 +407,18 @@ export function scanView(): HTMLElement {
             },
           },
         }),
-        el('button', {
-          class: 'shutter',
+      ),
+      el(
+        'div',
+        { class: 'camera-stage' },
+        video,
+        el('div', { class: 'camera-frame' }),
+        el('p', { class: 'camera-hint', text: 'Håll kvar — beskär automatiskt' }),
+      ),
+      el(
+        'button',
+        {
+          class: 'scan-shutter',
           type: 'button',
           'aria-label': 'Ta bild',
           on: {
@@ -425,23 +427,36 @@ export function scanView(): HTMLElement {
               void captureFrame(video);
             },
           },
-        }),
-        el(
-          'button',
-          {
-            class: 'camera-button',
-            type: 'button',
-            'aria-label': 'Välj från galleriet',
-            on: {
-              click: () => {
-                stopCamera();
-                openFilePicker('library');
-              },
+        },
+        icon('camera', { size: 30, weight: 2 }),
+      ),
+      el(
+        'div',
+        { class: 'scan-capture__tools' },
+        el('button', {
+          type: 'button',
+          text: 'Galleri',
+          on: {
+            click: () => {
+              stopCamera();
+              openFilePicker('library');
             },
           },
-          icon('photo', { size: 26 }),
-        ),
+        }),
+        el('button', {
+          type: 'button',
+          text: 'Flera sidor',
+          'aria-disabled': 'true',
+          on: { click: () => toast('Flersidiga kvitton stöds inte ännu.', { kind: 'info' }) },
+        }),
+        el('button', {
+          type: 'button',
+          text: 'Blixt',
+          'aria-disabled': 'true',
+          on: { click: () => toast('Blixt stöds inte av den här kameravyn ännu.', { kind: 'info' }) },
+        }),
       ),
+      el('p', { class: 'scan-capture__offline', text: 'Fungerar offline. Bilden stannar på telefonen.' }),
     );
   }
 
@@ -463,8 +478,14 @@ export function scanView(): HTMLElement {
     const preview = state.showOriginal ? buildCropEditor() : buildProcessedPreview(result);
 
     return el(
-      'div',
-      { class: 'crop' },
+      'section',
+      { class: 'crop scan-review' },
+      el(
+        'header',
+        { class: 'scan-review__header' },
+        el('h2', { text: 'Ser det rätt ut?' }),
+        el('p', { text: 'Kontrollera beskärningen innan kvittot sparas.' }),
+      ),
       lowConfidence
         ? banner({
             tone: 'warning',
@@ -473,17 +494,43 @@ export function scanView(): HTMLElement {
           })
         : null,
       ...result.notes.map((note) => banner({ tone: 'info', body: note })),
-      preview,
       el(
         'div',
-        { class: 'stack stack--wrap', style: 'justify-content:center' },
+        { class: 'scan-review__image-card' },
+        el('div', { class: 'scan-review__preview' }, preview),
+        el(
+          'div',
+          { class: 'scan-review__image-copy' },
+          el('strong', { text: state.showOriginal ? 'Justera kvittots hörn' : 'Bilden är beskuren' }),
+          el('span', {
+            text: `${result.width}×${result.height} · ${formatBytes(result.blob.size)} · ${result.durationMs} ms`,
+          }),
+          el('button', {
+            class: 'btn btn--sm',
+            type: 'button',
+            text: state.showOriginal ? 'Visa resultat' : 'Justera hörn',
+            on: {
+              click: () => {
+                state.showOriginal = !state.showOriginal;
+                render();
+              },
+            },
+          }),
+        ),
+      ),
+      el(
+        'div',
+        { class: 'scan-review__utilities' },
         el('button', {
-          class: 'btn btn--sm',
+          class: 'btn btn--plain btn--sm',
           type: 'button',
-          text: state.showOriginal ? 'Visa resultat' : 'Justera hörn',
+          text: 'Ta om',
           on: {
             click: () => {
-              state.showOriginal = !state.showOriginal;
+              releaseUrls();
+              state.source = null;
+              state.result = null;
+              state.stage = 'idle';
               render();
             },
           },
@@ -505,40 +552,20 @@ export function scanView(): HTMLElement {
           icon('rotate', { size: 18 }),
           el('span', { text: 'Rotera' }),
         ),
-        el('button', {
-          class: 'btn btn--sm',
-          type: 'button',
-          text: 'Ta om',
-          on: {
-            click: () => {
-              releaseUrls();
-              state.source = null;
-              state.result = null;
-              state.stage = 'idle';
-              render();
-            },
-          },
-        }),
-      ),
-      el(
-        'p',
-        { class: 'faint' },
-        `${result.width}×${result.height} px · ${formatBytes(result.blob.size)} · ` +
-          `${describeDetection(result)} · ${result.durationMs} ms`,
       ),
       el(
         'div',
-        { class: 'stack' },
+        { class: 'scan-review__actions' },
         el('button', {
-          class: 'btn grow',
+          class: 'btn',
           type: 'button',
-          text: 'Spara utan tolkning',
+          text: 'Senare',
           on: { click: () => void save(false) },
         }),
         el('button', {
           class: 'btn btn--primary grow',
           type: 'button',
-          text: isAiConfigured() ? 'Spara och tolka' : 'Spara',
+          text: 'Spara kvitto',
           on: {
             click: () => {
               haptic('impact');
@@ -602,22 +629,6 @@ export function scanView(): HTMLElement {
 
   render();
   return root;
-}
-
-function describeDetection(result: PipelineResult): string {
-  const engine = result.engine === 'opencv' ? 'OpenCV' : 'canvas';
-  switch (result.detection) {
-    case 'paper':
-      return `${engine}, kvitto hittat`;
-    case 'contour':
-      return `${engine}, kanter hittade`;
-    case 'threshold':
-      return `${engine}, kanter via tröskling`;
-    case 'manual':
-      return `${engine}, egna hörn`;
-    default:
-      return `${engine}, hela bilden`;
-  }
 }
 
 /**

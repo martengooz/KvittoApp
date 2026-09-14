@@ -106,7 +106,17 @@ export interface CompanySettings {
 export const DEFAULT_SEARCH_BUDGET = 8;
 
 export interface UiSettings {
-  theme: 'system' | 'light' | 'dark';
+  theme:
+    | 'system'
+    | 'light'
+    | 'dark'
+    | 'rabarber'
+    | 'lingon'
+    | 'pantgron'
+    | 'blabar'
+    | 'hjortron'
+    | 'svartvinbar'
+    | 'krusbar';
   /** Show discount and pant rows in the purchases list. */
   showAuxiliaryLines: boolean;
 }
@@ -152,7 +162,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     syncImages: true,
   },
   ui: {
-    theme: 'system',
+    theme: 'rabarber',
     showAuxiliaryLines: false,
   },
 };

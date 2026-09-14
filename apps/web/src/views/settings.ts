@@ -727,6 +727,18 @@ async function renderStorageSection(refresh: () => Promise<void>): Promise<HTMLE
 
 function renderAppearanceSection(): HTMLElement {
   const { ui } = getSettings();
+  const themes = [
+    { value: 'rabarber', label: 'Rabarber', color: '#b33049' },
+    { value: 'lingon', label: 'Lingon', color: '#8e2f3f' },
+    { value: 'pantgron', label: 'Pantgrön', color: '#1f4d3a' },
+    { value: 'blabar', label: 'Blåbär', color: '#2e3a64' },
+    { value: 'hjortron', label: 'Hjortron', color: '#8f5a07' },
+    { value: 'svartvinbar', label: 'Svartvinbär', color: '#57265f' },
+    { value: 'krusbar', label: 'Krusbär', color: '#4c621a' },
+  ] as const;
+  const selected = ui.theme === 'system' || ui.theme === 'light' || ui.theme === 'dark'
+    ? 'rabarber'
+    : ui.theme;
 
   return listGroup(
     { title: 'Utseende' },
@@ -734,16 +746,24 @@ function renderAppearanceSection(): HTMLElement {
       'div',
       { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:8px' },
       el('span', { class: 'row__label', style: 'flex:none', text: 'Tema' }),
-      segmented({
-        label: 'Tema',
-        value: ui.theme,
-        options: [
-          { value: 'system', label: 'System' },
-          { value: 'light', label: 'Ljust' },
-          { value: 'dark', label: 'Mörkt' },
-        ],
-        onChange: (value) => void updateSettings({ ui: { theme: value } }),
-      }),
+      el(
+        'div',
+        { class: 'theme-picker', role: 'radiogroup', 'aria-label': 'Tema' },
+        ...themes.map((theme) =>
+          el(
+            'button',
+            {
+              class: 'theme-picker__option',
+              type: 'button',
+              role: 'radio',
+              'aria-checked': String(selected === theme.value),
+              on: { click: () => void updateSettings({ ui: { theme: theme.value } }) },
+            },
+            el('span', { class: 'theme-picker__swatch', style: `background:${theme.color}` }),
+            el('span', { text: theme.label }),
+          ),
+        ),
+      ),
     ),
     switchRow({
       label: 'Visa rabatt- och pantrader',
