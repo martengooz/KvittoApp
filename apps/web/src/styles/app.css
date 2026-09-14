@@ -2620,6 +2620,36 @@ input.detail-merchant {
   margin-top: 8px;
 }
 
+/* --- unattended import ------------------------------------------------- */
+
+.scan-import {
+  gap: 4px;
+}
+
+.scan-import .truncate {
+  max-width: 100%;
+}
+
+/* Determinate, unlike the navigation bar's AI strip: the batch knows how many
+   images are left, and a count that visibly advances is what makes an
+   unattended import feel like progress rather than a hang. */
+.scan-import__bar {
+  width: min(280px, 80%);
+  height: 4px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--fill-tertiary);
+  overflow: hidden;
+}
+
+.scan-import__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tint);
+  transition: width 0.25s ease-out;
+}
+
 .scan-review__actions .btn {
   min-height: 50px;
   font-size: 14px;

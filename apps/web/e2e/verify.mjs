@@ -89,9 +89,23 @@ await context.route('**/__fixture/*', (route) => {
 });
 
 const page = await context.newPage();
+
+/**
+ * Console lines that are not faults.
+ *
+ * Tesseract reports what it inferred about the page — resolution, diacritics —
+ * through `console.error`, so a successful reading looks like a failure here.
+ * The scan flow now runs a reading on every imported image, which would make
+ * every run "fail" on a library's chatter.
+ */
+const CONSOLE_NOISE = [/^Estimating resolution as /, /^Detected \d+ diacritics/];
+
 const errors = [];
 page.on('console', (msg) => {
-  if (msg.type() === 'error') errors.push(`console: ${msg.text()}`);
+  if (msg.type() !== 'error') return;
+  const text = msg.text();
+  if (CONSOLE_NOISE.some((pattern) => pattern.test(text))) return;
+  errors.push(`console: ${text}`);
 });
 page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
 
@@ -105,7 +119,7 @@ try {
     ['#/purchases', '.empty-state, .purchase-row'],
     ['#/collections', '.stat-grid'],
     ['#/settings', '.list-group'],
-    ['#/scan', '.scan-button'],
+    ['#/scan', '.scan-shutter'],
   ]) {
     await page.goto(`${BASE}/${hash}`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector(marker, { timeout: 20_000 });
@@ -130,7 +144,7 @@ try {
   if (fixtures.length === 0) fail('no fixture receipts found');
 
   if (PIPELINE) await runPipelineSweep(page, fixtures);
-  await runScanFlow(page, fixtures[0]);
+  await runScanFlow(page, fixtures);
 
   if (errors.length > 0) fail(`page reported errors:\n${errors.join('\n')}`);
   log('OK');
@@ -142,7 +156,7 @@ try {
 /** Pushes every fixture through the CV pipeline and saves the output. */
 async function runPipelineSweep(page, fixtures) {
   await page.goto(`${BASE}/#/scan`, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('.scan-button');
+  await page.waitForSelector('.scan-shutter');
 
   const warm = await page.evaluate(async () => {
     const { cvClient } = await import('/src/cv/client.ts');
@@ -220,30 +234,59 @@ async function runPipelineSweep(page, fixtures) {
   if (slowest > 8000) fail(`pipeline is too slow: ${slowest} ms on the slowest fixture`);
 }
 
-/** Walks the capture -> review -> save flow the way a user would. */
-async function runScanFlow(page, fixture) {
+/**
+ * Walks both ways in: the camera path, which still reviews one capture, and
+ * the gallery path, which takes several images and files them unattended.
+ *
+ * Headless Chromium has no camera, so `getUserMedia` rejects and the shutter
+ * falls back to the native picker — which is exactly the fallback the scan
+ * screen promises, so driving the shutter here tests the real code path.
+ */
+async function runScanFlow(page, fixtures) {
   await page.goto(`${BASE}/#/scan`, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('.scan-button');
+  await page.waitForSelector('.scan-shutter');
 
-  const chooser = page.waitForEvent('filechooser');
-  await page.click('button:has-text("Välj bild från galleriet")');
-  await (await chooser).setFiles(join(FIXTURES, fixture));
+  // --- camera: one capture, reviewed before it is saved --------------------
+  const cameraChooser = page.waitForEvent('filechooser');
+  await page.click('.scan-shutter');
+  const camera = await cameraChooser;
+  if (camera.isMultiple()) fail('the camera picker must take a single frame');
+  await camera.setFiles(join(FIXTURES, fixtures[0]));
 
   await page.waitForSelector('.preview-image', { timeout: 90_000 });
-  const caption = await page.textContent('.faint');
-  log(`review screen: ${caption?.trim()}`);
-  if (caption && caption.includes('canvas')) {
-    fail(`the built app fell back to the canvas pipeline: ${caption.trim()}`);
-  }
+  const notes = await page.locator('.banner--info').allTextContents();
+  log(`review screen: ${await page.textContent('.scan-review__image-copy span')}`);
+  const degraded = notes.find((note) => note.includes('OpenCV'));
+  if (degraded) fail(`the built app fell back to the canvas pipeline: ${degraded.trim()}`);
   await page.screenshot({ path: join(OUT, 'screen-review.png') });
 
-  await page.click('button:has-text("Spara utan tolkning")');
+  await page.click('button:has-text("Senare")');
   await page.waitForSelector('.receipt-paper', { timeout: 20_000 });
-  log('receipt saved, detail view opened');
+  log('capture reviewed and saved, detail view opened');
   await page.screenshot({ path: join(OUT, 'screen-detail.png'), fullPage: true });
 
-  await page.goto(`${BASE}/#/receipts`, { waitUntil: 'domcontentloaded' });
+  // --- gallery: several images, each its own receipt, no prompts -----------
+  const batch = fixtures.slice(1, 3);
+  if (batch.length < 2) fail('need at least three fixtures to test a multi-image upload');
+
+  await page.goto(`${BASE}/#/scan`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.scan-shutter');
+  const galleryChooser = page.waitForEvent('filechooser');
+  await page.click('button:has-text("Galleri")');
+  const gallery = await galleryChooser;
+  if (!gallery.isMultiple()) fail('the gallery picker must accept several images');
+  await gallery.setFiles(batch.map((name) => join(FIXTURES, name)));
+
+  await page.waitForSelector('.scan-import', { timeout: 30_000 });
+  await page.screenshot({ path: join(OUT, 'screen-import.png') });
+  // The import sends the user to the list itself once every image is filed.
+  await page.waitForFunction(() => location.hash.startsWith('#/receipts'), null, { timeout: 180_000 });
+  log(`${batch.length} images imported without a review prompt`);
+
   await page.waitForSelector('.receipt-card', { timeout: 20_000 });
-  log('receipt appears in the list');
+  const cards = await page.locator('.receipt-card').count();
+  const expected = 1 + batch.length;
+  if (cards !== expected) fail(`expected ${expected} receipts in the list, found ${cards}`);
+  log(`receipts in the list: ${cards}`);
   await page.screenshot({ path: join(OUT, 'screen-list.png') });
 }
