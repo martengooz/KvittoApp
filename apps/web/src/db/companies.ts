@@ -10,11 +10,15 @@
 
 import {
   checkOrgNumber,
+  foldForMatching,
   matchCompanyName,
+  merchantNameCandidates,
   newId,
   EMPTY_SYNC_META,
+  NAME_MATCH_THRESHOLD,
   type Company,
   type ID,
+  type NameCandidate,
 } from '@kvitto/shared';
 
 import { bus } from '../core/events.js';
@@ -22,7 +26,9 @@ import { getSettings } from '../core/settings.js';
 import {
   CompanyLookupError,
   lookupCompany,
+  searchCompanies,
   type CompanyRecord,
+  type CompanySearchHit,
   type LookupFailure,
 } from '../api/apiverket.js';
 import { db, getKv, setKv } from './db.js';
@@ -33,7 +39,26 @@ const NEGATIVE_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
 /** kv key holding org numbers the registry did not know, and when. */
 const MISSES_KEY = 'companies:misses';
 
+/** kv key mapping a folded search term to the organisation number it found. */
+const NAME_INDEX_KEY = 'companies:names';
+
+/** kv key holding the rolling daily count of name searches. */
+const SEARCH_BUDGET_KEY = 'companies:searchBudget';
+
 type MissCache = Record<string, number>;
+
+/**
+ * A resolved search term. `null` records that the term found nothing, which is
+ * just as valuable to remember — the whole point is never to spend the same
+ * search twice.
+ */
+type NameIndex = Record<string, { digits: string | null; at: number }>;
+
+interface SearchBudget {
+  /** Local calendar day, `YYYY-MM-DD`. */
+  day: string;
+  used: number;
+}
 
 /** Reads a stored company by organisation number, in any format. */
 export async function getCompany(orgNumber: string): Promise<Company | undefined> {
@@ -158,6 +183,178 @@ async function corroborate(company: Company, receiptText?: string): Promise<Comp
   return updated;
 }
 
+// --- resolving by name ----------------------------------------------------
+
+/** How long a resolved (or unresolved) search term is trusted. */
+const NAME_CACHE_MS = 180 * 24 * 60 * 60 * 1000;
+
+/** Searches attempted for one receipt before giving up. */
+const MAX_ATTEMPTS_PER_RECEIPT = 2;
+
+export type NameResolveOutcome =
+  | { status: 'cached' | 'fetched'; company: Company; via: NameCandidate; score: number }
+  | { status: 'skipped'; reason: LookupFailure };
+
+export interface ResolveByNameOptions {
+  /** The full OCR text, used both to pick candidates and to verify the answer. */
+  receiptText: string;
+  signal?: AbortSignal;
+  /** Overrides {@link DEFAULT_SEARCH_BUDGET}. */
+  dailyBudget?: number;
+}
+
+/**
+ * Finds a company from the shop's name when the organisation number could not
+ * be read.
+ *
+ * The name is not verifiable the way a checksummed number is, so this is
+ * strictly the weaker path and it is guarded at both ends: candidates that look
+ * like OCR noise never reach the API, and a hit is only accepted if the
+ * registered name it comes back with can be found in the receipt's own text.
+ * A search that resolves is remembered forever, so the second receipt from that
+ * shop costs nothing.
+ */
+export async function resolveCompanyByName(
+  options: ResolveByNameOptions,
+): Promise<NameResolveOutcome> {
+  const candidates = merchantNameCandidates(options.receiptText)
+    .filter((candidate) => candidate.searchable)
+    .slice(0, MAX_ATTEMPTS_PER_RECEIPT);
+
+  if (candidates.length === 0) return { status: 'skipped', reason: 'no-query' };
+
+  // The cache first, for every candidate, before spending anything.
+  const index = await getKv<NameIndex>(NAME_INDEX_KEY, {});
+  const unknown: NameCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const entry = index[foldForMatching(candidate.query)];
+    if (!entry || Date.now() - entry.at > NAME_CACHE_MS) {
+      unknown.push(candidate);
+      continue;
+    }
+    if (!entry.digits) continue; // Known to find nothing.
+
+    const stored = await db.companies.get(entry.digits);
+    if (stored && stored.deletedAt === 0) {
+      const updated = await corroborate(stored, options.receiptText);
+      const match = matchCompanyName(updated.name, options.receiptText);
+      return { status: 'cached', company: updated, via: candidate, score: match.score };
+    }
+    // The mapping survived but the company row did not; re-fetch it by number,
+    // which uses the plentiful quota rather than the scarce one.
+    const outcome = await resolveCompany(entry.digits, { receiptText: options.receiptText });
+    if (outcome.status !== 'skipped') {
+      const match = matchCompanyName(outcome.company.name, options.receiptText);
+      return { status: outcome.status, company: outcome.company, via: candidate, score: match.score };
+    }
+  }
+
+  if (unknown.length === 0) return { status: 'skipped', reason: 'not-found' };
+
+  const settings = getSettings();
+  if (!settings.company.apiKey.trim()) return { status: 'skipped', reason: 'not-configured' };
+  if (!settings.company.nameSearch) return { status: 'skipped', reason: 'not-configured' };
+
+  let lastFailure: LookupFailure = 'not-found';
+
+  for (const candidate of unknown) {
+    const budget = options.dailyBudget ?? settings.company.searchBudget;
+    if (!(await spendSearch(budget))) return { status: 'skipped', reason: 'budget-spent' };
+
+    let hits: CompanySearchHit[];
+    try {
+      hits = await searchCompanies(candidate.query, {
+        apiKey: settings.company.apiKey,
+        baseUrl: settings.company.baseUrl,
+        signal: options.signal,
+      });
+    } catch (error) {
+      lastFailure = error instanceof CompanyLookupError ? error.failure : 'unavailable';
+      // A quota or network failure says nothing about the term, so it is not
+      // cached — only a clean "no such company" is.
+      if (lastFailure === 'not-found') await rememberName(candidate.query, null);
+      continue;
+    }
+
+    const best = pickHit(hits, options.receiptText);
+    if (!best) {
+      await rememberName(candidate.query, null);
+      continue;
+    }
+
+    await rememberName(candidate.query, best.hit.digits);
+    // Go through the by-number path so the stored record always comes from the
+    // same endpoint, with the same fields, however it was found.
+    const outcome = await resolveCompany(best.hit.digits, {
+      receiptText: options.receiptText,
+      signal: options.signal,
+    });
+    if (outcome.status === 'skipped') {
+      lastFailure = outcome.reason;
+      continue;
+    }
+    return { status: outcome.status, company: outcome.company, via: candidate, score: best.score };
+  }
+
+  return { status: 'skipped', reason: lastFailure };
+}
+
+/**
+ * Chooses the search hit whose registered name actually appears on the receipt.
+ *
+ * A substring search for `BAUHAUS` returns every company with those letters in
+ * its name, and the receipt itself is the only evidence about which one served
+ * this customer. A hit that cannot be found in the text is rejected outright
+ * rather than accepted as a best guess — a wrong company filed silently is
+ * worse than none.
+ */
+function pickHit(
+  hits: CompanySearchHit[],
+  receiptText: string,
+): { hit: CompanySearchHit; score: number } | null {
+  let best: { hit: CompanySearchHit; score: number } | null = null;
+
+  for (const hit of hits) {
+    const match = matchCompanyName(hit.name, receiptText);
+    if (match.score < NAME_MATCH_THRESHOLD) continue;
+    // Ties go to the active company: a deregistered namesake did not sell
+    // anything today.
+    const score = match.score + (hit.active === false ? -0.05 : 0);
+    if (!best || score > best.score) best = { hit, score: match.score };
+  }
+  return best;
+}
+
+async function rememberName(query: string, digits: string | null): Promise<void> {
+  const index = await getKv<NameIndex>(NAME_INDEX_KEY, {});
+  index[foldForMatching(query)] = { digits, at: Date.now() };
+  await setKv(NAME_INDEX_KEY, index);
+}
+
+/** Consumes one unit of today's search budget. False when it is spent. */
+async function spendSearch(limit: number): Promise<boolean> {
+  const today = localDay();
+  const budget = await getKv<SearchBudget>(SEARCH_BUDGET_KEY, { day: today, used: 0 });
+  const used = budget.day === today ? budget.used : 0;
+  if (used >= Math.max(0, limit)) return false;
+  await setKv(SEARCH_BUDGET_KEY, { day: today, used: used + 1 });
+  return true;
+}
+
+/** Today's searches, for the Settings screen. */
+export async function searchBudgetUsed(): Promise<number> {
+  const budget = await getKv<SearchBudget>(SEARCH_BUDGET_KEY, { day: localDay(), used: 0 });
+  return budget.day === localDay() ? budget.used : 0;
+}
+
+function localDay(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
 // --- negative cache -------------------------------------------------------
 
 async function isKnownMiss(digits: string): Promise<boolean> {
@@ -178,9 +375,10 @@ async function rememberMiss(digits: string): Promise<void> {
   await setKv(MISSES_KEY, misses);
 }
 
-/** Forgets every cached "not found", so they are retried. */
+/** Forgets every cached "not found" and every resolved name, so both retry. */
 export async function clearCompanyMisses(): Promise<void> {
   await setKv(MISSES_KEY, {});
+  await setKv(NAME_INDEX_KEY, {});
 }
 
 /**

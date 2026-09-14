@@ -18,13 +18,41 @@ import { getDb, schema } from './index.ts';
 export function ensureDefaultAccount(): string {
   const db = getDb();
   const existing = db.select().from(schema.accounts).limit(1).all()[0];
-  if (existing) return existing.id;
+  if (existing) {
+    // An account created before epochs existed gets one now. Its revision
+    // history is intact, so this is a label for what is already there rather
+    // than a reset, and clients keep their cursors.
+    if (!existing.epoch) {
+      db.update(schema.accounts)
+        .set({ epoch: newId() })
+        .where(eq(schema.accounts.id, existing.id))
+        .run();
+    }
+    return existing.id;
+  }
 
   const id = newId();
   db.insert(schema.accounts)
-    .values({ id, name: 'Hushåll', createdAt: Date.now(), revCounter: 0 })
+    .values({ id, name: 'Hushåll', createdAt: Date.now(), revCounter: 0, epoch: newId() })
     .run();
   return id;
+}
+
+/**
+ * The identifier for this account's revision history.
+ *
+ * Handed to clients with every sync response so they can tell a server that
+ * has been rebuilt from one that has simply not changed — the two look
+ * identical from a cursor alone.
+ */
+export function accountEpoch(accountId: string): string {
+  const row = getDb()
+    .select({ epoch: schema.accounts.epoch })
+    .from(schema.accounts)
+    .where(eq(schema.accounts.id, accountId))
+    .limit(1)
+    .all()[0];
+  return row?.epoch ?? 'unknown';
 }
 
 export interface PairingCode {

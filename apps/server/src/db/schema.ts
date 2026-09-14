@@ -23,6 +23,12 @@ export const accounts = sqliteTable('accounts', {
   createdAt: integer('created_at').notNull(),
   /** Monotonic revision counter for this account. */
   revCounter: integer('rev_counter').notNull().default(0),
+  /**
+   * Identifies this revision history. Minted with the account and never
+   * reused, so a client holding a cursor from a database that has since been
+   * rebuilt can tell, instead of silently skipping everything below it.
+   */
+  epoch: text('epoch'),
 });
 
 export const devices = sqliteTable(
@@ -96,6 +102,39 @@ export const receiptTags = sqliteTable(
   'receipt_tags',
   syncColumns,
   (table) => [index('receipt_tags_account_rev_idx').on(table.accountId, table.rev)],
+);
+
+/**
+ * One row per receipt the local model has been asked to read.
+ *
+ * Deliberately *not* an entity table: it is scheduling state, not user data, so
+ * it has no `rev`, never syncs, and can be dropped without losing anything a
+ * device would miss. Keeping it separate is also what lets a failed extraction
+ * be retried without the failure itself becoming a change every device pulls.
+ */
+export const extractionJobs = sqliteTable(
+  'extraction_jobs',
+  {
+    /** The receipt id. One job per receipt; a re-run resets this row. */
+    receiptId: text('receipt_id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    /** `pending` | `running` | `done` | `failed` | `skipped`. */
+    state: text('state').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    /** Earliest time the next attempt may run — the backoff, materialised. */
+    nextAttemptAt: integer('next_attempt_at').notNull().default(0),
+    /** The receipt's `updatedAt` when the job was queued, to spot staleness. */
+    sourceUpdatedAt: integer('source_updated_at').notNull().default(0),
+    /** Blob the last attempt read, so a re-photographed receipt re-queues. */
+    imageId: text('image_id'),
+    lastError: text('last_error'),
+    /** Milliseconds the successful run took. */
+    durationMs: integer('duration_ms'),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('extraction_jobs_queue_idx').on(table.accountId, table.state, table.nextAttemptAt),
+  ],
 );
 
 export const blobs = sqliteTable('blobs', {

@@ -45,6 +45,62 @@ full list. The ones that matter:
 | `KVITTO_STATIC_DIR` | *(unset)* | Serve the built PWA from this server too. |
 | `KVITTO_AI_PROVIDER` | *(unset)* | `anthropic` or `openai` to enable the extraction proxy. Leave unset to disable it. |
 | `KVITTO_AI_ALLOWED_MODELS` | the configured model | Models a device may request. Without this, a device could run up a bill on a model you did not choose. |
+| `KVITTO_LLM_ENABLED` | `false` | Turn on the local model (below). |
+
+## The local model
+
+Optionally, the server reads synced receipts itself with a vision model running
+on the same machine. Nothing leaves your network, and no API key is involved.
+
+```sh
+KVITTO_LLM_ENABLED=1 npm start
+```
+
+It uses [Ollama](https://ollama.com) as the inference host — one binary that
+covers CUDA, ROCm, Metal and plain CPU on both Linux and macOS, which is the
+whole reason it is not a bundled runtime. The server will **start** Ollama if it
+is installed and not already running, and stop it again on exit; it will never
+install it for you. `GET /llm/status` says which of those situations you are in
+and prints the install command for your platform.
+
+The model is `qwen3-vl:4b` — about 3 GB, roughly 4 GB of RAM, and the smallest
+vision model that reliably holds a JSON schema over a whole receipt. Fetch it
+once with `ollama pull qwen3-vl:4b`, or `POST /llm/pull`, or set
+`KVITTO_LLM_AUTO_PULL=1` to have the first pass fetch it.
+
+| Variable | Default | Why you would change it |
+|---|---|---|
+| `KVITTO_LLM_BASE_URL` | `http://127.0.0.1:11434` | Ollama somewhere else — another container, another box. |
+| `KVITTO_LLM_MODEL` | `qwen3-vl:4b` | A larger model if you have the memory. |
+| `KVITTO_LLM_MANAGE_PROCESS` | `true` | `0` when something else owns the Ollama lifecycle (systemd, Docker, the Mac app). |
+| `KVITTO_LLM_AUTO_PULL` | `false` | `1` to download the model on first use instead of on request. |
+| `KVITTO_LLM_INTERVAL_SECONDS` | `60` | How often to look for work. The interval lengthens automatically while the queue is empty. |
+| `KVITTO_LLM_BATCH_SIZE` | `4` | Receipts per pass. |
+| `KVITTO_LLM_TIMEOUT_MS` | `300000` | Per-receipt deadline. CPU inference on a big receipt is slow. |
+| `KVITTO_LLM_MAX_ATTEMPTS` | `3` | Attempts before a receipt is parked as failed. |
+
+### What it is allowed to change
+
+A background writer is not a peer of the person holding the phone, so it does
+not play by last-write-wins:
+
+- **A receipt marked confirmed is never touched.** A human accepted it; that
+  closes it.
+- **Blank fields are filled; filled ones are left alone**, whoever filled them.
+- **Line items are all-or-nothing.** A receipt that already has lines keeps
+  them, because half-merging a model's list into a hand-edited one produces
+  duplicates that are worse than no extraction at all.
+- **An organisation number the device verified outranks the model's reading of
+  the same pixels** — it passed a Luhn checksum and a registry lookup, and the
+  model did not.
+
+The reverse case is handled on the device: an extraction that lands after an
+edit the server never saw is merged field by field, with the human's value
+winning, rather than replacing the record because its timestamp is newer.
+
+Results are **not** delivered on a channel of their own. The server writes them
+with an ordinary revision, so every device collects them on the pull it was
+going to make anyway.
 
 ## Security model
 
@@ -82,11 +138,16 @@ All endpoints except `/health` and `/auth/pair` require
 | `DELETE` | `/auth/devices/:id` | Revoke another device. |
 | `POST` | `/sync/push` | Upload changed records. |
 | `GET` | `/sync/pull?since=N` | Download everything with `rev > N`. |
-| `GET` | `/sync/status` | Current revision and row counts. |
+| `GET` | `/sync/status?since=N` | **The cheap probe.** Current revision, the history's epoch, and how many records are waiting — with no payload. Add `&counts=1` for full row counts. |
 | `POST` | `/blobs/status` | Which of these digests do you already have? |
 | `PUT` | `/blobs/:sha256` | Upload an image. |
 | `GET` | `/blobs/:sha256` | Download an image. |
 | `POST` | `/ai/parse` | Extract a receipt from an uploaded image. |
+| `GET` | `/llm/status` | Local model state, queue depth, recent failures. |
+| `POST` | `/llm/start` | Bring the runtime up now. |
+| `POST` | `/llm/pull` | Start downloading the model; watch `/llm/status` for progress. |
+| `POST` | `/llm/scan` | Run a pass over the queue immediately. |
+| `POST` | `/llm/requeue` | Requeue one receipt, or every parked one. |
 
 ### How sync works
 
@@ -105,6 +166,27 @@ picks up the newer version on its next pull.
 
 Deletes are tombstones, so a delete made offline still propagates to other
 devices instead of the record simply reappearing.
+
+`GET /sync/status?since=N` answers "is there anything for me?" without sending
+any records, so an idle device's five-minute heartbeat costs a few hundred bytes
+instead of a page of data it already has.
+
+Every sync response also carries an **epoch** identifying this server's revision
+history. Revision numbers only mean anything within one history: restore the
+database from a backup, move it to a new volume, or point the same hostname at a
+fresh instance, and the counter restarts while every device still holds a cursor
+from before. Each of them would then ask for `rev > 400` of a history that has
+reached 12, be told nothing has changed, and quietly stop syncing forever. A
+changed epoch — or a cursor above the server's own counter, which `/sync/status`
+reports as `diverged` — tells the client to reset to zero and reconcile from
+scratch. Nothing is lost: a full pull merges rather than replaces.
+
+Clients retry a failed request three times with exponential backoff and full
+jitter, honouring `Retry-After` when the server sends one. After five
+consecutive failed passes a circuit breaker pauses the automatic schedule and
+backs off up to thirty minutes, so a phone that has lost its server does not
+spend its battery rediscovering that every five minutes. Reconnecting, changing
+the server address, or pressing "Synka nu" all bypass the breaker.
 
 ## Storage
 

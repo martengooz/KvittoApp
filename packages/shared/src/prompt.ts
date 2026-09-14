@@ -46,11 +46,42 @@ export function jsonOnlyInstruction(schema: unknown): string {
   );
 }
 
+/**
+ * A shorter system prompt for small local models.
+ *
+ * The full prompt is written for a frontier model: it explains *why* pant and
+ * rabatt rows matter, and trusts the reader to generalise. A 4B model does not
+ * generalise from rationale — it follows the last concrete instruction it read,
+ * and a long preamble measurably costs it accuracy on the fields that matter.
+ * So this keeps the same rules, stated as rules, and drops the reasoning.
+ *
+ * The JSON contract itself is not stated here at all, because a local model is
+ * driven with a schema at the sampler (Ollama's `format`), which constrains the
+ * output far more reliably than any wording could.
+ */
+export const RECEIPT_SYSTEM_PROMPT_COMPACT = `You read photographed receipts, mostly Swedish, and return structured data.
+
+Rules:
+1. Copy amounts exactly as printed, as strings: "1 234,50", "25,00-", "-12,50". Keep the decimal comma. Never calculate, never reformat.
+2. Any field not printed on the receipt is null. Never guess a value.
+3. Every printed line becomes an item, in order — including "Pant" rows (isDeposit true) and discount rows like "Rabatt" or "Extrapris" (isDiscount true, negative totalPrice). Never merge them into the line above.
+4. A "2 st à 12,50" or "0,412 kg × 89,00 kr/kg" line belongs to the item above it: quantity, unitPrice, and the line sum as totalPrice.
+5. The "Moms" table at the bottom goes in vatLines, never in items. Swedish VAT rates are 25, 12, 6 and 0.
+6. total is "Att betala", or "Totalt"/"Summa" when there is no "Att betala".
+7. purchasedAt is the date and time exactly as printed.
+8. å, ä and ö are distinct letters. Read them as printed.
+
+If a line is unreadable, use null for that field and lower confidence. Do not invent.`;
+
 /** Builds the final system prompt, with any user-configured extra guidance. */
-export function buildSystemPrompt(extraInstructions?: string | null): string {
+export function buildSystemPrompt(
+  extraInstructions?: string | null,
+  options: { compact?: boolean } = {},
+): string {
+  const base = options.compact ? RECEIPT_SYSTEM_PROMPT_COMPACT : RECEIPT_SYSTEM_PROMPT;
   const extra = extraInstructions?.trim();
-  if (!extra) return RECEIPT_SYSTEM_PROMPT;
-  return `${RECEIPT_SYSTEM_PROMPT}\n\nAdditional instructions from the user:\n${extra}`;
+  if (!extra) return base;
+  return `${base}\n\nAdditional instructions from the user:\n${extra}`;
 }
 
 /**

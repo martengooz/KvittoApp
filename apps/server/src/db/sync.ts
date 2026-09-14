@@ -10,6 +10,7 @@ import {
   type AnyEntity,
   type ChangeSet,
   type EntityKind,
+  type EntityMap,
   type PushResult,
 } from '@kvitto/shared';
 
@@ -218,6 +219,154 @@ function validate(record: unknown): string | null {
   const size = JSON.stringify(record).length;
   if (size > 512 * 1024) return `Record is too large (${size} bytes).`;
   return null;
+}
+
+// --- writes the server makes on its own behalf ----------------------------
+
+/**
+ * Reads one stored record.
+ *
+ * The server is normally a relay and has no business interpreting payloads;
+ * the local extractor is the one component that does, so it gets a way in.
+ */
+export function readRecord<K extends EntityKind>(
+  accountId: string,
+  kind: K,
+  id: string,
+): EntityMap[K] | null {
+  const table = tableFor(kind);
+  const row = getDb()
+    .select()
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.accountId, accountId)))
+    .limit(1)
+    .all()[0] as StoredRow | undefined;
+  if (!row) return null;
+  return { ...(JSON.parse(row.payload) as EntityMap[K]), rev: row.rev, dirty: 0 };
+}
+
+/**
+ * Writes records the *server* produced, allocating revisions as it goes.
+ *
+ * Deliberately the same table, the same counter and the same `rev` sequence a
+ * device write uses. That is the whole design: an extraction the server made is
+ * not a separate channel a client has to poll — it is an ordinary change with
+ * an ordinary revision, and it reaches every device through the pull they were
+ * already doing.
+ *
+ * The one difference from {@link applyPush} is that there is no conflict check,
+ * because the caller has already merged against the stored copy inside this
+ * same transaction.
+ */
+export function writeServerRecords(
+  accountId: string,
+  records: { kind: EntityKind; record: AnyEntity }[],
+): number {
+  if (records.length === 0) return currentRev(accountId);
+  const db = getDb();
+  let cursor = currentRev(accountId);
+
+  getConnection().transaction(() => {
+    for (const { kind, record } of records) {
+      const table = tableFor(kind);
+      const rev = nextRev(accountId);
+      cursor = rev;
+
+      const values = {
+        id: record.id,
+        accountId,
+        rev,
+        updatedAt: record.updatedAt,
+        deletedAt: record.deletedAt,
+        payload: JSON.stringify({ ...record, rev, dirty: 0 }),
+        // Named rather than left null so a device syncing its own change back
+        // can see the write did not come from another phone.
+        lastDeviceId: SERVER_DEVICE_ID,
+      };
+
+      db.insert(table)
+        .values(values)
+        .onConflictDoUpdate({ target: table.id, set: values })
+        .run();
+    }
+  })();
+
+  return cursor;
+}
+
+/** `lastDeviceId` on rows the server wrote itself. */
+export const SERVER_DEVICE_ID = 'server';
+
+/** Live (non-tombstoned) line items belonging to a receipt. */
+export function countLiveItems(accountId: string, receiptId: string): number {
+  const table = tableFor('items');
+  const rows = getDb()
+    .select({ payload: table.payload })
+    .from(table)
+    .where(and(eq(table.accountId, accountId), eq(table.deletedAt, 0)))
+    .all() as { payload: string }[];
+
+  let count = 0;
+  for (const row of rows) {
+    try {
+      const item = JSON.parse(row.payload) as { receiptId?: string };
+      if (item.receiptId === receiptId) count += 1;
+    } catch {
+      // A payload that will not parse is not a countable item.
+    }
+  }
+  return count;
+}
+
+/** The account's non-deleted categories. */
+export function listLiveCategories(accountId: string): EntityMap['categories'][] {
+  const table = tableFor('categories');
+  const rows = getDb()
+    .select({ payload: table.payload })
+    .from(table)
+    .where(and(eq(table.accountId, accountId), eq(table.deletedAt, 0)))
+    .all() as { payload: string }[];
+
+  const categories: EntityMap['categories'][] = [];
+  for (const row of rows) {
+    try {
+      categories.push(JSON.parse(row.payload) as EntityMap['categories']);
+    } catch {
+      // Skip a payload that will not parse rather than failing the extraction.
+    }
+  }
+  return categories;
+}
+
+/**
+ * How many records are waiting for a client at `since`, per kind.
+ *
+ * Counts only — no payloads. This is what makes the idle heartbeat nearly free:
+ * a device that has nothing to collect learns so in one small response instead
+ * of a page of records it already has.
+ */
+export function pendingCounts(
+  accountId: string,
+  since: number,
+): { perKind: Partial<Record<EntityKind, number>>; total: number } {
+  const db = getDb();
+  const perKind: Partial<Record<EntityKind, number>> = {};
+  let total = 0;
+
+  for (const kind of ENTITY_KINDS) {
+    const table = tableFor(kind);
+    const row = db
+      .select({ count: sql<number>`count(*)` })
+      .from(table)
+      .where(and(eq(table.accountId, accountId), gt(table.rev, since)))
+      .all()[0];
+    const count = row?.count ?? 0;
+    if (count > 0) {
+      perKind[kind] = count;
+      total += count;
+    }
+  }
+  return { perKind, total };
 }
 
 /** Row counts per kind, for the health endpoint. */

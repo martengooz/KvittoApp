@@ -20,10 +20,13 @@ import { SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
 
 import { ensureDefaultAccount } from './db/accounts.ts';
 import { closeDatabase, getConnection } from './db/index.ts';
-import { aiProxyEnabled, config } from './env.ts';
+import { aiProxyEnabled, config, llmEnabled } from './env.ts';
+import { shutdown as shutdownLlm, status as llmStatus } from './llm/runtime.ts';
+import { startWorker, stopWorker } from './llm/worker.ts';
 import { registerAiRoutes } from './routes/ai.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerBlobRoutes } from './routes/blobs.ts';
+import { registerLlmRoutes } from './routes/llm.ts';
 import { registerSyncRoutes } from './routes/sync.ts';
 
 export async function buildServer() {
@@ -66,6 +69,8 @@ export async function buildServer() {
     ok: true,
     protocolVersion: SYNC_PROTOCOL_VERSION,
     aiProxyEnabled: aiProxyEnabled(),
+    llmEnabled: llmEnabled(),
+    llmState: llmEnabled() ? llmStatus().state : 'off',
     serverTime: Date.now(),
   }));
 
@@ -73,6 +78,7 @@ export async function buildServer() {
   registerSyncRoutes(app);
   registerBlobRoutes(app);
   registerAiRoutes(app);
+  registerLlmRoutes(app);
 
   if (config.staticDir) registerStatic(app, config.staticDir);
 
@@ -162,10 +168,16 @@ async function main(): Promise<void> {
       database: config.databasePath,
       blobs: config.blobDir,
       aiProxy: aiProxyEnabled() ? config.ai.provider : 'disabled',
+      localModel: llmEnabled() ? config.llm.model : 'disabled',
       staticDir: config.staticDir ?? 'none',
     },
     'KvittoApp server ready',
   );
+
+  // Started after `listen`, so a model download never delays the port opening.
+  if (llmEnabled()) {
+    startWorker(accountId, (message, data) => app.log.info(data ?? {}, message));
+  }
 
   if (config.corsOrigins.length === 0) {
     app.log.warn(
@@ -176,7 +188,11 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'shutting down');
+    stopWorker();
     await app.close();
+    // Only ever stops an instance this process started; one the user is running
+    // themselves is left alone.
+    await shutdownLlm();
     closeDatabase();
     process.exit(0);
   };
