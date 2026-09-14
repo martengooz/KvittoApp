@@ -1281,20 +1281,6 @@ input.detail-merchant {
   text-overflow: ellipsis;
 }
 
-.detail-total {
-  font-size: 40px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.008em;
-  line-height: 1.1;
-}
-
-.detail-total.muted {
-  font-size: 17px;
-  font-weight: 400;
-  color: var(--label-secondary);
-}
-
 .item-editor {
   padding: 11px 16px;
   position: relative;
@@ -2215,17 +2201,16 @@ input.detail-merchant {
   background: radial-gradient(circle at 5px 0, transparent 0 5px, var(--k-card) 5.5px) 0 0 / 10px 10px repeat-x;
 }
 
-input.receipt-paper__merchant {
+.receipt-paper__merchant {
+  margin: 0;
   min-height: 34px;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
   color: var(--k-ink);
   font-family: var(--font-store);
   font-size: 23px;
   font-weight: 500;
+  line-height: 1.3;
   text-align: center;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .receipt-paper__meta {
@@ -2269,9 +2254,16 @@ input.receipt-paper__merchant {
 }
 
 .receipt-paper__item small,
-.receipt-paper__item--more,
 .receipt-paper__total-row {
   color: var(--k-muted);
+}
+
+.receipt-paper__empty {
+  margin: 0;
+  color: var(--k-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: center;
 }
 
 .receipt-paper__item--discount {
@@ -2345,6 +2337,7 @@ input.receipt-paper__merchant {
 .receipt-reviewed {
   display: flex;
   flex: 1;
+  gap: 6px;
   align-items: center;
   min-height: 50px;
   color: var(--k-accent);
@@ -2356,15 +2349,64 @@ input.receipt-paper__merchant {
   margin-top: 6px;
 }
 
-.detail-edit-heading {
-  margin: 34px max(calc(var(--gutter) + 16px), var(--safe-left)) 10px;
+.receipt-detail .list-group .inset-list,
+.receipt-edit .list-group .inset-list,
+.receipt-details .list-group .inset-list {
+  box-shadow: var(--shadow-card);
+}
+
+/* --- redesign: the receipt's edit and details screens ------------------- */
+
+.receipt-edit,
+.receipt-details {
+  padding-top: 8px;
+}
+
+/* Which receipt is being edited or inspected, and the way back to it. */
+.receipt-crumb {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 max(var(--gutter), var(--safe-left)) 18px;
+  padding: 12px 16px;
+  border-radius: var(--radius-card);
+  background: var(--k-card);
+  box-shadow: var(--shadow-card);
+  color: inherit;
+  text-decoration: none;
+}
+
+.receipt-crumb__name {
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.receipt-crumb__meta {
   color: var(--k-muted);
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.receipt-edit-done {
+  display: flex;
+  margin: 22px max(var(--gutter), var(--safe-left)) 8px;
+}
+
+.receipt-edit-done .btn {
+  min-height: 50px;
+  font-size: 15px;
   font-weight: 700;
 }
 
-.receipt-detail .list-group .inset-list {
-  box-shadow: var(--shadow-card);
+/* The details are read, not skimmed: an address or a shop name that would be
+   truncated in a settings list wraps onto a second line here instead. */
+.receipt-details .row__value {
+  max-width: 62%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- redesign: scan and crop review ------------------------------------ */

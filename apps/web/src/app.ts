@@ -32,9 +32,17 @@ const TABS: TabEntry[] = [
   { path: '/settings', label: 'Inställningar', icon: 'gear', title: 'Inställningar' },
 ];
 
-/** Screens pushed on top of a tab, which get a back button instead of a tab. */
+/**
+ * Screens pushed on top of a tab, which get a back button instead of a tab.
+ *
+ * Keyed by the route's shape rather than its path, so the receipt's own
+ * sub-screens — `/receipt/:id/edit`, `/receipt/:id/details` — can carry their
+ * own title without the record id leaking into the key.
+ */
 const PUSHED_TITLES: Record<string, string> = {
   '/receipt': 'Kvitto',
+  '/receipt/edit': 'Redigera',
+  '/receipt/details': 'Detaljer',
   '/debug-log': 'Debugglogg',
   '/pair-scan': 'Skanna QR-kod',
 };
@@ -105,6 +113,12 @@ function registerRoutes(): void {
     .add('/purchases', async (context) => (await import('./views/purchases.js')).purchasesView(context))
     .add('/scan', async () => (await import('./views/scan.js')).scanView())
     .add('/receipt/:id', async (context) => (await import('./views/receipt.js')).receiptView(context))
+    .add('/receipt/:id/edit', async (context) =>
+      (await import('./views/receipt-edit.js')).receiptEditView(context),
+    )
+    .add('/receipt/:id/details', async (context) =>
+      (await import('./views/receipt-details.js')).receiptDetailsView(context),
+    )
     .add('/collections', async () => (await import('./views/collections.js')).collectionsView())
     .add('/settings', async () => (await import('./views/settings.js')).settingsView())
     .add('/debug-log', async () => (await import('./views/debug-log.js')).debugLogView())
@@ -159,11 +173,23 @@ interface Chrome {
   nav: HTMLElement;
 }
 
-function updateChrome(chrome: Chrome): void {
+/** The segments of the current route, `['receipt', 'abc', 'edit']`. */
+function currentSegments(): string[] {
   const path = location.hash.replace(/^#/, '').split('?')[0] ?? '/';
-  const base = `/${path.split('/').filter(Boolean)[0] ?? 'receipts'}`;
+  return path.split('/').filter(Boolean);
+}
+
+/** The key a route looks itself up under in {@link PUSHED_TITLES}. */
+function pushedKey(segments: string[]): string {
+  const base = `/${segments[0] ?? ''}`;
+  return base === '/receipt' && segments[2] ? `${base}/${segments[2]}` : base;
+}
+
+function updateChrome(chrome: Chrome): void {
+  const segments = currentSegments();
+  const base = `/${segments[0] ?? 'receipts'}`;
   const tab = TABS.find((entry) => entry.path === base);
-  const pushedTitle = PUSHED_TITLES[base];
+  const pushedTitle = PUSHED_TITLES[pushedKey(segments)];
   const title = tab?.title ?? pushedTitle ?? 'KvittoApp';
 
   chrome.inlineTitle.textContent = title;
@@ -179,8 +205,14 @@ function updateChrome(chrome: Chrome): void {
 
   if (pushed) {
     const settingsChild = base === '/debug-log' || base === '/pair-scan';
-    const backTarget = settingsChild ? '/settings' : '/receipts';
-    const backLabel = settingsChild ? 'Inställningar' : 'Kvitton';
+    // A receipt's sub-screens sit on top of the receipt, not of the list.
+    const receiptChild = base === '/receipt' && segments[2] !== undefined;
+    const backTarget = settingsChild
+      ? '/settings'
+      : receiptChild
+        ? `/receipt/${segments[1]}`
+        : '/receipts';
+    const backLabel = settingsChild ? 'Inställningar' : receiptChild ? 'Kvitto' : 'Kvitton';
     chrome.header.dataset['scrolled'] = 'true';
     replaceChildren(
       chrome.leading,
@@ -217,19 +249,27 @@ function updateChrome(chrome: Chrome): void {
   }
 }
 
-/** Compact sync indicator in the navigation bar. */
+/** Compact sync indicator in the navigation bar, or a receipt's trailing action. */
 async function updateStatus(slot: HTMLElement): Promise<void> {
-  const base = `/${location.hash.replace(/^#\/?/, '').split(/[/?]/)[0] ?? ''}`;
-  if (base === '/receipt') {
+  const segments = currentSegments();
+  const base = `/${segments[0] ?? ''}`;
+
+  // On a receipt the trailing slot is the way into its edit screen, and on the
+  // edit screen itself it is the way back out. Sync state is a tab concern.
+  if (base === '/receipt' && segments[1]) {
+    const sub = segments[2];
+    if (sub === 'details') {
+      replaceChildren(slot);
+      return;
+    }
+    const target = sub === 'edit' ? `/receipt/${segments[1]}` : `/receipt/${segments[1]}/edit`;
     replaceChildren(
       slot,
       el('button', {
         class: 'bar-edit-button',
         type: 'button',
-        text: 'Redigera',
-        on: {
-          click: () => document.querySelector<HTMLElement>('.detail-edit-heading')?.scrollIntoView({ behavior: 'smooth' }),
-        },
+        text: sub === 'edit' ? 'Klar' : 'Redigera',
+        on: { click: () => router.navigate(target) },
       }),
     );
     return;

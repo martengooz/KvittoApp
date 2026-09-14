@@ -238,7 +238,7 @@ async function runScanFlow(page, fixture) {
   await page.screenshot({ path: join(OUT, 'screen-review.png') });
 
   await page.click('button:has-text("Spara utan tolkning")');
-  await page.waitForSelector('.detail-total', { timeout: 20_000 });
+  await page.waitForSelector('.receipt-paper', { timeout: 20_000 });
   log('receipt saved, detail view opened');
   await page.screenshot({ path: join(OUT, 'screen-detail.png'), fullPage: true });
 
