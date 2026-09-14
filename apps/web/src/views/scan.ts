@@ -1,5 +1,5 @@
 /**
- * The scan screen: capture → review → parse.
+ * The scan screen: capture → review → parse, or upload → import.
  *
  * Camera access is attempted through `getUserMedia`, which gives a live preview
  * and a proper shutter. When that is unavailable — an insecure context, a
@@ -7,8 +7,10 @@
  * file input with `capture="environment"`, which opens the native camera app on
  * every mobile browser. The scan button therefore always does something.
  *
- * Picking an existing photo is a separate path with no `capture` attribute, for
- * the reason spelled out at {@link openFilePicker}.
+ * Picking existing photos is a separate path with no `capture` attribute, for
+ * the reason spelled out at {@link openFilePicker} — and a different flow
+ * entirely: several images at once, each its own receipt, cropped without
+ * asking. See `scan/import.ts` for why that one skips the review screen.
  */
 
 import { formatBytes } from '@kvitto/shared';
@@ -19,7 +21,7 @@ import { el, nextFrame, replaceChildren } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { haptic } from '../core/platform.js';
 import { router } from '../core/router.js';
-import { getSettings, isAiConfigured } from '../core/settings.js';
+import { getSettings } from '../core/settings.js';
 import { toast } from '../core/toast.js';
 import { cvClient, decodeImage } from '../cv/client.js';
 import type { PipelineResult, Quad } from '../cv/types.js';
@@ -28,8 +30,9 @@ import { putBlob } from '../db/blobs.js';
 import { createReceipt } from '../db/repo.js';
 import { enrichFromImage } from '../ocr/enrich.js';
 import { ocrClient } from '../ocr/client.js';
+import { importImages, makeThumbnail, shouldParse, type ImportProgress } from '../scan/import.js';
 
-type Stage = 'idle' | 'camera' | 'processing' | 'review';
+type Stage = 'idle' | 'camera' | 'processing' | 'review' | 'importing';
 
 interface ScanState {
   stage: Stage;
@@ -43,6 +46,8 @@ interface ScanState {
   corners: Quad | null;
   rotation: 0 | 90 | 180 | 270;
   showOriginal: boolean;
+  /** Progress of an unattended upload, while one is running. */
+  importing: ImportProgress | null;
 }
 
 export function scanView(): HTMLElement {
@@ -58,6 +63,7 @@ export function scanView(): HTMLElement {
     corners: null,
     rotation: 0,
     showOriginal: false,
+    importing: null,
   };
 
   let stream: MediaStream | null = null;
@@ -135,16 +141,92 @@ export function scanView(): HTMLElement {
     const input = el('input', {
       type: 'file',
       accept: 'image/*',
-      ...(source === 'camera' ? { capture: 'environment' } : {}),
+      // Only the gallery takes several: `capture` hands the camera one frame.
+      ...(source === 'camera' ? { capture: 'environment' } : { multiple: true }),
       class: 'visually-hidden',
     });
     input.addEventListener('change', () => {
-      const file = input.files?.[0];
+      const files = [...(input.files ?? [])];
       input.remove();
-      if (file) void handleCapture(file);
+      if (files.length === 0) return;
+      // A camera frame is one deliberate shot, so it keeps the review screen.
+      // Photographs already taken go straight in, however many there are.
+      if (source === 'camera') void handleCapture(files[0]!);
+      else void runImport(files);
     });
     document.body.appendChild(input);
     input.click();
+  }
+
+  // --- unattended import --------------------------------------------------
+
+  /**
+   * Files a batch of photographs without asking anything.
+   *
+   * The import itself lives in `scan/import.ts` and outlives this screen: the
+   * user is sent to the list as soon as the images are saved, and the reading
+   * and the extraction carry on from there.
+   */
+  async function runImport(files: File[]): Promise<void> {
+    state.stage = 'importing';
+    state.importing = { total: files.length, index: 1, name: files[0]?.name ?? '', imported: 0 };
+    render();
+    await nextFrame();
+
+    const outcome = await importImages(files, {
+      source: 'upload',
+      onProgress: (progress) => {
+        if (disposed) return;
+        state.importing = progress;
+        render();
+      },
+    });
+
+    const saved = outcome.receiptIds.length;
+    if (saved === 0) {
+      const first = outcome.failures[0];
+      toast(first ? `Bilden kunde inte läsas: ${first.message}` : 'Inga kvitton kunde sparas.', {
+        kind: 'error',
+      });
+      if (!disposed) {
+        state.stage = 'idle';
+        state.importing = null;
+        render();
+      }
+      return;
+    }
+
+    // Reported rather than acted on: an uncertain crop kept the whole frame, so
+    // the receipt is complete and readable — it just looks untidier than usual,
+    // and the user may want to rescan it.
+    const notes = [
+      saved === 1 ? 'Ett kvitto tillagt' : `${saved} kvitton tillagda`,
+      outcome.parsing ? 'tolkas nu med AI' : null,
+    ].filter(Boolean);
+    toast(`${notes.join(' — ')}.`, { kind: 'success' });
+
+    if (outcome.failures.length > 0) {
+      toast(
+        outcome.failures.length === 1
+          ? `${outcome.failures[0]?.name} kunde inte läsas.`
+          : `${outcome.failures.length} bilder kunde inte läsas.`,
+        { kind: 'error' },
+      );
+    }
+    if (outcome.uncropped > 0) {
+      toast(
+        outcome.uncropped === 1
+          ? 'Ett kvitto sparades obeskuret — kanterna gick inte att hitta.'
+          : `${outcome.uncropped} kvitton sparades obeskurna — kanterna gick inte att hitta.`,
+        { kind: 'info' },
+      );
+    }
+
+    // Only when the user is still watching this screen. The import outlives it
+    // on purpose, and a batch finishing while they are reading their settings
+    // must not drag them somewhere they did not ask to go — the toast above is
+    // the whole notification in that case.
+    if (!disposed) router.navigate('/receipts');
   }
 
   async function captureFrame(video: HTMLVideoElement): Promise<void> {
@@ -320,7 +402,44 @@ export function scanView(): HTMLElement {
       case 'review':
         replaceChildren(root, renderReview());
         break;
+      case 'importing':
+        replaceChildren(root, renderImporting());
+        break;
     }
+  }
+
+  function renderImporting(): HTMLElement {
+    const progress = state.importing;
+    const total = progress?.total ?? 0;
+    const index = Math.min(progress?.index ?? 1, total);
+    const done = total > 0 && (progress?.imported ?? 0) >= total;
+
+    return el(
+      'div',
+      { class: 'empty-state scan-import' },
+      el('div', { class: 'spinner', style: 'width:28px;height:28px' }),
+      el('p', {
+        class: 'empty-state__title',
+        text: total === 1 ? 'Lägger till kvittot…' : `Lägger till kvitto ${index} av ${total}`,
+      }),
+      el('p', {
+        text: done
+          ? 'Klart. Öppnar kvittolistan…'
+          : 'Hittar kvittots kanter, rätar ut och sparar. Ingen granskning behövs.',
+      }),
+      progress?.name ? el('p', { class: 'faint truncate', text: progress.name }) : null,
+      el(
+        'div',
+        { class: 'scan-import__bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': total },
+        el('span', {
+          class: 'scan-import__fill',
+          style: `width:${total > 0 ? Math.round(((progress?.imported ?? 0) / total) * 100) : 0}%`,
+        }),
+      ),
+      shouldParse()
+        ? el('p', { class: 'faint', text: 'AI-tolkningen startar allt eftersom.' })
+        : null,
+    );
   }
 
   function renderIdle(): HTMLElement {
@@ -364,6 +483,7 @@ export function scanView(): HTMLElement {
         el('button', {
           type: 'button',
           text: 'Galleri',
+          title: 'Välj en eller flera bilder — varje bild blir ett kvitto',
           on: { click: () => openFilePicker('library') },
         }),
         el('button', {
@@ -381,7 +501,10 @@ export function scanView(): HTMLElement {
           on: { click: () => toast('Blixt kan väljas när kameran är öppen.', { kind: 'info' }) },
         }),
       ),
-      el('p', { class: 'scan-capture__offline', text: 'Fungerar offline. Bilden stannar på telefonen.' }),
+      el('p', {
+        class: 'scan-capture__offline',
+        text: 'Fungerar offline. Bilden stannar på telefonen. Flera bilder från galleriet blir ett kvitto var.',
+      }),
     );
   }
 
@@ -436,6 +559,7 @@ export function scanView(): HTMLElement {
         el('button', {
           type: 'button',
           text: 'Galleri',
+          title: 'Välj en eller flera bilder — varje bild blir ett kvitto',
           on: {
             click: () => {
               stopCamera();
@@ -569,7 +693,7 @@ export function scanView(): HTMLElement {
           on: {
             click: () => {
               haptic('impact');
-              void save(isAiConfigured());
+              void save(shouldParse());
             },
           },
         }),
@@ -629,38 +753,4 @@ export function scanView(): HTMLElement {
 
   render();
   return root;
-}
-
-/**
- * Builds a small thumbnail for the list view.
- *
- * Worth the extra blob: the list would otherwise decode several full-size
- * scans at once, which is what makes a receipt archive feel slow on a phone.
- */
-async function makeThumbnail(source: Blob, size = 200): Promise<string | null> {
-  try {
-    const bitmap = await createImageBitmap(source);
-    const scale = Math.min(1, size / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    if (!context) return null;
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.72),
-    );
-    if (!blob) return null;
-    return putBlob(blob, { role: 'thumb', width, height });
-  } catch (error) {
-    // A missing thumbnail is cosmetic; never let it block saving a receipt.
-    console.warn('Could not build a thumbnail', error);
-    return null;
-  }
 }
