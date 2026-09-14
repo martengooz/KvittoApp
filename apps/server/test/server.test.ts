@@ -502,6 +502,49 @@ test('pull pages through changes without losing any', async () => {
   for (const id of ids) assert.ok(seen.has(id), `pulled ${id}`);
 });
 
+test('pull pages globally by revision without skipping secrets', async () => {
+  const before = await app.inject({ method: 'GET', url: '/sync/status', headers: auth() });
+  const cursor = before.json().cursor as number;
+  const secretValue = `page-secret-${randomUUID()}`;
+
+  await app.inject({
+    method: 'PUT',
+    url: '/secrets/aiApiKey',
+    headers: auth(),
+    payload: { value: secretValue },
+  });
+
+  const ids = Array.from({ length: 3 }, () => randomUUID());
+  await app.inject({
+    method: 'POST',
+    url: '/sync/push',
+    headers: auth(),
+    payload: {
+      deviceId: DEVICE_ID,
+      changes: { receipts: ids.map((id, index) => receipt(id, 30_000 + index)) },
+    },
+  });
+
+  const pulledSecrets: Record<string, unknown>[] = [];
+  let pageCursor = cursor;
+  for (let page = 0; page < 10; page += 1) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/sync/pull?since=${pageCursor}`,
+      headers: auth(),
+    });
+    const body = response.json();
+    pulledSecrets.push(...((body.changes.secrets ?? []) as Record<string, unknown>[]));
+    pageCursor = body.cursor;
+    if (!body.hasMore) break;
+  }
+
+  assert.equal(
+    pulledSecrets.find((secret) => secret['id'] === 'aiApiKey')?.['value'],
+    secretValue,
+  );
+});
+
 test('a tombstone propagates', async () => {
   const id = randomUUID();
   await app.inject({

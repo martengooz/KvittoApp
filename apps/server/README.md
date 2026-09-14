@@ -39,6 +39,38 @@ The image serves the built PWA as well as the API, so one container is the
 whole deployment. Everything persists under `/data` — that is the directory to
 back up.
 
+### GitHub Pages and HTTPS
+
+When the PWA is hosted on GitHub Pages, its sync server must also use HTTPS.
+Browsers block an HTTPS page from calling an `http://` API as mixed content;
+this happens before the request reaches Fastify, so changing CORS cannot fix it.
+
+The simplest production setup without installing local certificates or tunnel
+software is to run the Docker image on a VPS or managed container host that
+provides HTTPS and a persistent volume. Mount the volume at `/data`, then set:
+
+```env
+KVITTO_PUBLIC_URL=https://kvitto.example.com
+KVITTO_CORS_ORIGINS=https://martengooz.github.io
+KVITTO_TRUST_PROXY=true
+KVITTO_STATIC_DIR=/app/web
+```
+
+`KVITTO_PUBLIC_URL` is the address encoded in pairing QR codes. It must be the
+public HTTPS address reachable by the phone. `KVITTO_CORS_ORIGINS` is the Pages
+origin only, without the repository path; for this repository that is
+`https://martengooz.github.io`, not
+`https://martengooz.github.io/KvittoApp/`.
+
+After deployment, open `https://kvitto.example.com/server` and create a new QR
+code. Codes created by a local dashboard may contain a private or HTTP address
+and should not be reused by the Pages app.
+
+Do not use an ephemeral serverless filesystem. `/data` holds the SQLite
+database, receipt images, and `secrets.key`; losing that key makes synchronized
+secrets unreadable. A managed container with a persistent disk, or a small VPS
+behind managed TLS, is appropriate.
+
 ## Configuration
 
 Every setting has a working default; see [`.env.example`](.env.example) for the
@@ -46,6 +78,7 @@ full list. The ones that matter:
 
 | Variable | Default | Why you would change it |
 |---|---|---|
+| `KVITTO_PUBLIC_URL` | auto-detected | Public HTTPS origin encoded in pairing QR codes. Set this behind a proxy, in Docker, or when using GitHub Pages. |
 | `KVITTO_CORS_ORIGINS` | *(unset)* | **Set this before exposing the server publicly.** Unset means any origin is reflected, so any website a paired user visits can use their token. The server logs a warning at startup while it is unset. |
 | `KVITTO_DATA_DIR` | `./data` | Where the SQLite file and images live. |
 | `KVITTO_SECRETS_KEY` | generated | Encryption key for synchronized secrets. When unset, `secrets.key` is created in the data directory and must be backed up. |
@@ -151,7 +184,7 @@ require `Authorization: Bearer <device token>`.
 | `DELETE` | `/auth/devices/:id` | Revoke another device. |
 | `GET` | `/server/config` | Read effective server AI settings without secret values. |
 | `PUT` | `/server/config` | Update persistent server AI settings. |
-| `GET` | `/debug/logs?limit=N` | Read the bounded server request log without bodies or credentials. |
+| `GET` | `/debug/logs?limit=N` | Read up to 500 recent redacted HTTP exchanges, including request and response bodies. |
 | `DELETE` | `/debug/logs` | Clear the server request log. |
 | `GET` | `/secrets` | List whether each supported API key is configured. Values are never returned here. |
 | `PUT` | `/secrets/:id` | Set or clear an API key from the server dashboard. |

@@ -14,6 +14,9 @@ import { generateToken, hashToken } from '../auth.ts';
 import { config } from '../env.ts';
 import { getDb, schema } from './index.ts';
 
+// Increment when a server sync bug requires every client to discard its cursor.
+const SYNC_HISTORY_VERSION = 2;
+
 /** The single account, created on first call. */
 export function ensureDefaultAccount(): string {
   const db = getDb();
@@ -52,7 +55,7 @@ export function accountEpoch(accountId: string): string {
     .where(eq(schema.accounts.id, accountId))
     .limit(1)
     .all()[0];
-  return row?.epoch ?? 'unknown';
+  return `${row?.epoch ?? 'unknown'}:${SYNC_HISTORY_VERSION}`;
 }
 
 export interface PairingCode {

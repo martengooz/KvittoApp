@@ -156,55 +156,32 @@ export function pull(
 ): { changes: ChangeSet; cursor: number; hasMore: boolean } {
   const db = getDb();
   const changes: ChangeSet = {};
-  let highest = since;
-  let remaining = limit;
-  let hasMore = false;
+  const candidates: { kind: EntityKind; row: StoredRow }[] = [];
 
   for (const kind of ENTITY_KINDS) {
-    if (remaining <= 0) {
-      // Something is still waiting in a later kind.
-      hasMore = hasMore || hasRowsAfter(accountId, kind, since);
-      continue;
-    }
-
     const table = tableFor(kind);
     const rows = db
       .select()
       .from(table)
       .where(and(eq(table.accountId, accountId), gt(table.rev, since)))
       .orderBy(asc(table.rev))
-      // One extra row tells us whether another page exists without a count query.
-      .limit(remaining + 1)
+      .limit(limit + 1)
       .all() as StoredRow[];
-
-    const page = rows.slice(0, remaining);
-    if (rows.length > remaining) hasMore = true;
-    if (page.length === 0) continue;
-
-    (changes as Record<string, unknown[]>)[kind] = page.map((row) => ({
-      ...parsePayload(kind, row.payload),
-      rev: row.rev,
-      dirty: 0,
-    }));
-
-    for (const row of page) highest = Math.max(highest, row.rev);
-    remaining -= page.length;
+    candidates.push(...rows.map((row) => ({ kind, row })));
   }
 
+  candidates.sort((left, right) => left.row.rev - right.row.rev);
+  const page = candidates.slice(0, limit);
+  for (const { kind, row } of page) {
+    const records = ((changes as Record<string, unknown[]>)[kind] ??= []);
+    records.push({ ...parsePayload(kind, row.payload), rev: row.rev, dirty: 0 });
+  }
+
+  const hasMore = candidates.length > limit;
+  const highest = page.at(-1)?.row.rev ?? since;
   // When a page was cut short, resume from the highest revision actually sent,
   // never from the account's current counter, or the gap would be lost.
   return { changes, cursor: hasMore ? highest : currentRev(accountId), hasMore };
-}
-
-function hasRowsAfter(accountId: string, kind: EntityKind, since: number): boolean {
-  const table = tableFor(kind);
-  const row = getDb()
-    .select({ id: table.id })
-    .from(table)
-    .where(and(eq(table.accountId, accountId), gt(table.rev, since)))
-    .limit(1)
-    .all()[0];
-  return row !== undefined;
 }
 
 /** Returns an error string when the record is unusable, or `null` when it is fine. */

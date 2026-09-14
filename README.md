@@ -46,6 +46,38 @@ context is required for `getUserMedia`, and Pages provides one. And the ~11 MB
 OpenCV runtime plus ~450 kB of iOS launch screens are served from Pages but kept
 out of the service worker's precache, so a first visit downloads about 500 kB.
 
+### Using sync from GitHub Pages
+
+An app loaded from GitHub Pages uses HTTPS. Browsers therefore block requests
+to an `http://` sync server as mixed content before CORS or the KvittoApp server
+can handle them. Changing CORS settings does not bypass this browser rule.
+
+The recommended setup requires no additional software on the phone or local
+computer:
+
+1. Deploy the existing Docker image to a VPS or managed container host that
+  provides a public HTTPS URL and a persistent volume.
+2. Mount the persistent volume at `/data`; it contains SQLite, receipt images,
+  and the generated secrets encryption key.
+3. Configure the server with the public HTTPS origin and the GitHub Pages
+  origin:
+
+  ```env
+  KVITTO_PUBLIC_URL=https://kvitto.example.com
+  KVITTO_CORS_ORIGINS=https://martengooz.github.io
+  KVITTO_TRUST_PROXY=true
+  KVITTO_STATIC_DIR=/app/web
+  ```
+
+4. Open `https://kvitto.example.com/server`, create a new pairing QR code, and
+  scan that code from the GitHub Pages app.
+
+Use your actual API domain and Pages origin. CORS origins contain only the
+scheme and host, so do not add `/KvittoApp/`. Avoid ephemeral serverless hosts:
+the database and encryption key must survive deployments. Serving the PWA from
+the same HTTPS server is also supported and avoids cross-origin requests
+entirely.
+
 ## Quick start
 
 ```bash
@@ -85,8 +117,9 @@ and code manually. See [`apps/server/README.md`](apps/server/README.md) for
 deployment.
 
 For diagnostics, Settings → Utvecklarinställningar → Debugglogg shows bounded
-client and server logs. Request bodies, receipt data, tokens, and API keys are
-not recorded.
+client and server logs with the latest 500 HTTP exchanges. Logs can contain
+receipt metadata; binary images are represented only by type and size, while
+pairing codes, tokens, and API keys are masked.
 
 ## How it works
 
