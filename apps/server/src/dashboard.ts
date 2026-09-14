@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+
+import { config } from './env.ts';
 
 const aiSettingsModule = readFileSync(new URL(import.meta.resolve('@kvitto/shared/ai-settings-ui')), 'utf8');
 
@@ -14,7 +17,12 @@ const securityHeaders = {
 export function registerDashboard(app: FastifyInstance): void {
   app.get('/server', async (_request, reply) => send(reply, 'text/html; charset=utf-8', page));
   app.get('/server/styles.css', async (_request, reply) => send(reply, 'text/css; charset=utf-8', styles));
-  app.get('/server/app.js', async (_request, reply) => send(reply, 'text/javascript; charset=utf-8', script));
+  app.get('/server/app.js', async (request, reply) =>
+    send(
+      reply,
+      'text/javascript; charset=utf-8',
+      script.replace('__PAIR_SERVER_URL__', JSON.stringify(pairingServerUrl(request))),
+    ));
   app.get('/server/ai-settings.js', async (_request, reply) =>
     send(reply, 'text/javascript; charset=utf-8', aiSettingsModule));
 }
@@ -22,6 +30,24 @@ export function registerDashboard(app: FastifyInstance): void {
 function send(reply: FastifyReply, contentType: string, body: string): FastifyReply {
   for (const [name, value] of Object.entries(securityHeaders)) reply.header(name, value);
   return reply.type(contentType).send(body);
+}
+
+function pairingServerUrl(request: FastifyRequest): string {
+  if (config.publicUrl) return config.publicUrl.replace(/\/+$/, '');
+  if (!isLoopback(request.hostname)) return `${request.protocol}://${request.host}`;
+
+  const port = new URL(`${request.protocol}://${request.host}`).port;
+  const address = Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .find((entry) => entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.'))
+    ?.address;
+  if (!address) return `${request.protocol}://${request.host}`;
+  return `${request.protocol}://${address}${port ? `:${port}` : ''}`;
+}
+
+function isLoopback(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }
 
 const page = `<!doctype html>
@@ -268,7 +294,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
   const element = (id) => document.getElementById(id);
   let token = localStorage.getItem(storageKey) || '';
   let currentDeviceId = localStorage.getItem(deviceKey) || '';
-  element('pair-server-url').value = location.origin;
+  element('pair-server-url').value = __PAIR_SERVER_URL__;
 
   async function request(path, options = {}) {
     const headers = { ...(options.headers || {}) };

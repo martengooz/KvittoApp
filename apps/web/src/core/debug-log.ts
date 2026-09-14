@@ -125,7 +125,7 @@ function redactDetails(details: DebugEntry['details']): DebugEntry['details'] {
 }
 
 function redactValue(key: string, value: DebugValue): DebugValue {
-  if (/^(?:authorization|cookie|set-cookie|password|api[_-]?key|token)$/i.test(key)) return '[redacted]';
+  if (/^(?:authorization|cookie|set-cookie|password|api[_-]?key|token|code)$/i.test(key)) return '[redacted]';
   if (typeof value === 'string') return redact(value);
   if (Array.isArray(value)) return value.map((item) => redactValue('', item));
   if (value && typeof value === 'object') return redactDetails(value);

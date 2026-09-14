@@ -11,7 +11,7 @@ import type {
 } from '@kvitto/shared';
 import { SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
 
-import { appendClientDebug, type DebugEntry } from '../core/debug-log.js';
+import { appendClientDebug, type DebugEntry, type DebugValue } from '../core/debug-log.js';
 import { getDeviceId, getDeviceName, getDeviceToken } from './identity.js';
 
 export class SyncError extends Error {
@@ -68,21 +68,61 @@ async function request<T>(
     finalHeaders.set('content-type', 'application/json');
   }
 
+  const targetUrl = `${normalizeBase(serverUrl)}${path}`;
+  const requestDetails = {
+    method,
+    url: redactUrl(targetUrl),
+    headers: headersToDebug(finalHeaders),
+    body: requestBodyToDebug(rest.body, finalHeaders.get('content-type'), safePath),
+  };
+  const mixedContent = location.protocol === 'https:' && new URL(targetUrl).protocol === 'http:';
+  if (mixedContent) {
+    appendClientDebug('error', `${method} ${safePath}`, {
+      outcome: 'blocked-mixed-content',
+      durationMs: Math.round(performance.now() - started),
+      request: requestDetails,
+      response: emptyResponse(),
+      browser: browserContext(targetUrl),
+      error: {
+        name: 'SecurityError',
+        message: 'HTTPS-sidan får inte anropa en HTTP-server.',
+      },
+    });
+    throw new SyncError(
+      'Appen kör HTTPS men serveradressen använder HTTP. Ange serverns HTTPS-adress i QR-koden.',
+    );
+  }
+
   let response: Response;
   try {
-    response = await fetch(`${normalizeBase(serverUrl)}${path}`, { ...rest, headers: finalHeaders });
-  } catch {
+    response = await fetch(targetUrl, { ...rest, headers: finalHeaders });
+  } catch (error) {
     appendClientDebug('error', `${method} ${safePath}`, {
       outcome: 'network-error',
       durationMs: Math.round(performance.now() - started),
+      request: requestDetails,
+      response: emptyResponse(),
+      browser: browserContext(targetUrl),
+      error: errorToDebug(error),
     });
     // Offline, DNS failure or a CORS rejection all land here indistinguishably.
-    throw new SyncError('Kunde inte nå servern.', { retryable: true });
+    throw new SyncError(networkErrorMessage(targetUrl), { retryable: true });
   }
 
+  const responseBody = await responseBodyToDebug(response.clone(), safePath);
   appendClientDebug(response.ok ? 'info' : response.status >= 500 ? 'error' : 'warn', `${method} ${safePath}`, {
+    outcome: response.ok ? 'success' : 'http-error',
     status: response.status,
     durationMs: Math.round(performance.now() - started),
+    request: requestDetails,
+    response: {
+      status: response.status,
+      statusText: response.statusText,
+      url: redactUrl(response.url),
+      redirected: response.redirected,
+      headers: headersToDebug(response.headers),
+      body: responseBody,
+    },
   });
 
   if (!response.ok) {
@@ -99,6 +139,120 @@ async function request<T>(
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+function headersToDebug(headers: Headers): Record<string, DebugValue> {
+  return Object.fromEntries(headers.entries());
+}
+
+function requestBodyToDebug(body: BodyInit | null | undefined, contentType: string | null, path: string): DebugValue {
+  if (body === undefined || body === null) return null;
+  if (typeof body === 'string') return redactHttpBody(parseDebugText(body, contentType), path);
+  if (body instanceof URLSearchParams) return Object.fromEntries(body.entries());
+  if (body instanceof Blob) {
+    return { type: body.type || contentType || 'application/octet-stream', byteLength: body.size, content: '[binary]' };
+  }
+  if (body instanceof FormData) {
+    return Object.fromEntries(Array.from(body.entries(), ([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? value
+        : { name: value.name, type: value.type, byteLength: value.size, content: '[binary]' },
+    ]));
+  }
+  if (body instanceof ArrayBuffer) return { type: contentType ?? 'application/octet-stream', byteLength: body.byteLength, content: '[binary]' };
+  if (ArrayBuffer.isView(body)) return { type: contentType ?? 'application/octet-stream', byteLength: body.byteLength, content: '[binary]' };
+  return `[${body.constructor.name}]`;
+}
+
+async function responseBodyToDebug(response: Response, path: string): Promise<DebugValue> {
+  if (response.status === 204) return null;
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '';
+  const contentLength = Number(response.headers.get('content-length'));
+  if (contentType.startsWith('image/') || contentType === 'application/octet-stream') {
+    return {
+      type: contentType || 'application/octet-stream',
+      byteLength: Number.isFinite(contentLength) ? contentLength : null,
+      content: '[binary]',
+    };
+  }
+  try {
+    const text = await response.text();
+    return redactHttpBody(parseDebugText(text, contentType), path);
+  } catch (error) {
+    return { content: '[unavailable]', error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function redactHttpBody(value: DebugValue, path: string, withinSecrets = false): DebugValue {
+  if (Array.isArray(value)) return value.map((item) => redactHttpBody(item, path, withinSecrets));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+    const nestedInSecrets = withinSecrets || key.toLowerCase() === 'secrets';
+    const secretValue = key.toLowerCase() === 'value' && (nestedInSecrets || path.startsWith('/secrets'));
+    return [key, secretValue ? '[redacted]' : redactHttpBody(child, path, nestedInSecrets)];
+  }));
+}
+
+function parseDebugText(text: string, contentType: string | null): DebugValue {
+  if (!text) return null;
+  if (contentType?.includes('json')) {
+    try {
+      return JSON.parse(text) as DebugValue;
+    } catch {
+      // Keep malformed JSON visible as text.
+    }
+  }
+  return text;
+}
+
+function emptyResponse(): Record<string, DebugValue> {
+  return { status: null, statusText: '', url: '', redirected: false, headers: {}, body: null };
+}
+
+function browserContext(targetUrl: string): Record<string, DebugValue> {
+  const target = new URL(targetUrl);
+  return {
+    online: navigator.onLine,
+    origin: location.origin,
+    secureContext: window.isSecureContext,
+    targetOrigin: target.origin,
+    crossOrigin: target.origin !== location.origin,
+    mixedContent: location.protocol === 'https:' && target.protocol === 'http:',
+    userAgent: navigator.userAgent,
+  };
+}
+
+function errorToDebug(error: unknown): Record<string, DebugValue> {
+  if (!(error instanceof Error)) return { name: 'UnknownError', message: String(error) };
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack ?? null,
+    cause: error.cause === undefined ? null : String(error.cause),
+  };
+}
+
+function networkErrorMessage(targetUrl: string): string {
+  const hostname = new URL(targetUrl).hostname;
+  if (isLoopbackHost(hostname) && !isLoopbackHost(location.hostname)) {
+    return 'QR-koden pekar på serverns localhost. Skapa en ny kod med serverns LAN- eller HTTPS-adress.';
+  }
+  if (!navigator.onLine) return 'Enheten är offline.';
+  return 'Kunde inte nå servern. Kontrollera adressen, samma nätverk, brandvägg och CORS.';
+}
+
+function redactUrl(rawUrl: string): string {
+  const url = new URL(rawUrl);
+  for (const key of url.searchParams.keys()) {
+    if (/code|token|key|secret/i.test(key)) url.searchParams.set(key, '[redacted]');
+  }
+  return url.href;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }
 
 export async function pairDevice(serverUrl: string, code: string): Promise<PairResponse> {

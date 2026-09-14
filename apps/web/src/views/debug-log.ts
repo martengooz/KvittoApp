@@ -35,7 +35,7 @@ export async function debugLogView(): Promise<HTMLElement> {
     return listGroup(
       {
         title: 'Utvecklarinställningar',
-        footer: 'Loggen innehåller teknisk metadata, aldrig kvitton, bilder, tokens eller API-nycklar.',
+        footer: 'HTTP-loggen kan innehålla kvittodata. Bilder visas bara med typ och storlek; koder, tokens och API-nycklar maskeras.',
       },
       el(
         'div',

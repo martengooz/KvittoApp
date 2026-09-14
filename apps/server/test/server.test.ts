@@ -171,6 +171,8 @@ test('server dashboard serves its shell and assets without exposing account data
   assert.match(styles.headers['content-type'] ?? '', /^text\/css/);
   assert.equal(script.statusCode, 200);
   assert.match(script.headers['content-type'] ?? '', /^text\/javascript/);
+  assert.doesNotMatch(script.body, /__PAIR_SERVER_URL__/);
+  assert.match(script.body, /pair-server-url'\)\.value = "https?:\/\//);
   assert.equal(aiSettings.statusCode, 200);
   assert.match(aiSettings.headers['content-type'] ?? '', /^text\/javascript/);
   assert.match(aiSettings.body, /createAiSettingsView/);

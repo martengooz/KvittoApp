@@ -708,7 +708,7 @@ function renderDeveloperSection(): HTMLElement {
   return listGroup(
     {
       title: 'Utvecklarinställningar',
-      footer: 'Diagnostik för felsökning. Loggarna innehåller inte kvitton, bilder eller hemligheter.',
+      footer: 'Diagnostik med HTTP-data. Koder, tokens och API-nycklar maskeras.',
     },
     row({
       label: 'Debugglogg',

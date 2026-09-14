@@ -40,6 +40,8 @@ export const config = {
   host: str('HOST', '0.0.0.0'),
   port: int('PORT', 8787),
   logLevel: str('LOG_LEVEL', 'info'),
+  /** Public origin encoded in pairing QR codes. Auto-detected on a local development host when omitted. */
+  publicUrl: str('KVITTO_PUBLIC_URL', ''),
 
   dataDir,
   databasePath: resolve(dataDir, str('KVITTO_DB_FILE', 'kvitto.sqlite')),
