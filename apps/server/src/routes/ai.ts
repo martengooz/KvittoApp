@@ -2,9 +2,10 @@
 
 import type { FastifyInstance } from 'fastify';
 
-import { requireDevice } from '../auth.ts';
+import { device, requireDevice } from '../auth.ts';
 import { runExtraction, ProxyError } from '../ai/proxy.ts';
-import { aiProxyEnabled, allowedModels, config } from '../env.ts';
+import { effectiveAiSettings } from '../db/server-settings.ts';
+import { config } from '../env.ts';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -18,7 +19,8 @@ export function registerAiRoutes(app: FastifyInstance): void {
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
-      if (!aiProxyEnabled()) {
+      const ai = effectiveAiSettings(device(request).accountId);
+      if (!ai.enabled) {
         return reply.code(501).send({
           error: 'ai_disabled',
           message: 'Servern har ingen AI-proxy konfigurerad.',
@@ -62,14 +64,14 @@ export function registerAiRoutes(app: FastifyInstance): void {
       }
 
       // A device must not be able to bill the operator for an arbitrary model.
-      const permitted = allowedModels();
+      const permitted = ai.allowedModels;
       if (model && !permitted.includes(model)) {
         request.log.warn({ model }, 'device requested a model that is not allow-listed');
         model = undefined;
       }
 
       try {
-        const result = await runExtraction(image, mimeType, { model, extraInstructions });
+        const result = await runExtraction(ai, image, mimeType, { model, extraInstructions });
         return reply.send(result);
       } catch (error) {
         if (error instanceof ProxyError) {

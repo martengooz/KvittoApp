@@ -6,6 +6,7 @@ import { and, asc, eq, gt, sql } from 'drizzle-orm';
 
 import {
   ENTITY_KINDS,
+  SECRET_NAMES,
   resolveConflict,
   type AnyEntity,
   type ChangeSet,
@@ -15,6 +16,7 @@ import {
 } from '@kvitto/shared';
 
 import { getConnection, getDb, schema } from './index.ts';
+import { decryptSecretPayload, encryptSecretPayload } from './secret-crypto.ts';
 
 /** Fields the server keeps in dedicated columns; the rest live in `payload`. */
 interface StoredRow {
@@ -92,7 +94,7 @@ export function applyPush(
       const table = tableFor(kind);
 
       for (const incoming of rows) {
-        const validation = validate(incoming);
+        const validation = validate(kind, incoming);
         if (validation) {
           results.push({ kind, id: String(incoming?.id ?? ''), rev: 0, outcome: 'rejected', reason: validation });
           continue;
@@ -106,7 +108,7 @@ export function applyPush(
           .all()[0] as StoredRow | undefined;
 
         if (existing) {
-          const stored = JSON.parse(existing.payload) as AnyEntity;
+          const stored = parsePayload(kind, existing.payload);
           const winner = resolveConflict(stored, incoming);
           if (winner !== incoming) {
             results.push({ kind, id: incoming.id, rev: existing.rev, outcome: 'stale' });
@@ -116,7 +118,7 @@ export function applyPush(
 
         const rev = nextRev(accountId);
         cursor = rev;
-        const payload = JSON.stringify({ ...incoming, rev, dirty: 0 });
+        const payload = serializePayload(kind, { ...incoming, rev, dirty: 0 } as AnyEntity);
 
         const values = {
           id: incoming.id,
@@ -180,7 +182,7 @@ export function pull(
     if (page.length === 0) continue;
 
     (changes as Record<string, unknown[]>)[kind] = page.map((row) => ({
-      ...(JSON.parse(row.payload) as AnyEntity),
+      ...parsePayload(kind, row.payload),
       rev: row.rev,
       dirty: 0,
     }));
@@ -206,13 +208,20 @@ function hasRowsAfter(accountId: string, kind: EntityKind, since: number): boole
 }
 
 /** Returns an error string when the record is unusable, or `null` when it is fine. */
-function validate(record: unknown): string | null {
+function validate(kind: EntityKind, record: unknown): string | null {
   if (!record || typeof record !== 'object') return 'Record is not an object.';
   const row = record as Partial<AnyEntity>;
   if (typeof row.id !== 'string' || row.id.length === 0) return 'Missing id.';
   if (row.id.length > 128) return 'Id is too long.';
   if (typeof row.updatedAt !== 'number' || !Number.isFinite(row.updatedAt)) return 'Missing updatedAt.';
   if (typeof row.deletedAt !== 'number' || !Number.isFinite(row.deletedAt)) return 'Missing deletedAt.';
+
+  if (kind === 'secrets') {
+    if (!(SECRET_NAMES as readonly string[]).includes(row.id)) return 'Unknown secret name.';
+    const value = (record as { value?: unknown }).value;
+    if (typeof value !== 'string') return 'Secret value must be a string.';
+    if (value.length > 16_384) return 'Secret value is too long.';
+  }
 
   // A payload far larger than any real receipt is either a bug or an attempt to
   // fill the disk; either way it should not be stored.
@@ -242,7 +251,7 @@ export function readRecord<K extends EntityKind>(
     .limit(1)
     .all()[0] as StoredRow | undefined;
   if (!row) return null;
-  return { ...(JSON.parse(row.payload) as EntityMap[K]), rev: row.rev, dirty: 0 };
+  return { ...(parsePayload(kind, row.payload) as EntityMap[K]), rev: row.rev, dirty: 0 };
 }
 
 /**
@@ -278,7 +287,7 @@ export function writeServerRecords(
         rev,
         updatedAt: record.updatedAt,
         deletedAt: record.deletedAt,
-        payload: JSON.stringify({ ...record, rev, dirty: 0 }),
+        payload: serializePayload(kind, { ...record, rev, dirty: 0 } as AnyEntity),
         // Named rather than left null so a device syncing its own change back
         // can see the write did not come from another phone.
         lastDeviceId: SERVER_DEVICE_ID,
@@ -296,6 +305,16 @@ export function writeServerRecords(
 
 /** `lastDeviceId` on rows the server wrote itself. */
 export const SERVER_DEVICE_ID = 'server';
+
+function serializePayload(kind: EntityKind, record: AnyEntity): string {
+  const payload = JSON.stringify(record);
+  return kind === 'secrets' ? encryptSecretPayload(payload) : payload;
+}
+
+function parsePayload(kind: EntityKind, payload: string): AnyEntity {
+  const plaintext = kind === 'secrets' ? decryptSecretPayload(payload) : payload;
+  return JSON.parse(plaintext) as AnyEntity;
+}
 
 /** Live (non-tombstoned) line items belonging to a receipt. */
 export function countLiveItems(accountId: string, receiptId: string): number {

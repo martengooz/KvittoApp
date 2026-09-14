@@ -123,7 +123,206 @@ function findReceipt(rows: Record<string, unknown>[], id: string): Record<string
 test('health reports the protocol version without authentication', async () => {
   const response = await app.inject({ method: 'GET', url: '/health' });
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json().protocolVersion, 1);
+  assert.equal(response.json().protocolVersion, 2);
+});
+
+test('server dashboard serves its shell and assets without exposing account data', async () => {
+  const page = await app.inject({ method: 'GET', url: '/server' });
+  assert.equal(page.statusCode, 200);
+  assert.match(page.headers['content-type'] ?? '', /^text\/html/);
+  assert.match(page.headers['content-security-policy'] ?? '', /default-src 'self'/);
+  assert.match(page.body, /KvittoApp server/);
+  assert.match(page.body, /id="create-pairing-code"/);
+  assert.match(page.body, /id="server-ai-form"/);
+  assert.doesNotMatch(page.body, /id="pair-code"/);
+  assert.doesNotMatch(page.body, new RegExp(accountId));
+
+  const [styles, script] = await Promise.all([
+    app.inject({ method: 'GET', url: '/server/styles.css' }),
+    app.inject({ method: 'GET', url: '/server/app.js' }),
+  ]);
+  assert.equal(styles.statusCode, 200);
+  assert.match(styles.headers['content-type'] ?? '', /^text\/css/);
+  assert.equal(script.statusCode, 200);
+  assert.match(script.headers['content-type'] ?? '', /^text\/javascript/);
+});
+
+test('server dashboard mints pairing codes for clients', async () => {
+  const dashboardId = randomUUID();
+  const session = await app.inject({
+    method: 'POST',
+    url: '/auth/dashboard',
+    payload: { deviceId: dashboardId, deviceName: 'Serverdashboard' },
+  });
+  assert.equal(session.statusCode, 200);
+  assert.equal(session.json().deviceId, dashboardId);
+
+  const pairingCode = await app.inject({
+    method: 'POST',
+    url: '/auth/pairing-code',
+    headers: { authorization: `Bearer ${session.json().token}` },
+    payload: { serverUrl: 'https://kvitto.test' },
+  });
+  assert.equal(pairingCode.statusCode, 200);
+  assert.match(pairingCode.json().code, /^(?:[A-Z0-9]{3}-){2}[A-Z0-9]{3}$/);
+  assert.ok(pairingCode.json().expiresAt > Date.now());
+  assert.match(pairingCode.json().qrImage, /^data:image\/png;base64,/);
+  assert.deepEqual(JSON.parse(pairingCode.json().pairingPayload), {
+    type: 'kvitto-pair',
+    version: 1,
+    serverUrl: 'https://kvitto.test',
+    code: pairingCode.json().code,
+  });
+
+  const client = await app.inject({
+    method: 'POST',
+    url: '/auth/pair',
+    payload: {
+      code: pairingCode.json().code,
+      deviceId: randomUUID(),
+      deviceName: 'Klient',
+    },
+  });
+  assert.equal(client.statusCode, 200);
+});
+
+test('server AI configuration uses dashboard settings and synchronized secrets', async () => {
+  const configured = await app.inject({
+    method: 'PUT',
+    url: '/server/config',
+    headers: auth(),
+    payload: {
+      ai: {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        maxOutputTokens: 8000,
+        effort: 'auto',
+        structuredOutput: true,
+        extraInstructions: 'Use Swedish merchant names.',
+      },
+    },
+  });
+  assert.equal(configured.statusCode, 200);
+  assert.deepEqual(configured.json().ai, {
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    baseUrl: 'https://api.openai.com/v1',
+    maxOutputTokens: 8000,
+    effort: 'auto',
+    structuredOutput: true,
+    extraInstructions: 'Use Swedish merchant names.',
+    apiKeyConfigured: false,
+  });
+
+  const secret = await app.inject({
+    method: 'PUT',
+    url: '/secrets/aiApiKey',
+    headers: auth(),
+    payload: { value: 'configured-proxy-key' },
+  });
+  assert.equal(secret.statusCode, 200);
+
+  const identity = await app.inject({ method: 'GET', url: '/auth/me', headers: auth() });
+  assert.equal(identity.statusCode, 200);
+  assert.equal(identity.json().aiProxyEnabled, true);
+  assert.deepEqual(identity.json().aiProxyModels, ['gpt-4o-mini']);
+
+  const readBack = await app.inject({ method: 'GET', url: '/server/config', headers: auth() });
+  assert.equal(readBack.statusCode, 200);
+  assert.equal(readBack.body.includes('configured-proxy-key'), false);
+
+  await app.inject({
+    method: 'PUT',
+    url: '/secrets/aiApiKey',
+    headers: auth(),
+    payload: { value: '' },
+  });
+  await app.inject({
+    method: 'PUT',
+    url: '/server/config',
+    headers: auth(),
+    payload: {
+      ai: {
+        provider: 'none',
+        model: 'claude-opus-5',
+        baseUrl: '',
+        maxOutputTokens: 16000,
+        effort: 'auto',
+        structuredOutput: true,
+        extraInstructions: '',
+      },
+    },
+  });
+});
+
+test('secrets sync in both directions and are encrypted at rest', async () => {
+  const serverValue = 'server-secret-value';
+  const saved = await app.inject({
+    method: 'PUT',
+    url: '/secrets/aiApiKey',
+    headers: auth(),
+    payload: { value: serverValue },
+  });
+  assert.equal(saved.statusCode, 200);
+  assert.deepEqual(saved.json().configured, true);
+  assert.equal(saved.json().value, undefined, 'admin responses never echo a secret');
+
+  let cursor = 0;
+  let pulledSecret: Record<string, unknown> | undefined;
+  for (let page = 0; page < 10 && !pulledSecret; page += 1) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/sync/pull?since=${cursor}`,
+      headers: auth(),
+    });
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    pulledSecret = (body.changes.secrets as Record<string, unknown>[] | undefined)?.find(
+      (secret) => secret['id'] === 'aiApiKey',
+    );
+    cursor = body.cursor;
+    if (!body.hasMore) break;
+  }
+  assert.equal(pulledSecret?.['value'], serverValue, 'server changes reach a device pull');
+
+  const clientValue = 'client-secret-value';
+  const pushed = await app.inject({
+    method: 'POST',
+    url: '/sync/push',
+    headers: auth(),
+    payload: {
+      deviceId: DEVICE_ID,
+      protocolVersion: 2,
+      changes: {
+        secrets: [{
+          id: 'companyApiKey',
+          value: clientValue,
+          updatedAt: Date.now() + 1_000,
+          deletedAt: 0,
+          rev: 0,
+          dirty: 0,
+        }],
+      },
+    },
+  });
+  assert.equal(pushed.statusCode, 200);
+  assert.equal(pushed.json().results[0].outcome, 'applied');
+
+  const listed = await app.inject({ method: 'GET', url: '/secrets', headers: auth() });
+  assert.equal(listed.statusCode, 200);
+  const company = listed.json().secrets.find((secret: { id: string }) => secret.id === 'companyApiKey');
+  assert.equal(company.configured, true, 'device changes reach the admin endpoint');
+  assert.equal(company.value, undefined);
+
+  const stored = getConnection()
+    .prepare('SELECT payload FROM secrets WHERE id IN (?, ?)')
+    .all('aiApiKey', 'companyApiKey') as { payload: string }[];
+  assert.equal(stored.length, 2);
+  for (const row of stored) {
+    assert.match(row.payload, /^enc:v1:/);
+    assert.doesNotMatch(row.payload, /server-secret-value|client-secret-value/);
+  }
 });
 
 test('protected endpoints reject a missing or bogus token', async () => {
@@ -136,6 +335,26 @@ test('protected endpoints reject a missing or bogus token', async () => {
     headers: { authorization: 'Bearer not-a-real-token' },
   });
   assert.equal(bogus.statusCode, 401);
+});
+
+test('debug log exposes bounded request metadata only to paired devices', async () => {
+  await app.inject({ method: 'GET', url: '/health' });
+
+  const anonymous = await app.inject({ method: 'GET', url: '/debug/logs' });
+  assert.equal(anonymous.statusCode, 401);
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/debug/logs?limit=20',
+    headers: auth(),
+  });
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.ok(Array.isArray(body.entries));
+  assert.ok(body.entries.length <= 20);
+  assert.ok(body.entries.some((entry: { message: string }) => entry.message === 'GET /health'));
+  assert.equal(response.body.includes(token), false);
+  assert.equal(response.body.includes('authorization'), false);
 });
 
 test('a pairing code cannot be redeemed twice', async () => {
@@ -161,7 +380,7 @@ test('push then pull round-trips a receipt', async () => {
     method: 'POST',
     url: '/sync/push',
     headers: auth(),
-    payload: { deviceId: DEVICE_ID, protocolVersion: 1, changes: { receipts: [receipt(id, 1000)] } },
+    payload: { deviceId: DEVICE_ID, protocolVersion: 2, changes: { receipts: [receipt(id, 1000)] } },
   });
   assert.equal(push.statusCode, 200);
   assert.equal(push.json().results[0].outcome, 'applied');
@@ -349,7 +568,7 @@ test('a protocol version mismatch is reported explicitly', async () => {
     payload: { deviceId: DEVICE_ID, protocolVersion: 99, changes: {} },
   });
   assert.equal(response.statusCode, 409);
-  assert.equal(response.json().protocolVersion, 1);
+  assert.equal(response.json().protocolVersion, 2);
 });
 
 // --- the change probe and the epoch ---------------------------------------

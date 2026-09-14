@@ -2,9 +2,8 @@
 #
 #   cp apps/server/.env.example .env   # then edit
 #   docker compose up -d --build
-#   docker compose exec kvitto node apps/server/dist/cli/pair.js
 #
-# The last command prints a pairing code to type into the app.
+# Open http://localhost:8787/server to create a pairing code for the app.
 
 services:
   kvitto:

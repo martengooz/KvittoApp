@@ -35,6 +35,8 @@ const TABS: TabEntry[] = [
 /** Screens pushed on top of a tab, which get a back button instead of a tab. */
 const PUSHED_TITLES: Record<string, string> = {
   '/receipt': 'Kvitto',
+  '/debug-log': 'Debugglogg',
+  '/pair-scan': 'Skanna QR-kod',
 };
 
 /** How far the page scrolls before the large title hands over to the bar. */
@@ -95,6 +97,8 @@ function registerRoutes(): void {
     .add('/receipt/:id', async (context) => (await import('./views/receipt.js')).receiptView(context))
     .add('/collections', async () => (await import('./views/collections.js')).collectionsView())
     .add('/settings', async () => (await import('./views/settings.js')).settingsView())
+    .add('/debug-log', async () => (await import('./views/debug-log.js')).debugLogView())
+    .add('/pair-scan', async () => (await import('./views/pair-scan.js')).pairScanView())
     .fallback(notFoundView);
 }
 
@@ -159,6 +163,9 @@ function updateChrome(chrome: Chrome): void {
   chrome.largeTitle.hidden = pushed;
 
   if (pushed) {
+    const settingsChild = base === '/debug-log' || base === '/pair-scan';
+    const backTarget = settingsChild ? '/settings' : '/receipts';
+    const backLabel = settingsChild ? 'Inställningar' : 'Kvitton';
     chrome.header.dataset['scrolled'] = 'true';
     replaceChildren(
       chrome.leading,
@@ -175,12 +182,12 @@ function updateChrome(chrome: Chrome): void {
               // and only synthesise a destination when there is nothing to
               // go back to (a cold load straight into a receipt).
               if (history.length > 1) history.back();
-              else router.navigate('/receipts');
+              else router.navigate(backTarget);
             },
           },
         },
         icon('chevron-left', { size: 20, weight: 2.4 }),
-        el('span', { text: 'Kvitton' }),
+        el('span', { text: backLabel }),
       ),
     );
   } else {

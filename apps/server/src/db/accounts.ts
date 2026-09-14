@@ -60,6 +60,52 @@ export interface PairingCode {
   expiresAt: number;
 }
 
+export interface DeviceSession {
+  accountId: string;
+  token: string;
+  deviceId: string;
+  deviceName: string;
+}
+
+/** Creates or rotates the server dashboard's device session. */
+export function createDeviceSession(
+  accountId: string,
+  deviceId: string,
+  deviceName: string,
+): DeviceSession {
+  const db = getDb();
+  const now = Date.now();
+  const token = generateToken();
+  const tokenHash = hashToken(token);
+  const existing = db
+    .select({ id: schema.devices.id })
+    .from(schema.devices)
+    .where(and(eq(schema.devices.id, deviceId), eq(schema.devices.accountId, accountId)))
+    .limit(1)
+    .all()[0];
+
+  if (existing) {
+    db.update(schema.devices)
+      .set({ tokenHash, name: deviceName, revokedAt: null, lastSeenAt: now })
+      .where(eq(schema.devices.id, deviceId))
+      .run();
+  } else {
+    db.insert(schema.devices)
+      .values({
+        id: deviceId,
+        accountId,
+        name: deviceName,
+        tokenHash,
+        createdAt: now,
+        lastSeenAt: now,
+        revokedAt: null,
+      })
+      .run();
+  }
+
+  return { accountId, token, deviceId, deviceName };
+}
+
 /** Mints a short-lived pairing code the user types into the app. */
 export function createPairingCode(accountId: string): PairingCode {
   const db = getDb();

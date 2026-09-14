@@ -27,7 +27,7 @@ import {
 } from '@kvitto/shared';
 
 import { bus } from '../core/events.js';
-import { getSettings } from '../core/settings.js';
+import { getSettings, refreshSyncedSecrets } from '../core/settings.js';
 import { db, getKv, setKv, SYNC_TABLES } from '../db/db.js';
 import { putBlob } from '../db/blobs.js';
 
@@ -357,6 +357,7 @@ async function pullAll(serverUrl: string): Promise<{ pulled: number; merged: num
     const size = changeSetSize(response.changes);
     if (size > 0) {
       merged += await applyRemote(response.changes);
+      if (response.changes.secrets?.length) await refreshSyncedSecrets();
       pulled += size;
     }
     cursor = response.cursor;

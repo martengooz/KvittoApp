@@ -7,6 +7,8 @@
  * at boot and cached in memory, so reads are synchronous everywhere else.
  */
 
+import type { SecretName, SyncedSecret } from '@kvitto/shared';
+
 import { APIVERKET_BASE_URL } from '../api/apiverket.js';
 import { db } from '../db/db.js';
 import { bus } from './events.js';
@@ -31,7 +33,7 @@ export interface AiSettings {
   model: string;
   /** Base URL for `openai-compatible` and `ollama`. */
   baseUrl: string;
-  /** Stored on this device only, and never included in sync payloads. */
+  /** Stored locally and synchronized to the companion server when paired. */
   apiKey: string;
   maxOutputTokens: number;
   /**
@@ -74,7 +76,7 @@ export interface SyncSettings {
  * registry lookup rather than a model call, and it has its own key.
  */
 export interface CompanySettings {
-  /** Apiverket key (`sk_test_…` / `sk_live_…`). Device-local, never synced. */
+  /** Apiverket key (`sk_test_…` / `sk_live_…`). Synchronized when paired. */
   apiKey: string;
   baseUrl: string;
   /** Look the company up automatically after a scan finds an org number. */
@@ -181,6 +183,7 @@ let loaded = false;
 export async function loadSettings(): Promise<AppSettings> {
   const stored = await db.kv.get(SETTINGS_KEY);
   cached = merge(DEFAULT_SETTINGS, stored?.value);
+  await loadSyncedSecrets();
   loaded = true;
   return cached;
 }
@@ -195,8 +198,19 @@ export function getSettings(): AppSettings {
 export async function updateSettings(patch: DeepPartial<AppSettings>): Promise<AppSettings> {
   cached = merge(cached, patch);
   await db.kv.put({ key: SETTINGS_KEY, value: cached });
+  await persistSecretPatches(patch);
   bus.emit('settings:changed', {});
   return cached;
+}
+
+/** Refreshes the synchronous settings cache after secret records arrive through sync. */
+export async function refreshSyncedSecrets(): Promise<void> {
+  const before = `${cached.ai.apiKey}\0${cached.company.apiKey}`;
+  await loadSyncedSecrets(false);
+  const after = `${cached.ai.apiKey}\0${cached.company.apiKey}`;
+  if (before === after) return;
+  await db.kv.put({ key: SETTINGS_KEY, value: cached });
+  bus.emit('settings:changed', {});
 }
 
 /**
@@ -237,6 +251,47 @@ function merge(base: AppSettings, patch: unknown): AppSettings {
     }
   }
   return result;
+}
+
+const SECRET_PATHS: Record<SecretName, ['ai' | 'company', 'apiKey']> = {
+  aiApiKey: ['ai', 'apiKey'],
+  companyApiKey: ['company', 'apiKey'],
+};
+
+async function loadSyncedSecrets(migrate = true): Promise<void> {
+  for (const [id, [section, key]] of Object.entries(SECRET_PATHS) as [SecretName, ['ai' | 'company', 'apiKey']][]) {
+    const secret = await db.secrets.get(id);
+    if (secret) {
+      cached[section][key] = secret.deletedAt === 0 ? secret.value : '';
+      continue;
+    }
+
+    const existing = cached[section][key];
+    if (migrate && existing) await putSyncedSecret(id, existing);
+  }
+}
+
+async function persistSecretPatches(patch: DeepPartial<AppSettings>): Promise<void> {
+  if (patch.ai && Object.prototype.hasOwnProperty.call(patch.ai, 'apiKey')) {
+    await putSyncedSecret('aiApiKey', cached.ai.apiKey);
+  }
+  if (patch.company && Object.prototype.hasOwnProperty.call(patch.company, 'apiKey')) {
+    await putSyncedSecret('companyApiKey', cached.company.apiKey);
+  }
+}
+
+async function putSyncedSecret(id: SecretName, value: string): Promise<void> {
+  const existing = await db.secrets.get(id);
+  const record: SyncedSecret = {
+    id,
+    value,
+    updatedAt: Date.now(),
+    deletedAt: 0,
+    rev: existing?.rev ?? 0,
+    dirty: 1,
+  };
+  await db.secrets.put(record);
+  bus.emit('data:changed', { kinds: ['secrets'] });
 }
 
 /** True when the current configuration can actually run an extraction. */

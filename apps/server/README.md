@@ -14,19 +14,26 @@ them.
 npm install                              # from the repository root
 npm run build --workspace @kvitto/shared
 npm run dev --workspace @kvitto/server   # http://localhost:8787
-npm run pair --workspace @kvitto/server  # prints a one-time pairing code
 ```
 
-Type the code into the app under Settings → Synkronisering, together with the
-server address. Codes are single-use and expire after 15 minutes.
+Open `http://localhost:8787/server` for the server dashboard and create a
+pairing code there. Scan its QR code in the app under Settings → Synkronisering,
+or enter the code manually. Before creating the code, use a server address the
+scanning device can reach; `localhost` only works on the same device. Codes are
+single-use and expire after 15 minutes. The dashboard also configures the
+server-side AI provider, endpoint, model, output limit, and synchronized API
+keys.
 
 ### Docker
 
 ```bash
 cp apps/server/.env.example .env         # then edit
 docker compose up -d --build
-docker compose exec kvitto node apps/server/dist/cli/pair.js
 ```
+
+Open `http://localhost:8787/server` to create a pairing code. The CLI command
+`docker compose exec kvitto node apps/server/dist/cli/pair.js` remains available
+for headless installations.
 
 The image serves the built PWA as well as the API, so one container is the
 whole deployment. Everything persists under `/data` — that is the directory to
@@ -41,6 +48,7 @@ full list. The ones that matter:
 |---|---|---|
 | `KVITTO_CORS_ORIGINS` | *(unset)* | **Set this before exposing the server publicly.** Unset means any origin is reflected, so any website a paired user visits can use their token. The server logs a warning at startup while it is unset. |
 | `KVITTO_DATA_DIR` | `./data` | Where the SQLite file and images live. |
+| `KVITTO_SECRETS_KEY` | generated | Encryption key for synchronized secrets. When unset, `secrets.key` is created in the data directory and must be backed up. |
 | `KVITTO_TRUST_PROXY` | `false` | Set behind nginx/Caddy/Traefik so rate limiting sees real client IPs. |
 | `KVITTO_STATIC_DIR` | *(unset)* | Serve the built PWA from this server too. |
 | `KVITTO_AI_PROVIDER` | *(unset)* | `anthropic` or `openai` to enable the extraction proxy. Leave unset to disable it. |
@@ -110,6 +118,9 @@ household.
 
 - **Device tokens** are 32 bytes of CSPRNG output. Only their SHA-256 is
   stored, so a leaked database hands out no working credentials.
+- **Synchronized API keys** are encrypted with AES-256-GCM before entering
+  SQLite. Every paired device can receive them by design; revoke devices that
+  should no longer have access.
 - **Pairing codes** are single-use, short-lived, and rate-limited to 10
   attempts per 10 minutes. All failure modes return the same error, so a
   guesser learns nothing about which codes exist.
@@ -126,16 +137,24 @@ household.
 
 ## API
 
-All endpoints except `/health` and `/auth/pair` require
-`Authorization: Bearer <device token>`.
+All endpoints except `/health`, `/auth/pair`, and the local dashboard bootstrap
+require `Authorization: Bearer <device token>`.
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Liveness, protocol version, whether the AI proxy is on. |
+| `POST` | `/auth/dashboard` | Establish a server-dashboard session from localhost. |
+| `POST` | `/auth/pairing-code` | Mint a one-time pairing code. |
 | `POST` | `/auth/pair` | Exchange a pairing code for a device token. |
 | `GET` | `/auth/me` | Who this token belongs to, and proxy capabilities. |
 | `GET` | `/auth/devices` | List the account's devices. |
 | `DELETE` | `/auth/devices/:id` | Revoke another device. |
+| `GET` | `/server/config` | Read effective server AI settings without secret values. |
+| `PUT` | `/server/config` | Update persistent server AI settings. |
+| `GET` | `/debug/logs?limit=N` | Read the bounded server request log without bodies or credentials. |
+| `DELETE` | `/debug/logs` | Clear the server request log. |
+| `GET` | `/secrets` | List whether each supported API key is configured. Values are never returned here. |
+| `PUT` | `/secrets/:id` | Set or clear an API key from the server dashboard. |
 | `POST` | `/sync/push` | Upload changed records. |
 | `GET` | `/sync/pull?since=N` | Download everything with `rev > N`. |
 | `GET` | `/sync/status?since=N` | **The cheap probe.** Current revision, the history's epoch, and how many records are waiting — with no payload. Add `&counts=1` for full row counts. |

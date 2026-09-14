@@ -64,9 +64,9 @@ Settings → AI-tolkning. Pick one of:
 
 | Provider | Where the API key lives | Notes |
 |---|---|---|
-| **Anthropic** | On the device | Uses the official SDK, loaded only if you pick this provider. |
-| **OpenAI** | On the device | |
-| **OpenAI-compatible** | On the device | OpenRouter, Groq, LM Studio, vLLM — anything speaking `/chat/completions`. |
+| **Anthropic** | Synced between paired devices | Uses the official SDK, loaded only if you pick this provider. |
+| **OpenAI** | Synced between paired devices | |
+| **OpenAI-compatible** | Synced between paired devices | OpenRouter, Groq, LM Studio, vLLM — anything speaking `/chat/completions`. |
 | **Ollama** | Nowhere | Fully local. Start Ollama with `OLLAMA_ORIGINS="http://localhost:5173"`. |
 | **Via my own server** | On the server | The phone never holds a key. Needs the companion server. |
 
@@ -77,11 +77,16 @@ you named actually exists, rather than letting you find out on your next scan.
 
 ```bash
 npm run dev --workspace @kvitto/server   # http://localhost:8787
-npm run pair --workspace @kvitto/server  # prints a one-time pairing code
 ```
 
-Then in the app: Settings → Synkronisering, enter the server address and the
-code. See [`apps/server/README.md`](apps/server/README.md) for deployment.
+Open `http://localhost:8787/server` and create a one-time pairing code. Then in
+the app: Settings → Synkronisering, scan the QR code or enter the server address
+and code manually. See [`apps/server/README.md`](apps/server/README.md) for
+deployment.
+
+For diagnostics, Settings → Utvecklarinställningar → Debugglogg shows bounded
+client and server logs. Request bodies, receipt data, tokens, and API keys are
+not recorded.
 
 ## How it works
 
@@ -207,7 +212,8 @@ Sync is last-write-wins on a client timestamp, with both sides running the
 *same* conflict resolution function so they converge without a round-trip.
 Deletes are tombstones, so a delete made offline still propagates. Metadata
 syncs before images, so a slow connection delays photos rather than the data
-that makes the app useful.
+that makes the app useful. AI and Apiverket API keys use the same sync path and
+are encrypted before they are stored in the server database.
 
 ## Verification
 

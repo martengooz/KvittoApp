@@ -16,6 +16,7 @@
     "@anthropic-ai/sdk": "^0.125.0",
     "@kvitto/shared": "*",
     "dexie": "^4.4.6",
+    "qr-scanner": "^1.4.2",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {

@@ -16,7 +16,7 @@
  */
 
 import Dexie, { type EntityTable } from 'dexie';
-import type { Category, Company, Receipt, ReceiptItem, ReceiptTag, Tag } from '@kvitto/shared';
+import type { Category, Company, Receipt, ReceiptItem, ReceiptTag, SyncedSecret, Tag } from '@kvitto/shared';
 
 /** A stored image, addressed by the SHA-256 of its bytes. */
 export interface StoredBlob {
@@ -57,6 +57,7 @@ export class KvittoDatabase extends Dexie {
   tags!: EntityTable<Tag, 'id'>;
   receiptTags!: EntityTable<ReceiptTag, 'id'>;
   companies!: EntityTable<Company, 'id'>;
+  secrets!: EntityTable<SyncedSecret, 'id'>;
   blobs!: EntityTable<StoredBlob, 'id'>;
   kv!: EntityTable<KeyValue, 'key'>;
   pendingExtractions!: EntityTable<PendingExtraction, 'id'>;
@@ -85,6 +86,10 @@ export class KvittoDatabase extends Dexie {
       kv: 'key',
       pendingExtractions: 'id, receiptId, createdAt, lastAttemptAt',
     });
+
+    this.version(2).stores({
+      secrets: 'id, updatedAt, dirty, deletedAt',
+    });
   }
 }
 
@@ -99,6 +104,7 @@ export const SYNC_TABLES = {
   receipts: () => db.receipts,
   items: () => db.items,
   receiptTags: () => db.receiptTags,
+  secrets: () => db.secrets,
 } as const;
 
 /** Reads a value from the kv store, falling back to `fallback`. */

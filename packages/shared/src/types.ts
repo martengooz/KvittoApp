@@ -297,6 +297,15 @@ export interface ReceiptTag extends SyncMeta {
   tagId: ID;
 }
 
+/** Credentials that may be shared between paired devices. */
+export const SECRET_NAMES = ['aiApiKey', 'companyApiKey'] as const;
+export type SecretName = (typeof SECRET_NAMES)[number];
+
+export interface SyncedSecret extends SyncMeta {
+  id: ID;
+  value: string;
+}
+
 /** Every entity kind that takes part in delta sync. */
 export const ENTITY_KINDS = [
   // Companies first: a receipt references one, so applying them in this order
@@ -307,6 +316,7 @@ export const ENTITY_KINDS = [
   'categories',
   'tags',
   'receiptTags',
+  'secrets',
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -317,6 +327,7 @@ export interface EntityMap {
   categories: Category;
   tags: Tag;
   receiptTags: ReceiptTag;
+  secrets: SyncedSecret;
 }
 
 export type AnyEntity = EntityMap[EntityKind];

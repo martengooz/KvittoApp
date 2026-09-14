@@ -67,6 +67,7 @@ const GLYPH = {
   sync: 'var(--ios-blue)',
   storage: 'var(--ios-orange)',
   appearance: 'var(--ios-purple)',
+  developer: 'var(--label-secondary)',
   danger: 'var(--ios-red)',
 } as const;
 
@@ -87,6 +88,7 @@ export async function settingsView(): Promise<HTMLElement> {
       await renderLocalModelSection(refresh),
       await renderStorageSection(refresh),
       renderAppearanceSection(),
+      renderDeveloperSection(),
       renderAbout(),
     );
   }
@@ -261,7 +263,7 @@ async function renderAiSection(): Promise<HTMLElement> {
   rows.push(testButton);
 
   const keyFooter = needsKey
-    ? 'Nyckeln sparas bara på den här enheten och skickas bara till leverantören. Vill du hellre slippa ha den i telefonen — välj "Min egen server".'
+    ? 'Nyckeln synkroniseras mellan dina parkopplade enheter.'
     : ai.provider === 'ollama'
       ? `Starta Ollama med OLLAMA_ORIGINS="${location.origin}" så att webbläsaren får anropa den.`
       : 'Servern håller nyckeln åt dig.';
@@ -585,7 +587,7 @@ async function renderCompanySection(): Promise<HTMLElement> {
         'Apiverket. Ett företag som redan är sparat slås aldrig upp igen, så ett kvitto från ' +
         'samma butik kostar inget. Går numret inte att läsa söks butikens namn istället — ' +
         'den sökningen har en egen, mycket mindre kvot hos Apiverket (20 per dygn på en ' +
-        'gratisnyckel), därför dagsgränsen. Nyckeln lämnar aldrig enheten.',
+        'gratisnyckel), därför dagsgränsen. Nyckeln synkroniseras mellan parkopplade enheter.',
     },
     ...rows,
   );
@@ -646,6 +648,13 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
     });
 
     rows.push(
+      el('button', {
+        class: 'row',
+        type: 'button',
+        style: 'color:var(--tint);justify-content:center;font-weight:600',
+        text: 'Skanna QR-kod',
+        on: { click: () => router.navigate('/pair-scan') },
+      }),
       row({ label: 'Kod', trailing: codeInput }),
       el('button', {
         class: 'row',
@@ -680,7 +689,7 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
     return listGroup(
       {
         title: 'Synkronisering',
-        footer: 'Kör "npm run pair" på servern för att skapa en kod. Den gäller i 15 minuter.',
+        footer: 'Skanna QR-koden från serverdashboarden eller ange koden manuellt. Den gäller i 15 minuter.',
       },
       ...rows,
     );
@@ -1051,6 +1060,22 @@ function renderAppearanceSection(): HTMLElement {
       label: 'Visa rabatt- och pantrader',
       checked: ui.showAuxiliaryLines,
       onChange: (checked) => void updateSettings({ ui: { showAuxiliaryLines: checked } }),
+    }),
+  );
+}
+
+function renderDeveloperSection(): HTMLElement {
+  return listGroup(
+    {
+      title: 'Utvecklarinställningar',
+      footer: 'Diagnostik för felsökning. Loggarna innehåller inte kvitton, bilder eller hemligheter.',
+    },
+    row({
+      label: 'Debugglogg',
+      value: 'Klient och server',
+      icon: 'gear',
+      iconColor: GLYPH.developer,
+      onClick: () => router.navigate('/debug-log'),
     }),
   );
 }

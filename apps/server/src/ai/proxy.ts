@@ -15,7 +15,7 @@ import {
   jsonOnlyInstruction,
 } from '@kvitto/shared';
 
-import { config } from '../env.ts';
+import type { EffectiveAiSettings } from '../db/server-settings.ts';
 
 export interface ProxyResult {
   raw: Record<string, unknown>;
@@ -36,53 +36,71 @@ export class ProxyError extends Error {
 }
 
 export async function runExtraction(
+  settings: EffectiveAiSettings,
   image: Buffer,
   mimeType: string,
   options: { model?: string; extraInstructions?: string } = {},
 ): Promise<ProxyResult> {
-  const model = options.model ?? config.ai.model;
-  const system = buildSystemPrompt(options.extraInstructions);
+  const model = options.model ?? settings.model;
+  const extraInstructions = [settings.extraInstructions, options.extraInstructions]
+    .filter(Boolean)
+    .join('\n');
+  const system = buildSystemPrompt(extraInstructions);
 
-  switch (config.ai.provider) {
+  switch (settings.provider) {
     case 'anthropic':
-      return callAnthropic(image, mimeType, model, system);
+      return callAnthropic(settings, image, mimeType, model, system);
     case 'openai':
     case 'openai-compatible':
-      return callOpenAi(image, mimeType, model, system);
+      return callOpenAi(settings, image, mimeType, model, system);
     default:
-      throw new ProxyError(`Unsupported KVITTO_AI_PROVIDER "${config.ai.provider}".`, 500);
+      throw new ProxyError(`Unsupported AI provider "${settings.provider}".`, 500);
   }
 }
 
 async function callAnthropic(
+  settings: EffectiveAiSettings,
   image: Buffer,
   mimeType: string,
   model: string,
   system: string,
 ): Promise<ProxyResult> {
-  const response = await fetch(`${config.ai.baseUrl || 'https://api.anthropic.com'}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': config.ai.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: config.ai.maxOutputTokens,
-      system,
-      output_config: { format: { type: 'json_schema', schema: RECEIPT_JSON_SCHEMA } },
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mimeType, data: image.toString('base64') } },
-            { type: 'text', text: RECEIPT_USER_PROMPT },
-          ],
-        },
-      ],
-    }),
-  });
+  const send = (structured: boolean) =>
+    fetch(`${settings.baseUrl || 'https://api.anthropic.com'}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': settings.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: settings.maxOutputTokens,
+        system: structured ? system : `${system}\n\n${jsonOnlyInstruction(RECEIPT_JSON_SCHEMA)}`,
+        ...(structured || settings.effort !== 'auto'
+          ? {
+              output_config: {
+                ...(structured ? { format: { type: 'json_schema', schema: RECEIPT_JSON_SCHEMA } } : {}),
+                ...(settings.effort !== 'auto' ? { effort: settings.effort } : {}),
+              },
+            }
+          : {}),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: image.toString('base64') } },
+              { type: 'text', text: RECEIPT_USER_PROMPT },
+            ],
+          },
+        ],
+      }),
+    });
+
+  let response = await send(settings.structuredOutput);
+  if (!response.ok && settings.structuredOutput && (response.status === 400 || response.status === 422)) {
+    response = await send(false);
+  }
 
   if (!response.ok) throw await providerError(response);
 
@@ -115,39 +133,53 @@ async function callAnthropic(
 }
 
 async function callOpenAi(
+  settings: EffectiveAiSettings,
   image: Buffer,
   mimeType: string,
   model: string,
   system: string,
 ): Promise<ProxyResult> {
-  const baseUrl = (config.ai.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const baseUrl = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
   const dataUrl = `data:${mimeType};base64,${image.toString('base64')}`;
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${config.ai.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_completion_tokens: config.ai.maxOutputTokens,
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'receipt', strict: true, schema: RECEIPT_JSON_SCHEMA },
+  const send = (structured: boolean) =>
+    fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${settings.apiKey}`,
       },
-      messages: [
-        { role: 'system', content: `${system}\n\n${jsonOnlyInstruction(RECEIPT_JSON_SCHEMA)}` },
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
-            { type: 'text', text: RECEIPT_USER_PROMPT },
-          ],
-        },
-      ],
-    }),
-  });
+      body: JSON.stringify({
+        model,
+        max_completion_tokens: settings.maxOutputTokens,
+        ...(structured
+          ? {
+              response_format: {
+                type: 'json_schema',
+                json_schema: { name: 'receipt', strict: true, schema: RECEIPT_JSON_SCHEMA },
+              },
+            }
+          : {}),
+        messages: [
+          {
+            role: 'system',
+            content: structured ? system : `${system}\n\n${jsonOnlyInstruction(RECEIPT_JSON_SCHEMA)}`,
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
+              { type: 'text', text: RECEIPT_USER_PROMPT },
+            ],
+          },
+        ],
+      }),
+    });
+
+  let response = await send(settings.structuredOutput);
+  if (!response.ok && settings.structuredOutput && (response.status === 400 || response.status === 422)) {
+    response = await send(false);
+  }
 
   if (!response.ok) throw await providerError(response);
 
@@ -163,7 +195,7 @@ async function callOpenAi(
   return {
     raw,
     model: payload.model ?? model,
-    provider: config.ai.provider,
+    provider: settings.provider,
     inputTokens: payload.usage?.prompt_tokens ?? null,
     outputTokens: payload.usage?.completion_tokens ?? null,
   };

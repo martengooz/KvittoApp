@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   used_by_device_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS server_settings (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+  payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS extraction_jobs (
   receipt_id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
@@ -77,6 +83,7 @@ const ENTITY_TABLE_NAMES = [
   'categories',
   'tags',
   'receipt_tags',
+  'secrets',
 ] as const;
 
 function entityDdl(table: string): string {

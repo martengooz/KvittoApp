@@ -18,11 +18,13 @@
     "@kvitto/shared": "*",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.12.4"
+    "fastify": "^5.12.4",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.15.0",
+    "@types/qrcode": "^1.5.6",
     "typescript": "~5.9.3"
   }
 }

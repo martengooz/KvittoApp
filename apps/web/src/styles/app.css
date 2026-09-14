@@ -1276,6 +1276,49 @@ input.detail-merchant {
   opacity: 0.5;
 }
 
+.pair-scan {
+  padding: 0 max(var(--gutter), var(--safe-left)) 24px max(var(--gutter), var(--safe-right));
+}
+
+.pair-scan .list-group,
+.pair-scan .inset-list {
+  margin-inline: 0;
+}
+
+.pair-scan__camera {
+  position: relative;
+  width: min(100%, 440px);
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: var(--radius-sheet);
+  background: #000;
+  aspect-ratio: 1;
+}
+
+.pair-scan__camera video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pair-scan__frame {
+  position: absolute;
+  inset: 16%;
+  border: 3px solid rgb(255 255 255 / 90%);
+  border-radius: 18px;
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 25%);
+  pointer-events: none;
+}
+
+.pair-scan__status {
+  min-height: 20px;
+  margin: 12px 0 20px;
+  color: var(--label-secondary);
+  font-size: 15px;
+  text-align: center;
+}
+
 /* --- crop editor --------------------------------------------------------- */
 
 .crop {
@@ -1794,6 +1837,63 @@ input.detail-merchant {
   overflow-x: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.debug-log__source .segmented { width: 100%; }
+
+.debug-log__actions {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.debug-log__entry {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 16px;
+}
+
+.debug-log__entry + .debug-log__entry {
+  border-top: 0.5px solid var(--separator);
+}
+
+.debug-log__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--label-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-log__level {
+  color: var(--tint);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.debug-log__level--warn { color: var(--warning); }
+.debug-log__level--error { color: var(--danger); }
+
+.debug-log__message {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.debug-log__details {
+  color: var(--label-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.debug-log__empty {
+  padding: 22px 16px;
+  color: var(--label-secondary);
+  font-size: 15px;
+  text-align: center;
 }
 
 .stack {

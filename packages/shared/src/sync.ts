@@ -10,7 +10,7 @@
 
 import type { AnyEntity, EntityKind, EntityMap, ID } from './types.js';
 
-export const SYNC_PROTOCOL_VERSION = 1;
+export const SYNC_PROTOCOL_VERSION = 2;
 
 /** A batch of records grouped by entity kind. Missing keys mean "no changes". */
 export type ChangeSet = {
@@ -24,6 +24,13 @@ export interface PairRequest {
   deviceName: string;
   /** Stable client-generated device id (uuid). Re-pairing with the same id rotates the token. */
   deviceId: ID;
+}
+
+export interface PairingQrPayload {
+  type: 'kvitto-pair';
+  version: 1;
+  serverUrl: string;
+  code: string;
 }
 
 export interface PairResponse {

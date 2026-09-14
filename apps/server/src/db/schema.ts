@@ -55,6 +55,12 @@ export const pairingCodes = sqliteTable('pairing_codes', {
   usedByDeviceId: text('used_by_device_id'),
 });
 
+export const serverSettings = sqliteTable('server_settings', {
+  accountId: text('account_id').primaryKey().references(() => accounts.id),
+  payload: text('payload').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 /** Columns every synced entity table shares. */
 const syncColumns = {
   id: text('id').primaryKey(),
@@ -102,6 +108,12 @@ export const receiptTags = sqliteTable(
   'receipt_tags',
   syncColumns,
   (table) => [index('receipt_tags_account_rev_idx').on(table.accountId, table.rev)],
+);
+
+export const secrets = sqliteTable(
+  'secrets',
+  syncColumns,
+  (table) => [index('secrets_account_rev_idx').on(table.accountId, table.rev)],
 );
 
 /**
@@ -154,6 +166,7 @@ export const ENTITY_TABLES = {
   categories,
   tags,
   receiptTags,
+  secrets,
 } as const;
 
 export type EntityTableName = keyof typeof ENTITY_TABLES;

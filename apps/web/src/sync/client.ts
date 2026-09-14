@@ -11,6 +11,7 @@ import type {
 } from '@kvitto/shared';
 import { SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
 
+import { appendClientDebug, type DebugEntry } from '../core/debug-log.js';
 import { getDeviceId, getDeviceName, getDeviceToken } from './identity.js';
 
 export class SyncError extends Error {
@@ -54,6 +55,9 @@ async function request<T>(
 ): Promise<T> {
   const { auth = true, headers, ...rest } = init;
   const finalHeaders = new Headers(headers);
+  const method = rest.method ?? 'GET';
+  const safePath = path.split('?')[0] ?? path;
+  const started = performance.now();
 
   if (auth) {
     const token = await getDeviceToken();
@@ -68,9 +72,18 @@ async function request<T>(
   try {
     response = await fetch(`${normalizeBase(serverUrl)}${path}`, { ...rest, headers: finalHeaders });
   } catch {
+    appendClientDebug('error', `${method} ${safePath}`, {
+      outcome: 'network-error',
+      durationMs: Math.round(performance.now() - started),
+    });
     // Offline, DNS failure or a CORS rejection all land here indistinguishably.
     throw new SyncError('Kunde inte nå servern.', { retryable: true });
   }
+
+  appendClientDebug(response.ok ? 'info' : response.status >= 500 ? 'error' : 'warn', `${method} ${safePath}`, {
+    status: response.status,
+    durationMs: Math.round(performance.now() - started),
+  });
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
@@ -176,6 +189,20 @@ export async function llmRequeue(serverUrl: string, receiptId?: string): Promise
     method: 'POST',
     body: JSON.stringify(receiptId ? { receiptId } : {}),
   });
+}
+
+export interface ServerDebugResponse {
+  entries: DebugEntry[];
+  capacity: number;
+  serverTime: number;
+}
+
+export async function serverDebugLog(serverUrl: string, limit = 200): Promise<ServerDebugResponse> {
+  return request<ServerDebugResponse>(serverUrl, `/debug/logs?limit=${limit}`);
+}
+
+export async function clearServerDebugLog(serverUrl: string): Promise<void> {
+  await request<void>(serverUrl, '/debug/logs', { method: 'DELETE' });
 }
 
 export async function blobStatus(serverUrl: string, ids: string[]): Promise<BlobStatusResponse> {

@@ -20,16 +20,22 @@ import { SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
 
 import { ensureDefaultAccount } from './db/accounts.ts';
 import { closeDatabase, getConnection } from './db/index.ts';
-import { aiProxyEnabled, config, llmEnabled } from './env.ts';
+import { effectiveAiSettings } from './db/server-settings.ts';
+import { registerDashboard } from './dashboard.ts';
+import { registerDebugLog } from './debug-log.ts';
+import { config, llmEnabled } from './env.ts';
 import { shutdown as shutdownLlm, status as llmStatus } from './llm/runtime.ts';
 import { startWorker, stopWorker } from './llm/worker.ts';
 import { registerAiRoutes } from './routes/ai.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerBlobRoutes } from './routes/blobs.ts';
 import { registerLlmRoutes } from './routes/llm.ts';
+import { registerSecretRoutes } from './routes/secrets.ts';
+import { registerServerConfigRoutes } from './routes/server-config.ts';
 import { registerSyncRoutes } from './routes/sync.ts';
 
 export async function buildServer() {
+  const accountId = ensureDefaultAccount();
   const app = Fastify({
     logger: { level: config.logLevel },
     bodyLimit: config.maxBodyBytes,
@@ -58,6 +64,8 @@ export async function buildServer() {
     limits: { fileSize: config.maxBlobBytes, files: 1, fields: 8 },
   });
 
+  registerDebugLog(app);
+
   // Raw image uploads: `PUT /blobs/:id` sends bytes, not JSON.
   for (const type of ['image/jpeg', 'image/png', 'image/webp']) {
     app.addContentTypeParser(type, { parseAs: 'buffer' }, (_request, body, done) => {
@@ -65,20 +73,26 @@ export async function buildServer() {
     });
   }
 
-  app.get('/health', async () => ({
-    ok: true,
-    protocolVersion: SYNC_PROTOCOL_VERSION,
-    aiProxyEnabled: aiProxyEnabled(),
-    llmEnabled: llmEnabled(),
-    llmState: llmEnabled() ? llmStatus().state : 'off',
-    serverTime: Date.now(),
-  }));
+  app.get('/health', async () => {
+    const ai = effectiveAiSettings(accountId);
+    return {
+      ok: true,
+      protocolVersion: SYNC_PROTOCOL_VERSION,
+      aiProxyEnabled: ai.enabled,
+      llmEnabled: llmEnabled(),
+      llmState: llmEnabled() ? llmStatus().state : 'off',
+      serverTime: Date.now(),
+    };
+  });
 
+  registerDashboard(app);
   registerAuthRoutes(app);
   registerSyncRoutes(app);
   registerBlobRoutes(app);
   registerAiRoutes(app);
   registerLlmRoutes(app);
+  registerSecretRoutes(app);
+  registerServerConfigRoutes(app);
 
   if (config.staticDir) registerStatic(app, config.staticDir);
 
@@ -167,7 +181,9 @@ async function main(): Promise<void> {
       account: accountId,
       database: config.databasePath,
       blobs: config.blobDir,
-      aiProxy: aiProxyEnabled() ? config.ai.provider : 'disabled',
+      aiProxy: effectiveAiSettings(accountId).enabled
+        ? effectiveAiSettings(accountId).provider
+        : 'disabled',
       localModel: llmEnabled() ? config.llm.model : 'disabled',
       staticDir: config.staticDir ?? 'none',
     },

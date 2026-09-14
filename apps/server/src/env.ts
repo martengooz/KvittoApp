@@ -44,6 +44,8 @@ export const config = {
   dataDir,
   databasePath: resolve(dataDir, str('KVITTO_DB_FILE', 'kvitto.sqlite')),
   blobDir: resolve(dataDir, 'blobs'),
+  /** Optional stable encryption secret; otherwise a key is generated under the data directory. */
+  secretsKey: str('KVITTO_SECRETS_KEY', ''),
 
   /**
    * Allowed browser origins. Empty means "reflect any origin", which is only
@@ -123,14 +125,4 @@ export const config = {
 
 export function llmEnabled(): boolean {
   return config.llm.enabled;
-}
-
-export function aiProxyEnabled(): boolean {
-  return config.ai.provider !== '' && config.ai.apiKey !== '';
-}
-
-/** Model ids the proxy will accept from a device. */
-export function allowedModels(): string[] {
-  if (!aiProxyEnabled()) return [];
-  return config.ai.allowedModels.length > 0 ? config.ai.allowedModels : [config.ai.model];
 }
