@@ -1,11 +1,16 @@
-# Typecheck, test and build every workspace on push and pull request.
+# Typecheck, test and build every workspace on push to main.
+#
+# Deliberately not `pull_request`: that trigger fires on every push to any
+# branch that has a pull request open, which is what made CI run off main at
+# all — and it checked each change twice, once on the pull request's head and
+# again on the merge commit. `workflow_dispatch` stays so a branch can still be
+# checked on demand from the Actions tab.
 
 name: CI
 
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
