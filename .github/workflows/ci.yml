@@ -29,9 +29,51 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run lint
+
       # The other workspaces import the shared package's built types.
       - run: npm run build --workspace @kvitto/shared
 
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  web-smoke:
+    # Drives the actual built app in a real browser (apps/web/e2e/verify.mjs):
+    # scans a receipt, imports a batch, and checks the OpenCV pipeline never
+    # silently degrades to the canvas fallback. Separate job because it needs
+    # a served build and a Chromium binary, neither of which the `check` job
+    # sets up.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # apps/web imports the shared package's built types.
+      - run: npm run build --workspace @kvitto/shared
+
+      - run: npm run build --workspace @kvitto/web
+
+      - name: Install Chromium for Playwright
+        run: npx playwright-core install chromium
+
+      - name: Start vite preview
+        working-directory: apps/web
+        run: npx vite preview --port 4179 --strictPort &
+
+      - name: Wait for vite preview
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:4179/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "vite preview did not come up on :4179" >&2
+          exit 1
+
+      - run: node apps/web/e2e/verify.mjs

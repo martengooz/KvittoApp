@@ -15,6 +15,7 @@
     "noEmit": true,
     "declaration": false,
     "declarationMap": false,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@kvitto/shared": [
         "../../packages/shared/src/index.ts"
@@ -24,6 +25,7 @@
   "include": [
     "src/**/*.ts",
     "scripts/**/*.mjs",
-    "vite.config.ts"
+    "vite.config.ts",
+    "test/**/*.ts"
   ]
 }
