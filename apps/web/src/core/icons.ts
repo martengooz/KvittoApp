@@ -34,7 +34,8 @@ export type IconName =
   | 'filter'
   | 'cloud'
   | 'compass'
-  | 'building';
+  | 'building'
+  | 'pencil';
 
 /**
  * Path data per icon. Every entry is drawn on a 24x24 grid.
@@ -135,6 +136,12 @@ const PATHS: Record<IconName, { d: string[]; fill?: boolean }> = {
   },
   compass: {
     d: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'm15.2 8.8-2.05 4.35-4.35 2.05 2.05-4.35 4.35-2.05Z'],
+  },
+  pencil: {
+    d: [
+      'M4.5 19.5h3.2l9.6-9.6a2.26 2.26 0 0 0-3.2-3.2l-9.6 9.6v3.2Z',
+      'm13.6 7.4 3.2 3.2',
+    ],
   },
   building: {
     d: [
