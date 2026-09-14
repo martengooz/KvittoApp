@@ -271,6 +271,10 @@ export async function whoAmI(serverUrl: string): Promise<WhoAmIResponse> {
   return request<WhoAmIResponse>(serverUrl, '/auth/me');
 }
 
+export async function serverHealth(serverUrl: string): Promise<{ protocolVersion: number }> {
+  return request(serverUrl, '/health', { auth: false });
+}
+
 export async function pushChanges(serverUrl: string, changes: ChangeSet): Promise<PushResponse> {
   return request<PushResponse>(serverUrl, '/sync/push', {
     method: 'POST',

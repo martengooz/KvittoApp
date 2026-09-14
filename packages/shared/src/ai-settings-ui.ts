@@ -130,7 +130,7 @@ function renderProviderSettings(options: AiSettingsViewOptions): HTMLElement {
         void options.onChange({ autoParse });
       }));
     }
-    if (options.onTest) rows.push(actionRow('Testa anslutningen', options.onTest));
+    if (options.onTest) rows.push(actionRow('Testa anslutningen', options.onTest, 'Testar…'));
   }
 
   const footer = ai.provider === 'none'
@@ -236,19 +236,30 @@ function toggleRow(label: string, checked: boolean, onChange: (checked: boolean)
   return fieldRow(label, control);
 }
 
-function actionRow(label: string, action: () => Promise<unknown>): HTMLElement {
+function actionRow(label: string, action: () => Promise<unknown>, pendingLabel = 'Arbetar…'): HTMLElement {
   const button = node('button', { className: 'row', type: 'button', textContent: label }) as HTMLButtonElement;
   button.style.color = 'var(--tint)';
   button.style.justifyContent = 'center';
   button.addEventListener('click', async () => {
+    let resultLabel = label;
     button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.replaceChildren(
+      node('span', { className: 'spinner action-spinner', ariaHidden: 'true' }),
+      node('span', { textContent: pendingLabel }),
+    );
     try {
-      const message = await action();
-      if (typeof message === 'string') button.textContent = message;
+      const result = await action();
+      if (typeof result === 'string') resultLabel = result;
+      if (result && typeof result === 'object' && 'message' in result && typeof result.message === 'string') {
+        resultLabel = result.message;
+      }
     } catch (error) {
-      button.textContent = error instanceof Error ? error.message : String(error);
+      resultLabel = error instanceof Error ? error.message : String(error);
     } finally {
+      button.textContent = resultLabel;
       button.disabled = false;
+      button.removeAttribute('aria-busy');
     }
   });
   return button;

@@ -1,5 +1,7 @@
 /** Identifier and digest helpers that work in both the browser and Node. */
 
+import sha256 from 'fast-sha256';
+
 /**
  * Minimal structural type for the Web Crypto API.
  *
@@ -10,7 +12,7 @@
 interface WebCryptoLike {
   randomUUID?: () => string;
   getRandomValues: <T extends Uint8Array>(array: T) => T;
-  subtle: { digest: (algorithm: string, data: ArrayBuffer) => Promise<ArrayBuffer> };
+  subtle?: { digest: (algorithm: string, data: ArrayBuffer) => Promise<ArrayBuffer> };
 }
 
 const webCrypto = (globalThis as { crypto?: WebCryptoLike }).crypto;
@@ -38,9 +40,16 @@ export function newId(): string {
 /** Lowercase hex SHA-256 of the given bytes. Used as the content-addressed blob key. */
 export async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
   const view = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
-  const digest = await requireCrypto().subtle.digest('SHA-256', buffer);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const subtle = webCrypto?.subtle;
+  const digest = subtle
+    ? new Uint8Array(
+        await subtle.digest(
+          'SHA-256',
+          view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer,
+        ),
+      )
+    : sha256(view);
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /** True for a well-formed lowercase SHA-256 hex digest. */

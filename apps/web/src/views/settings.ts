@@ -23,7 +23,7 @@ import {
 } from '../core/settings.js';
 import { confirmDialog, toast } from '../core/toast.js';
 import { testConnection } from '../ai/index.js';
-import { APIVERKET_BASE_URL } from '../api/apiverket.js';
+import { APIVERKET_BASE_URL, testApiverketConnection } from '../api/apiverket.js';
 import { cvClient } from '../cv/client.js';
 import { clearCompanyMisses, listCompanies, searchBudgetUsed } from '../db/companies.js';
 import { blobStoreSize, collectGarbage, discardOriginals } from '../db/blobs.js';
@@ -36,6 +36,7 @@ import {
   llmStart,
   llmStatus,
   pairDevice,
+  serverHealth,
   whoAmI,
 } from '../sync/client.js';
 import { countPending, getSyncState, resetSyncBackoff, sync, syncNow, type SyncReport } from '../sync/engine.js';
@@ -296,6 +297,10 @@ async function renderCompanySection(): Promise<HTMLElement> {
         },
       }),
     }),
+    connectionTestRow('Testa Apiverket', async () => {
+      const current = getSettings().company;
+      return testApiverketConnection({ apiKey: current.apiKey, baseUrl: current.baseUrl });
+    }),
     switchRow({
       label: 'Sök på namn om nummer saknas',
       checked: company.nameSearch,
@@ -411,6 +416,20 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
         value: deviceName,
         on: { change: (event) => void setDeviceName((event.target as HTMLInputElement).value) },
       }),
+    }),
+    connectionTestRow('Testa serveranslutningen', async () => {
+      const serverUrl = getSettings().sync.serverUrl;
+      if (!serverUrl) return { ok: false, message: 'Fyll i serveradressen först.' };
+      try {
+        if (paired) {
+          await whoAmI(serverUrl);
+        } else {
+          await serverHealth(serverUrl);
+        }
+        return { ok: true, message: 'Anslutningen till servern fungerar.' };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
     }),
   ];
 
@@ -562,6 +581,36 @@ function statusLabel(status: string): string {
     default:
       return 'Inte parkopplad';
   }
+}
+
+function connectionTestRow(
+  label: string,
+  action: () => Promise<{ ok: boolean; message: string }>,
+): HTMLButtonElement {
+  const button = el('button', {
+    class: 'row',
+    type: 'button',
+    style: 'color:var(--tint);justify-content:center;font-weight:500',
+    text: label,
+  });
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    replaceChildren(
+      button,
+      el('span', { class: 'spinner action-spinner', 'aria-hidden': 'true' }),
+      el('span', { text: 'Testar…' }),
+    );
+    try {
+      const result = await action();
+      toast(result.message, { kind: result.ok ? 'success' : 'error' });
+    } finally {
+      button.textContent = label;
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+  });
+  return button;
 }
 
 // --- storage --------------------------------------------------------------

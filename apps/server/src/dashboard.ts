@@ -232,6 +232,8 @@ body { background: var(--bg-grouped); color: var(--label); font-family: var(--fo
 .row + .row::before, .secret-row + .secret-row .row::before { content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 0.5px; background: var(--separator); }
 button.row { cursor: pointer; }
 button.row:active { background: var(--fill-quaternary); }
+.spinner { width: 16px; height: 16px; flex: 0 0 16px; border: 2px solid var(--fill); border-top-color: var(--label-secondary); border-radius: 50%; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
 .row__label { flex: 1; min-width: 0; }
 .row__value { max-width: 60%; overflow: hidden; color: var(--label-secondary); font-variant-numeric: tabular-nums; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 11px 18px; border: 0; border-radius: var(--radius-control); background: var(--fill-tertiary); color: var(--tint); font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }

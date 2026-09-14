@@ -98,6 +98,24 @@ export interface LookupOptions {
   signal?: AbortSignal;
 }
 
+export interface ConnectionTestResult {
+  ok: boolean;
+  message: string;
+}
+
+/** Verifies the key with an ordinary company lookup, without spending name-search quota. */
+export async function testApiverketConnection(options: LookupOptions): Promise<ConnectionTestResult> {
+  try {
+    await lookupCompany('556703-7485', options);
+    return { ok: true, message: 'Anslutningen till Apiverket fungerar.' };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Kunde inte testa anslutningen till Apiverket.',
+    };
+  }
+}
+
 /** The company fields plus the untouched payload, ready to store. */
 export type CompanyRecord = Pick<
   Company,

@@ -46,10 +46,17 @@ export function mountApp(container: HTMLElement): void {
   const leading = el('div', { class: 'app-header__leading' });
   const inlineTitle = el('h1', { class: 'app-header__title', text: 'Kvitton' });
   const actions = el('div', { class: 'app-header__actions' });
+  const aiProgress = el('div', {
+    class: 'ai-progress',
+    role: 'progressbar',
+    'aria-label': 'AI-bearbetning pågår',
+    hidden: true,
+  }, el('span', { class: 'ai-progress__bar' }));
   const header = el(
     'header',
     { class: 'app-header', dataset: { scrolled: 'false' } },
     el('div', { class: 'app-header__bar' }, leading, inlineTitle, actions),
+    aiProgress,
   );
 
   const largeTitle = el('h1', { class: 'large-title', text: 'Kvitton' });
@@ -71,6 +78,9 @@ export function mountApp(container: HTMLElement): void {
   bus.on('sync:state', status);
   bus.on('data:changed', status);
   bus.on('net:online', status);
+  bus.on('ai:activity', ({ pending }) => {
+    aiProgress.hidden = pending === 0;
+  });
   window.addEventListener('hashchange', () => {
     chrome();
     status();

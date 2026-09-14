@@ -5,6 +5,7 @@
 
 import { validateExtraction, type NormalizedExtraction } from '@kvitto/shared';
 
+import { bus } from '../core/events.js';
 import { getSettings, isAiConfigured, type AiProvider } from '../core/settings.js';
 import { db } from '../db/db.js';
 import { getBlob } from '../db/blobs.js';
@@ -29,6 +30,19 @@ const PROVIDERS: Record<Exclude<AiProvider, 'none'>, Provider> = {
   server: serverProvider,
 };
 
+let pendingAiRequests = 0;
+
+async function withAiActivity<T>(request: () => Promise<T>): Promise<T> {
+  pendingAiRequests += 1;
+  bus.emit('ai:activity', { pending: pendingAiRequests });
+  try {
+    return await request();
+  } finally {
+    pendingAiRequests = Math.max(0, pendingAiRequests - 1);
+    bus.emit('ai:activity', { pending: pendingAiRequests });
+  }
+}
+
 export function getProvider(id: AiProvider): Provider | null {
   return id === 'none' ? null : PROVIDERS[id];
 }
@@ -38,12 +52,13 @@ export async function testConnection(): Promise<TestResult> {
   const settings = getSettings();
   const provider = getProvider(settings.ai.provider);
   if (!provider) return { ok: false, message: 'Ingen AI-leverantör vald.' };
+  const serverToken = (await getDeviceToken()) ?? undefined;
 
-  return provider.test({
-    settings: settings.ai,
-    serverUrl: settings.sync.serverUrl,
-    serverToken: (await getDeviceToken()) ?? undefined,
-  });
+  return withAiActivity(() => provider.test({
+      settings: settings.ai,
+      serverUrl: settings.sync.serverUrl,
+      serverToken,
+    }));
 }
 
 export interface ParseOutcome {
@@ -125,13 +140,14 @@ export async function parseReceipt(
   await updateReceipt(receiptId, { status: 'processing' });
 
   try {
-    const response = await provider.extract({
-      image: stored.data,
-      settings: settings.ai,
-      serverUrl: settings.sync.serverUrl,
-      serverToken: (await getDeviceToken()) ?? undefined,
-      signal: options.signal,
-    });
+    const serverToken = (await getDeviceToken()) ?? undefined;
+    const response = await withAiActivity(() => provider.extract({
+        image: stored.data,
+        settings: settings.ai,
+        serverUrl: settings.sync.serverUrl,
+        serverToken,
+        signal: options.signal,
+      }));
 
     const report = validateExtraction(response.extraction);
     const warnings = [

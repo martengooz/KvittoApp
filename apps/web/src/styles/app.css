@@ -240,6 +240,12 @@ body {
   }
 }
 
+.action-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
 /* --- navigation bar ------------------------------------------------------ */
 
 .app-header {
@@ -304,6 +310,28 @@ body {
 
 .app-header__leading {
   min-width: 44px;
+}
+
+.ai-progress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ai-progress__bar {
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--tint);
+  animation: ai-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes ai-progress-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(395%); }
 }
 
 /* The iOS large title, in the content flow so it scrolls away. */

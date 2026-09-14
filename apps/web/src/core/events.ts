@@ -42,6 +42,8 @@ export interface AppEvents {
   'data:changed': { kinds: string[]; echo?: boolean };
   /** Sync state moved. */
   'sync:state': { state: 'idle' | 'syncing' | 'error' | 'offline'; message?: string };
+  /** Number of AI provider requests currently in flight. */
+  'ai:activity': { pending: number };
   /** Settings were saved. */
   'settings:changed': Record<string, never>;
   /** Network reachability flipped. */
