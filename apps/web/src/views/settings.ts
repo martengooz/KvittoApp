@@ -8,7 +8,7 @@
  * user to discover it on their next scan.
  */
 
-import { formatBytes, formatRelativeTime } from '@kvitto/shared';
+import { createAiSettingsView, formatBytes, formatRelativeTime, type AiSettingsViewOptions } from '@kvitto/shared';
 
 import { banner, listGroup, row, segmented, switchRow } from '../components/ui.js';
 import { checkForAppUpdate } from '../core/app-update.js';
@@ -18,11 +18,8 @@ import { icon } from '../core/icons.js';
 import { isIos, isStandalone } from '../core/platform.js';
 import { router } from '../core/router.js';
 import {
-  DEFAULT_BASE_URLS,
-  MODEL_SUGGESTIONS,
   getSettings,
   updateSettings,
-  type AiProvider,
 } from '../core/settings.js';
 import { confirmDialog, toast } from '../core/toast.js';
 import { testConnection } from '../ai/index.js';
@@ -36,10 +33,10 @@ import {
   llmPull,
   llmRequeue,
   llmScan,
+  llmStart,
   llmStatus,
   pairDevice,
   whoAmI,
-  type LlmStatusResponse,
 } from '../sync/client.js';
 import { countPending, getSyncState, resetSyncBackoff, sync, syncNow, type SyncReport } from '../sync/engine.js';
 import {
@@ -50,15 +47,6 @@ import {
   setDeviceToken,
   unpair,
 } from '../sync/identity.js';
-
-const PROVIDER_LABELS: Record<AiProvider, string> = {
-  none: 'Ingen',
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  'openai-compatible': 'OpenAI-kompatibel',
-  ollama: 'Ollama (lokalt)',
-  server: 'Min egen server',
-};
 
 /** Tint colours for the leading glyphs, matching how iOS Settings uses them. */
 const GLYPH = {
@@ -82,11 +70,10 @@ export async function settingsView(): Promise<HTMLElement> {
     replaceChildren(
       root,
       renderInstallHint(),
-      await renderAiSection(),
+      await renderAiSection(refresh),
       renderImageSection(),
       await renderCompanySection(),
       await renderSyncSection(refresh),
-      await renderLocalModelSection(refresh),
       await renderStorageSection(refresh),
       renderAppearanceSection(),
       renderDeveloperSection(),
@@ -114,258 +101,47 @@ function renderInstallHint(): HTMLElement | null {
 
 // --- AI -------------------------------------------------------------------
 
-async function renderAiSection(): Promise<HTMLElement> {
-  const { ai } = getSettings();
-  const statusHost = el('div', { class: 'list-group__footer' });
-  const suggestions = MODEL_SUGGESTIONS[ai.provider];
-  const needsKey = ai.provider === 'anthropic' || ai.provider === 'openai' || ai.provider === 'openai-compatible';
-  const needsBaseUrl = ai.provider === 'openai-compatible' || ai.provider === 'ollama' || ai.provider === 'openai';
-
-  const providerRow = row({
-    label: 'Leverantör',
-    icon: 'sparkles',
-    iconColor: GLYPH.ai,
-    trailing: el(
-      'select',
-      {
-        'aria-label': 'AI-leverantör',
-        on: {
-          change: (event) => {
-            const provider = (event.target as HTMLSelectElement).value as AiProvider;
-            // Pre-fill the endpoint and model so the user is not left staring
-            // at blank fields wondering what shape the values should take.
-            void updateSettings({
-              ai: {
-                provider,
-                baseUrl: DEFAULT_BASE_URLS[provider] ?? '',
-                model: MODEL_SUGGESTIONS[provider][0] ?? '',
-              },
-            });
-          },
-        },
-      },
-      ...Object.entries(PROVIDER_LABELS).map(([value, label]) =>
-        el('option', { value, text: label, selected: ai.provider === value }),
-      ),
-    ),
-  });
-
-  if (ai.provider === 'none') {
-    return listGroup(
-      { title: 'AI-tolkning', footer: 'Utan AI sparas kvitton som bilder och fylls i för hand.' },
-      providerRow,
-    );
+async function renderAiSection(refresh: () => Promise<void>): Promise<HTMLElement> {
+  const settings = getSettings();
+  let localModel: AiSettingsViewOptions['localModel'] = null;
+  if (settings.sync.serverUrl && await isPaired()) {
+    try {
+      const status = await llmStatus(settings.sync.serverUrl);
+      if (status.enabled) localModel = status;
+    } catch {
+      // The sync section reports unavailable or older servers.
+    }
   }
 
-  const rows: HTMLElement[] = [providerRow];
-
-  if (needsBaseUrl) {
-    rows.push(
-      row({
-        label: 'Adress',
-        trailing: el('input', {
-          type: 'url',
-          value: ai.baseUrl,
-          placeholder: DEFAULT_BASE_URLS[ai.provider] ?? '',
-          inputmode: 'url',
-          autocapitalize: 'none',
-          autocorrect: 'off',
-          spellcheck: false,
-          on: {
-            change: (event) => {
-              void updateSettings({ ai: { baseUrl: (event.target as HTMLInputElement).value.trim() } });
-            },
-          },
-        }),
-      }),
-    );
-  }
-
-  if (needsKey) {
-    rows.push(
-      row({
-        label: 'API-nyckel',
-        trailing: el('input', {
-          type: 'password',
-          value: ai.apiKey,
-          autocomplete: 'off',
-          placeholder: 'Krävs',
-          on: {
-            change: (event) => {
-              void updateSettings({ ai: { apiKey: (event.target as HTMLInputElement).value.trim() } });
-            },
-          },
-        }),
-      }),
-    );
-  }
-
-  rows.push(
-    row({
-      label: 'Modell',
-      trailing: el('input', {
-        type: 'text',
-        value: ai.model,
-        list: suggestions.length ? 'model-suggestions' : undefined,
-        placeholder: suggestions[0] ?? 'modellnamn',
-        autocapitalize: 'none',
-        autocorrect: 'off',
-        spellcheck: false,
-        on: {
-          change: (event) => {
-            void updateSettings({ ai: { model: (event.target as HTMLInputElement).value.trim() } });
-          },
-        },
-      }),
-    }),
-  );
-
-  if (suggestions.length) {
-    rows.push(
-      el(
-        'datalist',
-        { id: 'model-suggestions' },
-        ...suggestions.map((model) => el('option', { value: model })),
-      ),
-    );
-  }
-
-  rows.push(
-    switchRow({
-      label: 'Tolka direkt efter skanning',
-      checked: ai.autoParse,
-      onChange: (checked) => void updateSettings({ ai: { autoParse: checked } }),
-    }),
-  );
-
-  const testButton = el('button', {
-    class: 'row',
-    type: 'button',
-    style: 'color:var(--tint);justify-content:center;font-weight:500',
-    text: 'Testa anslutningen',
-    on: {
-      click: async () => {
-        testButton.disabled = true;
-        replaceChildren(statusHost, el('span', { text: 'Testar…' }));
-        const result = await testConnection();
-        replaceChildren(
-          statusHost,
-          el(
-            'span',
-            { class: 'status-line' },
-            el('span', { class: ['status-dot', result.ok ? 'status-dot--ok' : 'status-dot--error'] }),
-            el('span', { text: result.message }),
-          ),
+  return createAiSettingsView({
+    ai: settings.ai,
+    localModel,
+    onChange: async (patch) => {
+      await updateSettings({ ai: patch });
+    },
+    onTest: testConnection,
+    onLocalAction: async (action) => {
+      const serverUrl = settings.sync.serverUrl;
+      if (action === 'start') await llmStart(serverUrl);
+      if (action === 'pull') {
+        await llmPull(serverUrl);
+        toast('Nedladdningen startade. Den tar några minuter.', { kind: 'success' });
+      }
+      if (action === 'scan') {
+        const report = await llmScan(serverUrl);
+        toast(
+          report.blocked ?? `${report.extracted} tolkade, ${report.skipped} överhoppade, ${report.failed} misslyckade.`,
+          { kind: report.blocked ? 'error' : 'success' },
         );
-        testButton.disabled = false;
-      },
+        void syncNow();
+      }
+      if (action === 'requeue') {
+        const { requeued } = await llmRequeue(serverUrl);
+        toast(`${requeued} kvitton lades tillbaka i kön.`, { kind: 'success' });
+      }
+      await refresh();
     },
   });
-  rows.push(testButton);
-
-  const keyFooter = needsKey
-    ? 'Nyckeln synkroniseras mellan dina parkopplade enheter.'
-    : ai.provider === 'ollama'
-      ? `Starta Ollama med OLLAMA_ORIGINS="${location.origin}" så att webbläsaren får anropa den.`
-      : 'Servern håller nyckeln åt dig.';
-
-  return el(
-    'div',
-    {},
-    listGroup({ title: 'AI-tolkning', footer: keyFooter }, ...rows),
-    statusHost,
-    renderAdvancedAi(),
-  );
-}
-
-function renderAdvancedAi(): HTMLElement {
-  const { ai } = getSettings();
-
-  const rows: HTMLElement[] = [
-    row({
-      label: 'Max tokens',
-      trailing: el('input', {
-        type: 'number',
-        min: 1000,
-        max: 128000,
-        step: 1000,
-        value: String(ai.maxOutputTokens),
-        inputmode: 'numeric',
-        on: {
-          change: (event) => {
-            const value = Number((event.target as HTMLInputElement).value);
-            if (Number.isFinite(value) && value > 0) {
-              void updateSettings({ ai: { maxOutputTokens: Math.round(value) } });
-            }
-          },
-        },
-      }),
-    }),
-    switchRow({
-      label: 'Tvinga JSON-schema',
-      checked: ai.structuredOutput,
-      onChange: (checked) => void updateSettings({ ai: { structuredOutput: checked } }),
-    }),
-  ];
-
-  if (ai.provider === 'anthropic') {
-    rows.splice(
-      1,
-      0,
-      row({
-        label: 'Tankedjup',
-        trailing: el(
-          'select',
-          {
-            'aria-label': 'Tankedjup',
-            on: {
-              change: (event) => {
-                void updateSettings({
-                  ai: { effort: (event.target as HTMLSelectElement).value as typeof ai.effort },
-                });
-              },
-            },
-          },
-          ...(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((value) =>
-            el('option', {
-              value,
-              text: value === 'auto' ? 'Standard' : value,
-              selected: ai.effort === value,
-            }),
-          ),
-        ),
-      }),
-    );
-  }
-
-  rows.push(
-    el(
-      'div',
-      { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:6px' },
-      el('span', { class: 'field__label', style: 'margin:0', text: 'Extra instruktioner till modellen' }),
-      el('textarea', {
-        value: ai.extraInstructions,
-        rows: 2,
-        placeholder: 'T.ex. "Min lokala butik skriver pant som PANT+".',
-        style: 'background:var(--fill-tertiary);border-radius:8px;padding:8px 10px;text-align:left',
-        on: {
-          change: (event) => {
-            void updateSettings({ ai: { extraInstructions: (event.target as HTMLTextAreaElement).value } });
-          },
-        },
-      }),
-    ),
-  );
-
-  return listGroup(
-    {
-      title: 'Avancerat',
-      footer:
-        'Ett långt kvitto med många rader behöver fler tokens. JSON-schema ger stabilare svar och ' +
-        'faller automatiskt tillbaka om modellen inte stödjer det.',
-    },
-    ...rows,
-  );
 }
 
 // --- image ----------------------------------------------------------------
@@ -786,143 +562,6 @@ function statusLabel(status: string): string {
     default:
       return 'Inte parkopplad';
   }
-}
-
-// --- the server's own model -----------------------------------------------
-
-/**
- * The companion server's local model, when it has one.
- *
- * Rendered only for a paired device whose server reports the feature: it is an
- * operator's setting, not a user's, and a server without it should not grow a
- * section explaining what it is missing.
- */
-async function renderLocalModelSection(refresh: () => Promise<void>): Promise<HTMLElement | null> {
-  const { sync: syncSettings } = getSettings();
-  if (!syncSettings.serverUrl || !(await isPaired())) return null;
-
-  let status: LlmStatusResponse;
-  try {
-    status = await llmStatus(syncSettings.serverUrl);
-  } catch {
-    // An older server has no such endpoint, and an unreachable one is the sync
-    // section's problem to report, not this one's.
-    return null;
-  }
-  if (!status.enabled) return null;
-
-  const { runtime, queue } = status;
-  const rows: HTMLElement[] = [
-    row({
-      label: 'Modell',
-      icon: 'sparkles',
-      iconColor: GLYPH.ai,
-      value: runtime.model,
-    }),
-    row({ label: 'Status', trailing: modelStateBadge(runtime) }),
-  ];
-
-  if (runtime.state === 'pulling' && runtime.pull) {
-    rows.push(row({ label: 'Laddar ner', value: `${runtime.pull.status} · ${runtime.pull.percent} %` }));
-  }
-
-  rows.push(
-    row({
-      label: 'Kö',
-      value: `${queue.pending} väntar · ${queue.done} klara${queue.failed > 0 ? ` · ${queue.failed} misslyckade` : ''}`,
-    }),
-  );
-
-  if (runtime.state === 'no-model') {
-    rows.push(
-      actionRow('Ladda ner modellen', async () => {
-        await llmPull(syncSettings.serverUrl);
-        toast('Nedladdningen startade. Den tar några minuter.', { kind: 'success' });
-      }, refresh),
-    );
-  }
-
-  if (runtime.state === 'ready') {
-    rows.push(
-      actionRow('Läs kvitton nu', async () => {
-        const report = await llmScan(syncSettings.serverUrl);
-        toast(
-          report.blocked ??
-            `${report.extracted} tolkade, ${report.skipped} överhoppade, ${report.failed} misslyckade.`,
-          { kind: report.blocked ? 'error' : 'success' },
-        );
-        // The results arrive as ordinary changes, so a normal sync collects them.
-        void syncNow();
-      }, refresh),
-    );
-  }
-
-  if (queue.failed > 0) {
-    rows.push(
-      actionRow('Försök misslyckade igen', async () => {
-        const { requeued } = await llmRequeue(syncSettings.serverUrl);
-        toast(`${requeued} kvitton lades tillbaka i kön.`, { kind: 'success' });
-      }, refresh),
-    );
-  }
-
-  return listGroup(
-    {
-      title: 'Lokal modell på servern',
-      footer:
-        runtime.state === 'missing'
-          ? `Ollama hittades inte på servern${runtime.installHint ? `. Installera med: ${runtime.installHint}` : '.'}`
-          : (runtime.detail ??
-            'Servern läser synkade kvitton med en modell som körs lokalt — inget lämnar ditt ' +
-              'nätverk. Resultatet kommer tillbaka med vanlig synkronisering, och det du själv ' +
-              'har fyllt i skrivs aldrig över.'),
-    },
-    ...rows,
-  );
-}
-
-function modelStateBadge(runtime: LlmStatusResponse['runtime']): HTMLElement {
-  const [text, tone] = ((): [string, string] => {
-    switch (runtime.state) {
-      case 'ready':
-        return [runtime.managed ? 'Redo (startad av servern)' : 'Redo', 'success'];
-      case 'pulling':
-        return ['Laddar ner modellen', 'warning'];
-      case 'starting':
-        return ['Startar', 'warning'];
-      case 'no-model':
-        return ['Modellen saknas', 'warning'];
-      case 'missing':
-        return ['Ollama saknas', 'danger'];
-      default:
-        return ['Avstängd', 'label-secondary'];
-    }
-  })();
-  return el('span', { class: 'row__value', style: `color:var(--${tone})`, text });
-}
-
-/** A tappable row that runs an async action and refreshes the screen after. */
-function actionRow(label: string, action: () => Promise<void>, refresh: () => Promise<void>): HTMLElement {
-  return el('button', {
-    class: 'row',
-    type: 'button',
-    style: 'color:var(--tint);justify-content:center',
-    text: label,
-    on: {
-      click: async (event) => {
-        const button = event.currentTarget as HTMLButtonElement;
-        button.disabled = true;
-        try {
-          await action();
-        } catch (error) {
-          toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
-        } finally {
-          button.disabled = false;
-          await refresh();
-        }
-      },
-    },
-  });
 }
 
 // --- storage --------------------------------------------------------------

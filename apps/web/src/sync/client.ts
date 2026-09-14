@@ -170,6 +170,10 @@ export async function llmStatus(serverUrl: string): Promise<LlmStatusResponse> {
   return request<LlmStatusResponse>(serverUrl, '/llm/status');
 }
 
+export async function llmStart(serverUrl: string): Promise<void> {
+  await request<void>(serverUrl, '/llm/start', { method: 'POST' });
+}
+
 /** Asks the server to read whatever is queued, now. */
 export async function llmScan(serverUrl: string, size?: number): Promise<{ extracted: number; failed: number; skipped: number; blocked: string | null }> {
   return request(serverUrl, '/llm/scan', {
@@ -197,7 +201,7 @@ export interface ServerDebugResponse {
   serverTime: number;
 }
 
-export async function serverDebugLog(serverUrl: string, limit = 200): Promise<ServerDebugResponse> {
+export async function serverDebugLog(serverUrl: string, limit = 500): Promise<ServerDebugResponse> {
   return request<ServerDebugResponse>(serverUrl, `/debug/logs?limit=${limit}`);
 }
 

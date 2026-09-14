@@ -8,9 +8,11 @@ import { el, nextFrame } from '../core/dom.js';
 import { router } from '../core/router.js';
 import { updateSettings } from '../core/settings.js';
 import { toast } from '../core/toast.js';
-import { pairDevice } from '../sync/client.js';
+import { pairDevice, SyncError } from '../sync/client.js';
 import { resetSyncBackoff, sync } from '../sync/engine.js';
 import { setDeviceToken } from '../sync/identity.js';
+
+const MAX_PAIR_ATTEMPTS = 3;
 
 export async function pairScanView(): Promise<HTMLElement> {
   const video = el('video', { autoplay: true, playsInline: true, muted: true });
@@ -28,6 +30,7 @@ export async function pairScanView(): Promise<HTMLElement> {
   });
   let completed = false;
   let disposed = false;
+  let pairAttempts = 0;
   let scanner: QrScanner | null = null;
 
   router.onTeardown(() => {
@@ -62,6 +65,7 @@ export async function pairScanView(): Promise<HTMLElement> {
 
     completed = true;
     scanner?.stop();
+    pairAttempts += 1;
     status.textContent = 'Parkopplar…';
     try {
       await updateSettings({ sync: { serverUrl: payload.serverUrl } });
@@ -73,8 +77,25 @@ export async function pairScanView(): Promise<HTMLElement> {
       void sync();
       router.navigate('/settings', { replace: true });
     } catch (error) {
+      const canRetry = error instanceof SyncError && error.retryable && pairAttempts < MAX_PAIR_ATTEMPTS;
+      appendClientDebug('warn', 'QR pairing failed', {
+        attempt: pairAttempts,
+        retryable: error instanceof SyncError && error.retryable,
+        stopped: !canRetry,
+      });
+      if (!canRetry) {
+        status.textContent = error instanceof Error ? error.message : String(error);
+        toast(
+          pairAttempts >= MAX_PAIR_ATTEMPTS
+            ? 'Parkopplingen stoppades efter tre misslyckade försök.'
+            : 'Parkopplingen misslyckades.',
+          { kind: 'error' },
+        );
+        return;
+      }
+
       completed = false;
-      status.textContent = error instanceof Error ? error.message : String(error);
+      status.textContent = `Kunde inte nå servern. Försök ${pairAttempts} av ${MAX_PAIR_ATTEMPTS}.`;
       await scanner?.start().catch(() => undefined);
     }
   }

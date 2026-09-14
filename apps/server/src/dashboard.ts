@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+
 import type { FastifyInstance, FastifyReply } from 'fastify';
+
+const aiSettingsModule = readFileSync(new URL(import.meta.resolve('@kvitto/shared/ai-settings-ui')), 'utf8');
 
 const securityHeaders = {
   'cache-control': 'no-cache',
@@ -11,6 +15,8 @@ export function registerDashboard(app: FastifyInstance): void {
   app.get('/server', async (_request, reply) => send(reply, 'text/html; charset=utf-8', page));
   app.get('/server/styles.css', async (_request, reply) => send(reply, 'text/css; charset=utf-8', styles));
   app.get('/server/app.js', async (_request, reply) => send(reply, 'text/javascript; charset=utf-8', script));
+  app.get('/server/ai-settings.js', async (_request, reply) =>
+    send(reply, 'text/javascript; charset=utf-8', aiSettingsModule));
 }
 
 function send(reply: FastifyReply, contentType: string, body: string): FastifyReply {
@@ -86,67 +92,11 @@ const page = `<!doctype html>
             <p class="list-group__footer" id="pair-message" role="status">Skapa en kod och skanna den i appen.</p>
           </section>
 
-          <section class="list-group">
-            <h2 class="list-group__title">AI-tolkning</h2>
-            <form class="inset-list" id="server-ai-form">
-              <label class="row">
-                <span class="row__label">Leverantör</span>
-                <select id="ai-provider" aria-label="AI-leverantör">
-                  <option value="none">Ingen</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="openai-compatible">OpenAI-kompatibel</option>
-                </select>
-              </label>
-              <label class="row">
-                <span class="row__label">Adress</span>
-                <input id="ai-base-url" type="url" inputmode="url" autocomplete="url" placeholder="Standard">
-              </label>
-              <label class="row">
-                <span class="row__label">Modell</span>
-                <input id="ai-model" type="text" autocapitalize="none" autocomplete="off" required>
-              </label>
-              <label class="row">
-                <span class="row__label">Max tokens</span>
-                <input id="ai-max-output-tokens" type="number" inputmode="numeric" min="1000" max="128000" step="1000" required>
-              </label>
-              <label class="row">
-                <span class="row__label">Tankedjup</span>
-                <select id="ai-effort" aria-label="Tankedjup">
-                  <option value="auto">Standard</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                  <option value="xhigh">xhigh</option>
-                  <option value="max">max</option>
-                </select>
-              </label>
-              <label class="row">
-                <span class="row__label">Tvinga JSON-schema</span>
-                <input class="toggle" id="ai-structured-output" type="checkbox">
-              </label>
-              <label class="row row--stacked">
-                <span class="row__label">Extra instruktioner</span>
-                <textarea id="ai-extra-instructions" rows="2" maxlength="2000" placeholder="Instruktioner för alla enheter"></textarea>
-              </label>
-              <div class="row row--actions">
-                <button class="btn btn--primary" type="submit">Spara</button>
-              </div>
-            </form>
-            <p class="list-group__footer action-message" id="config-message" role="status"></p>
-          </section>
+          <div id="ai-settings"></div>
 
           <section class="list-group">
             <h2 class="list-group__title">API-nycklar</h2>
             <div class="inset-list">
-              <form class="secret-row" data-secret="aiApiKey">
-                <div class="row secret-field">
-                  <label class="row__label" for="ai-api-key">AI</label>
-                  <input id="ai-api-key" type="password" autocomplete="off" aria-label="AI-nyckel" placeholder="Inte sparad">
-                  <button class="btn btn--plain btn--sm" type="submit">Spara</button>
-                  <button class="btn btn--plain btn--danger-plain btn--sm secret-clear" type="button">Rensa</button>
-                </div>
-              </form>
               <form class="secret-row" data-secret="companyApiKey">
                 <div class="row secret-field">
                   <label class="row__label" for="company-api-key">Apiverket</label>
@@ -165,27 +115,6 @@ const page = `<!doctype html>
           </section>
 
           <section class="list-group">
-            <h2 class="list-group__title">Lokal modell</h2>
-            <div class="inset-list">
-              <div class="row">
-                <span class="row__label">Status</span>
-                <span class="row__value" id="model-state">–</span>
-              </div>
-              <div class="row model-stats">
-                <span>Väntar <strong id="queue-pending">–</strong></span>
-                <span>Bearbetar <strong id="queue-running">–</strong></span>
-                <span>Misslyckade <strong id="queue-failed">–</strong></span>
-              </div>
-              <div class="row row--actions model-actions">
-                <button class="btn btn--plain" id="model-start" type="button">Starta</button>
-                <button class="btn btn--primary" id="model-scan" type="button">Kör kön nu</button>
-                <button class="btn btn--plain" id="model-pull" type="button">Hämta modell</button>
-              </div>
-            </div>
-            <p class="list-group__footer action-message" id="model-message" role="status"></p>
-          </section>
-
-          <section class="list-group">
             <div class="inset-list">
               <div class="row">
                 <span class="row__value identity" id="identity">–</span>
@@ -195,7 +124,7 @@ const page = `<!doctype html>
         </div>
       </main>
     </div>
-    <script src="/server/app.js" defer></script>
+    <script src="/server/app.js" type="module"></script>
   </body>
 </html>`;
 
@@ -331,6 +260,8 @@ textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px 10px; b
 `;
 
 const script = `
+import { createAiSettingsView } from '/server/ai-settings.js';
+
 (() => {
   const storageKey = 'kvitto.server.token';
   const deviceKey = 'kvitto.server.deviceId';
@@ -361,10 +292,6 @@ const script = `
   function formatTime(value) {
     if (!value) return 'Aldrig';
     return new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
-  }
-
-  function queueValue(queue, name) {
-    return queue?.[name] ?? queue?.[name === 'pending' ? 'queued' : name] ?? 0;
   }
 
   async function refresh() {
@@ -403,9 +330,9 @@ const script = `
       element('ai-proxy-value').textContent = me.aiProxyEnabled ? 'Aktiv' : 'Ej konfigurerad';
       element('identity').textContent = me.deviceName + ' · ' + me.accountId;
       renderDevices(devices.devices || []);
-      renderModel(llm);
-      renderServerConfig(serverConfig);
-      renderSecrets(secrets.secrets || [], serverConfig.ai.apiKeyConfigured);
+      element('llm-value').textContent = llm.enabled ? (llm.runtime?.state || 'okänd') : 'avstängd';
+      renderAiSettings(serverConfig, llm);
+      renderSecrets(secrets.secrets || []);
     } catch (error) {
       if (error?.status === 401) {
         disconnect(false);
@@ -458,63 +385,62 @@ const script = `
     element('devices').replaceChildren(...rows);
   }
 
-  function renderModel(llm) {
-    const state = llm.enabled ? (llm.runtime?.state || 'okänd') : 'avstängd';
-    element('llm-value').textContent = state;
-    element('model-state').textContent = state;
-    element('queue-pending').textContent = String(queueValue(llm.queue, 'pending'));
-    element('queue-running').textContent = String(queueValue(llm.queue, 'running'));
-    element('queue-failed').textContent = String(queueValue(llm.queue, 'failed'));
-    for (const id of ['model-start', 'model-scan', 'model-pull']) element(id).disabled = !llm.enabled;
+  function renderAiSettings(serverConfig, llm) {
+    element('ai-settings').replaceChildren(createAiSettingsView({
+      ai: serverConfig.ai,
+      providers: ['none', 'anthropic', 'openai', 'openai-compatible'],
+      localModel: llm,
+      onChange: async (patch) => {
+        const { apiKey, apiKeyConfigured, autoParse, ...configPatch } = patch;
+        if (apiKey !== undefined) {
+          await request('/secrets/aiApiKey', {
+            method: 'PUT',
+            body: JSON.stringify({ value: apiKey }),
+          });
+        }
+        if (Object.keys(configPatch).length) {
+          const ai = serverConfig.ai;
+          await request('/server/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              ai: {
+                provider: ai.provider,
+                baseUrl: ai.baseUrl,
+                model: ai.model,
+                maxOutputTokens: ai.maxOutputTokens,
+                effort: ai.effort,
+                structuredOutput: ai.structuredOutput,
+                extraInstructions: ai.extraInstructions,
+                ...configPatch,
+              },
+            }),
+          });
+        }
+        await refresh();
+      },
+      onLocalAction: async (action) => {
+        const path = '/llm/' + action;
+        const result = await request(path, {
+          method: 'POST',
+          body: action === 'scan' || action === 'requeue' ? '{}' : undefined,
+        });
+        await refresh();
+        if (action === 'pull') return 'Nedladdningen startade.';
+        if (action === 'requeue') return String(result.requeued || 0) + ' kvitton lades tillbaka i kön.';
+        if (action === 'scan') {
+          return result.blocked || (String(result.extracted || 0) + ' kvitton tolkades.');
+        }
+      },
+    }));
   }
 
-  function renderServerConfig(serverConfig) {
-    element('ai-provider').value = serverConfig.ai.provider;
-    element('ai-base-url').value = serverConfig.ai.baseUrl;
-    element('ai-model').value = serverConfig.ai.model;
-    element('ai-max-output-tokens').value = String(serverConfig.ai.maxOutputTokens);
-    element('ai-effort').value = serverConfig.ai.effort;
-    element('ai-structured-output').checked = serverConfig.ai.structuredOutput;
-    element('ai-extra-instructions').value = serverConfig.ai.extraInstructions;
-  }
-
-  function renderSecrets(secrets, aiKeyConfigured) {
+  function renderSecrets(secrets) {
     for (const secret of secrets) {
       const form = document.querySelector('[data-secret="' + secret.id + '"]');
+      if (!form) continue;
       const input = form.querySelector('input');
-      const configured = secret.id === 'aiApiKey' ? aiKeyConfigured : secret.configured;
-      form.dataset.configured = String(configured);
-      input.placeholder = configured ? 'Sparad' : 'Inte sparad';
-    }
-  }
-
-  async function saveServerConfig(event) {
-    event.preventDefault();
-    const submit = event.currentTarget.querySelector('button[type="submit"]');
-    submit.disabled = true;
-    element('config-message').textContent = 'Sparar…';
-    try {
-      const result = await request('/server/config', {
-        method: 'PUT',
-        body: JSON.stringify({
-          ai: {
-            provider: element('ai-provider').value,
-            baseUrl: element('ai-base-url').value.trim(),
-            model: element('ai-model').value.trim(),
-            maxOutputTokens: Number(element('ai-max-output-tokens').value),
-            effort: element('ai-effort').value,
-            structuredOutput: element('ai-structured-output').checked,
-            extraInstructions: element('ai-extra-instructions').value.trim(),
-          },
-        }),
-      });
-      renderServerConfig(result);
-      element('config-message').textContent = 'Sparad.';
-      await refresh();
-    } catch (error) {
-      element('config-message').textContent = error instanceof Error ? error.message : String(error);
-    } finally {
-      submit.disabled = false;
+      form.dataset.configured = String(secret.configured);
+      input.placeholder = secret.configured ? 'Sparad' : 'Inte sparad';
     }
   }
 
@@ -568,18 +494,6 @@ const script = `
     }
   }
 
-  async function modelAction(path, message) {
-    const output = element('model-message');
-    output.textContent = message;
-    try {
-      await request(path, { method: 'POST', body: path.endsWith('/scan') ? '{}' : undefined });
-      output.textContent = 'Klart.';
-      await refresh();
-    } catch (error) {
-      output.textContent = error instanceof Error ? error.message : String(error);
-    }
-  }
-
   function disconnect(refreshPage = true) {
     token = '';
     localStorage.removeItem(storageKey);
@@ -588,10 +502,6 @@ const script = `
 
   element('refresh').addEventListener('click', refresh);
   element('create-pairing-code').addEventListener('click', createPairingCode);
-  element('server-ai-form').addEventListener('submit', saveServerConfig);
-  element('model-start').addEventListener('click', () => modelAction('/llm/start', 'Startar…'));
-  element('model-scan').addEventListener('click', () => modelAction('/llm/scan', 'Bearbetar…'));
-  element('model-pull').addEventListener('click', () => modelAction('/llm/pull', 'Startar hämtning…'));
   for (const form of document.querySelectorAll('.secret-row')) {
     form.addEventListener('submit', (event) => {
       event.preventDefault();

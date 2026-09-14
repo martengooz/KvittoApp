@@ -120,13 +120,18 @@ function renderEntries(entries: DebugEntry[]): HTMLElement {
   return listGroup(
     {
       title: `Logg (${entries.length})`,
-      footer: entries.length ? 'Nyaste poster visas först.' : 'Inga loggposter ännu.',
+      footer: entries.length ? 'Nyaste poster visas först. Högst 500 sparas.' : 'Inga loggposter ännu.',
     },
     entries.length
       ? entries.map((entry) =>
           el(
-            'div',
-            { class: 'debug-log__entry' },
+            'button',
+            {
+              class: 'debug-log__entry',
+              type: 'button',
+              'aria-label': `Visa detaljer för ${entry.message}`,
+              on: { click: () => showEntryDetails(entry) },
+            },
             el(
               'div',
               { class: 'debug-log__meta' },
@@ -141,6 +146,124 @@ function renderEntries(entries: DebugEntry[]): HTMLElement {
         )
       : el('div', { class: 'debug-log__empty', text: 'Inga loggposter ännu.' }),
   );
+}
+
+function showEntryDetails(entry: DebugEntry): void {
+  const dialog = el(
+    'dialog',
+    { class: 'dialog debug-log-dialog' },
+    el(
+      'div',
+      { class: 'dialog__body' },
+      el(
+        'div',
+        { class: 'dialog__content debug-log-dialog__content' },
+        el('h2', { class: 'dialog__title', text: 'Loggdetaljer' }),
+        el('p', { class: 'debug-log-dialog__message', text: entry.message }),
+        el(
+          'dl',
+          { class: 'debug-log-dialog__metadata' },
+          detailField('Tid', formatFullTime(entry.timestamp)),
+          detailField('ISO-tid', new Date(entry.timestamp).toISOString()),
+          detailField('Källa', entry.source === 'client' ? 'Klient' : 'Server'),
+          detailField('Nivå', entry.level.toUpperCase()),
+          detailField('ID', String(entry.id)),
+        ),
+        renderEntryData(entry.details),
+      ),
+      el(
+        'div',
+        { class: 'dialog__actions' },
+        el('button', {
+          class: 'btn',
+          type: 'button',
+          text: 'Kopiera',
+          on: { click: () => void copyEntry(entry) },
+        }),
+        el('button', {
+          class: 'btn',
+          type: 'button',
+          text: 'Stäng',
+          on: { click: () => dialog.close() },
+        }),
+      ),
+    ),
+  );
+
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    dialog.close();
+  });
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  document.body.appendChild(dialog);
+  dialog.showModal();
+}
+
+function renderEntryData(details: DebugEntry['details']): HTMLElement {
+  const request = asRecord(details.request);
+  const response = asRecord(details.response);
+  if (!request || !response) {
+    return el(
+      'div',
+      {},
+      el('h3', { class: 'debug-log-dialog__heading', text: 'Data' }),
+      Object.keys(details).length
+        ? dataBlock(details)
+        : el('p', { class: 'debug-log-dialog__empty', text: 'Ingen ytterligare data.' }),
+    );
+  }
+
+  const metadata = Object.fromEntries(
+    Object.entries(details).filter(([key]) => key !== 'request' && key !== 'response'),
+  );
+  return el(
+    'div',
+    {},
+    Object.keys(metadata).length ? dataSection('Metadata', metadata) : null,
+    dataSection('Förfrågan', request),
+    dataSection('Svar', response),
+  );
+}
+
+function dataSection(title: string, value: DebugEntry['details']): HTMLElement {
+  return el(
+    'section',
+    { class: 'debug-log-dialog__section' },
+    el('h3', { class: 'debug-log-dialog__heading', text: title }),
+    dataBlock(value),
+  );
+}
+
+function dataBlock(value: DebugEntry['details']): HTMLElement {
+  return el('pre', {
+    class: 'code-block debug-log-dialog__data',
+    text: JSON.stringify(value, null, 2),
+  });
+}
+
+function asRecord(value: unknown): DebugEntry['details'] | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as DebugEntry['details']
+    : null;
+}
+
+function detailField(label: string, value: string): HTMLElement[] {
+  return [
+    el('dt', { text: label }),
+    el('dd', { text: value }),
+  ];
+}
+
+async function copyEntry(entry: DebugEntry): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
+    toast('Loggposten kopierades.', { kind: 'success' });
+  } catch {
+    toast('Kunde inte kopiera loggposten.', { kind: 'error' });
+  }
 }
 
 async function exportLog(source: LogSource): Promise<void> {
@@ -168,8 +291,16 @@ function formatTime(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
+function formatFullTime(timestamp: number): string {
+  return new Intl.DateTimeFormat('sv-SE', {
+    dateStyle: 'long',
+    timeStyle: 'medium',
+  }).format(new Date(timestamp));
+}
+
 function formatDetails(details: DebugEntry['details']): string {
   return Object.entries(details)
-    .map(([key, value]) => `${key}=${String(value)}`)
+    .filter(([key]) => key !== 'request' && key !== 'response')
+    .map(([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
     .join(' · ');
 }

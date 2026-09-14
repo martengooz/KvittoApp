@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./ai-settings-ui": {
+      "types": "./dist/ai-settings-ui.d.ts",
+      "default": "./dist/ai-settings-ui.js"
     }
   },
   "files": ["dist"],

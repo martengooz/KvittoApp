@@ -126,6 +126,30 @@ test('health reports the protocol version without authentication', async () => {
   assert.equal(response.json().protocolVersion, 2);
 });
 
+test('debug log captures complete redacted HTTP exchanges', async () => {
+  const request = await app.inject({
+    method: 'POST',
+    url: '/blobs/status',
+    headers: { ...auth(), 'x-debug-test': 'visible' },
+    payload: { ids: ['not-a-blob-id'] },
+  });
+  assert.equal(request.statusCode, 200);
+
+  const response = await app.inject({ method: 'GET', url: '/debug/logs', headers: auth() });
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.capacity, 500);
+  const entry = body.entries.find((candidate: { message: string }) => candidate.message === 'POST /blobs/status');
+  assert.ok(entry);
+  assert.equal(entry.details.request.method, 'POST');
+  assert.equal(entry.details.request.url, '/blobs/status');
+  assert.equal(entry.details.request.headers.authorization, '[redacted]');
+  assert.equal(entry.details.request.headers['x-debug-test'], 'visible');
+  assert.deepEqual(entry.details.request.body, { ids: ['not-a-blob-id'] });
+  assert.equal(entry.details.response.status, 200);
+  assert.deepEqual(entry.details.response.body, { present: [], missing: ['not-a-blob-id'] });
+});
+
 test('server dashboard serves its shell and assets without exposing account data', async () => {
   const page = await app.inject({ method: 'GET', url: '/server' });
   assert.equal(page.statusCode, 200);
@@ -133,18 +157,23 @@ test('server dashboard serves its shell and assets without exposing account data
   assert.match(page.headers['content-security-policy'] ?? '', /default-src 'self'/);
   assert.match(page.body, /KvittoApp server/);
   assert.match(page.body, /id="create-pairing-code"/);
-  assert.match(page.body, /id="server-ai-form"/);
+  assert.match(page.body, /id="ai-settings"/);
+  assert.match(page.body, /src="\/server\/app.js" type="module"/);
   assert.doesNotMatch(page.body, /id="pair-code"/);
   assert.doesNotMatch(page.body, new RegExp(accountId));
 
-  const [styles, script] = await Promise.all([
+  const [styles, script, aiSettings] = await Promise.all([
     app.inject({ method: 'GET', url: '/server/styles.css' }),
     app.inject({ method: 'GET', url: '/server/app.js' }),
+    app.inject({ method: 'GET', url: '/server/ai-settings.js' }),
   ]);
   assert.equal(styles.statusCode, 200);
   assert.match(styles.headers['content-type'] ?? '', /^text\/css/);
   assert.equal(script.statusCode, 200);
   assert.match(script.headers['content-type'] ?? '', /^text\/javascript/);
+  assert.equal(aiSettings.statusCode, 200);
+  assert.match(aiSettings.headers['content-type'] ?? '', /^text\/javascript/);
+  assert.match(aiSettings.body, /createAiSettingsView/);
 });
 
 test('server dashboard mints pairing codes for clients', async () => {
@@ -354,7 +383,11 @@ test('debug log exposes bounded request metadata only to paired devices', async 
   assert.ok(body.entries.length <= 20);
   assert.ok(body.entries.some((entry: { message: string }) => entry.message === 'GET /health'));
   assert.equal(response.body.includes(token), false);
-  assert.equal(response.body.includes('authorization'), false);
+  assert.equal(response.body.includes(`Bearer ${token}`), false);
+  for (const entry of body.entries) {
+    const authorization = entry.details?.request?.headers?.authorization;
+    if (authorization !== undefined) assert.equal(authorization, '[redacted]');
+  }
 });
 
 test('a pairing code cannot be redeemed twice', async () => {

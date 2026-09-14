@@ -1,4 +1,5 @@
 export type DebugLevel = 'info' | 'warn' | 'error';
+export type DebugValue = string | number | boolean | null | DebugValue[] | { [key: string]: DebugValue };
 
 export interface DebugEntry {
   id: number;
@@ -6,11 +7,11 @@ export interface DebugEntry {
   level: DebugLevel;
   source: 'client' | 'server';
   message: string;
-  details: Record<string, string | number | boolean | null>;
+  details: Record<string, DebugValue>;
 }
 
 const STORAGE_KEY = 'kvitto.debug-log';
-const MAX_ENTRIES = 300;
+const MAX_ENTRIES = 500;
 let installed = false;
 
 export function appendClientDebug(
@@ -25,9 +26,7 @@ export function appendClientDebug(
     level,
     source: 'client',
     message: redact(message),
-    details: Object.fromEntries(
-      Object.entries(details).map(([key, value]) => [key, typeof value === 'string' ? redact(value) : value]),
-    ),
+    details: redactDetails(details),
   });
   writeEntries(entries.slice(-MAX_ENTRIES));
 }
@@ -117,4 +116,18 @@ function redact(value: string): string {
     .slice(0, 500)
     .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
     .replace(/\bsk[-_][A-Za-z0-9_-]{8,}\b/g, '[redacted]');
+}
+
+function redactDetails(details: DebugEntry['details']): DebugEntry['details'] {
+  return Object.fromEntries(
+    Object.entries(details).map(([key, value]) => [key, redactValue(key, value)]),
+  );
+}
+
+function redactValue(key: string, value: DebugValue): DebugValue {
+  if (/^(?:authorization|cookie|set-cookie|password|api[_-]?key|token)$/i.test(key)) return '[redacted]';
+  if (typeof value === 'string') return redact(value);
+  if (Array.isArray(value)) return value.map((item) => redactValue('', item));
+  if (value && typeof value === 'object') return redactDetails(value);
+  return value;
 }
