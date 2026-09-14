@@ -10,3 +10,5 @@ export * from './prompt.js';
 export * from './orgnumber.js';
 export * from './fuzzy.js';
 export * from './receipt-scan.js';
+export * from './merchant-name.js';
+export * from './merge.js';

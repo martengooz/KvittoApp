@@ -91,6 +91,46 @@ export interface PullResponse {
   /** True when more pages are waiting at `cursor`. */
   hasMore: boolean;
   serverTime: number;
+  /** See {@link SyncStatusResponse.epoch}. */
+  epoch?: string;
+}
+
+/**
+ * The cheap "is there anything for me?" call.
+ *
+ * A sync pass costs a round trip whether or not anything changed, and the
+ * client runs one every five minutes plus whenever it reconnects. This answers
+ * the same question with no payload at all, so an idle device that has been
+ * left open overnight transfers a few hundred bytes rather than re-fetching a
+ * page of records to discover it already had them.
+ */
+export interface SyncStatusResponse {
+  /** The account's current revision. */
+  cursor: number;
+  /**
+   * Identifies this server's revision history.
+   *
+   * Revision numbers are only meaningful within one history. If the server's
+   * database is restored from a backup, rebuilt, or replaced, its counter
+   * restarts while clients still hold cursors from the old one — and every one
+   * of those clients would then silently skip everything below its stale
+   * cursor. A changed epoch tells them to reset to zero and reconcile from
+   * scratch instead.
+   */
+  epoch: string;
+  /** True when the caller's `since` is behind {@link cursor}. */
+  hasChanges: boolean;
+  /** Records waiting per kind, when `since` was supplied. */
+  pending?: Partial<Record<EntityKind, number>>;
+  /** Total records waiting, when `since` was supplied. */
+  pendingTotal?: number;
+  /**
+   * Set when the caller's cursor is ahead of the server's, which means their
+   * histories have diverged and the client must resynchronise from zero.
+   */
+  diverged?: boolean;
+  counts?: Record<string, number>;
+  serverTime: number;
 }
 
 /** Reports which content-addressed blobs the server already holds. */

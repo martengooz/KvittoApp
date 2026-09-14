@@ -18,6 +18,7 @@
 import {
   matchCompanyName,
   scanReceiptText,
+  NAME_MATCH_THRESHOLD,
   type Company,
   type ID,
   type OcrInfo,
@@ -27,7 +28,7 @@ import {
 import { getSettings } from '../core/settings.js';
 import { getBlob } from '../db/blobs.js';
 import { db } from '../db/db.js';
-import { resolveCompany, type ResolveOutcome } from '../db/companies.js';
+import { resolveCompany, resolveCompanyByName, type ResolveOutcome } from '../db/companies.js';
 import type { LookupFailure } from '../api/apiverket.js';
 import { updateReceipt } from '../db/repo.js';
 import { ocrClient } from './client.js';
@@ -43,6 +44,8 @@ export interface EnrichOutcome {
   lookup: ResolveOutcome['status'] | null;
   /** Why the lookup was skipped, when it was. */
   lookupReason: LookupFailure | null;
+  /** True when the company was found from the shop's name, not its number. */
+  foundByName: boolean;
   /** Fields this pass filled in that were previously empty. */
   filled: string[];
 }
@@ -54,6 +57,7 @@ const NOTHING: EnrichOutcome = {
   company: null,
   lookup: null,
   lookupReason: null,
+  foundByName: false,
   filled: [],
 };
 
@@ -104,8 +108,13 @@ export async function enrichFromImage(receiptId: ID, image: Blob): Promise<Enric
   let company: Company | null = null;
   let lookup: ResolveOutcome['status'] | null = null;
   let lookupReason: LookupFailure | null = null;
+  let foundByName = false;
+  /** How well the resolved company's name matches this receipt, 0..1. */
+  let confidence = 0;
 
+  const cacheOnly = !getSettings().company.autoLookup;
   const best = findings.orgNumber;
+
   if (best) {
     if (!receipt.merchant.orgNumber) {
       patch.merchant = { ...receipt.merchant, orgNumber: best.formatted };
@@ -114,26 +123,52 @@ export async function enrichFromImage(receiptId: ID, image: Blob): Promise<Enric
 
     // A company already stored is free to reuse, so the auto-lookup switch
     // only gates the network call, never the cache hit.
-    const outcome = await resolveCompany(best.digits, {
-      receiptText: result.text,
-      cacheOnly: !getSettings().company.autoLookup,
-    });
+    const outcome = await resolveCompany(best.digits, { receiptText: result.text, cacheOnly });
     lookup = outcome.status;
     if (outcome.status === 'skipped') lookupReason = outcome.reason;
-
-    if (outcome.status !== 'skipped') {
+    else {
       company = outcome.company;
-      patch.companyId = company.id;
-      const merchant = patch.merchant ?? receipt.merchant;
-      if (!merchant.name) {
-        patch.merchant = { ...merchant, name: company.name };
-        filled.push('företagsnamn');
-      }
+      confidence = matchCompanyName(company.name, result.text).score;
+    }
+  }
+
+  /**
+   * The number is the better identifier, so the name search only runs when the
+   * number did not produce a company the receipt agrees with. That covers three
+   * distinct failures with one rule: no number was legible, the number was
+   * legible but unknown to the registry, and — the subtle one — the number
+   * passed its checksum and resolved to a company whose name is nowhere on the
+   * paper, which is what a misread digit looks like when it happens to land on
+   * another valid number.
+   */
+  if (!cacheOnly && confidence < NAME_MATCH_THRESHOLD) {
+    const byName = await resolveCompanyByName({ receiptText: result.text });
+    if (byName.status !== 'skipped' && byName.score > confidence) {
+      company = byName.company;
+      confidence = byName.score;
+      lookup = byName.status;
+      lookupReason = null;
+      foundByName = true;
+      // Adopt the number the search found. It is corroborated by the name being
+      // on the receipt, which is more than the OCR reading had going for it.
+      patch.merchant = { ...(patch.merchant ?? receipt.merchant), orgNumber: company.orgNumber };
+      if (!filled.includes('organisationsnummer')) filled.push('organisationsnummer');
+    } else if (byName.status === 'skipped' && !company) {
+      lookupReason = byName.reason;
+    }
+  }
+
+  if (company) {
+    patch.companyId = company.id;
+    const merchant = patch.merchant ?? receipt.merchant;
+    if (!merchant.name) {
+      patch.merchant = { ...merchant, name: company.name };
+      filled.push('företagsnamn');
     }
   }
 
   await updateReceipt(receiptId, patch);
-  return { ok: true, reason: null, ocr, company, lookup, lookupReason, filled };
+  return { ok: true, reason: null, ocr, company, lookup, lookupReason, foundByName, filled };
 }
 
 /**

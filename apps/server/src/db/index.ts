@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  rev_counter INTEGER NOT NULL DEFAULT 0
+  rev_counter INTEGER NOT NULL DEFAULT 0,
+  epoch TEXT
 );
 
 CREATE TABLE IF NOT EXISTS devices (
@@ -43,6 +44,21 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   used_at INTEGER,
   used_by_device_id TEXT
 );
+
+CREATE TABLE IF NOT EXISTS extraction_jobs (
+  receipt_id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  source_updated_at INTEGER NOT NULL DEFAULT 0,
+  image_id TEXT,
+  last_error TEXT,
+  duration_ms INTEGER,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS extraction_jobs_queue_idx
+  ON extraction_jobs(account_id, state, next_attempt_at);
 
 CREATE TABLE IF NOT EXISTS blobs (
   id TEXT PRIMARY KEY,
@@ -78,6 +94,26 @@ CREATE INDEX IF NOT EXISTS ${table}_account_rev_idx ON ${table}(account_id, rev)
 `;
 }
 
+/**
+ * Columns added after the first release.
+ *
+ * `CREATE TABLE IF NOT EXISTS` cannot widen a table that already exists, and
+ * this server has no migration framework on purpose — it is a single-file
+ * SQLite database a household runs at home, and a migration tool would be more
+ * machinery than the thing it maintains. Adding a nullable column is the one
+ * schema change that is safe to apply idempotently at boot, so that is the only
+ * kind made here.
+ */
+const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
+  ['accounts', 'epoch', 'TEXT'],
+];
+
+function addColumn(database: Database.Database, table: string, column: string, type: string): void {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (columns.some((existing) => existing.name === column)) return;
+  database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
 let connection: Database.Database | null = null;
 
 export function getConnection(): Database.Database {
@@ -98,6 +134,7 @@ export function getConnection(): Database.Database {
 
   database.exec(DDL);
   for (const table of ENTITY_TABLE_NAMES) database.exec(entityDdl(table));
+  for (const [table, column, type] of ADDED_COLUMNS) addColumn(database, table, column, type);
 
   connection = database;
   return database;

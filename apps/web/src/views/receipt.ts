@@ -602,6 +602,10 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       company.status ? listRow({ label: 'Status', value: company.status }) : null,
       company.city ? listRow({ label: 'Ort', value: company.city }) : null,
       company.industry ? listRow({ label: 'Bransch', value: company.industry }) : null,
+      listRow({
+        label: 'Hittat via',
+        value: identifiedBy(receipt, company),
+      }),
       renderNameCheck(company, verdict),
     );
   }
@@ -639,6 +643,18 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     });
   }
 
+  /**
+   * How this company was arrived at.
+   *
+   * Worth showing, because the two routes carry very different weight: an
+   * organisation number is checksum-verified, a name is a substring search that
+   * happened to agree with the receipt.
+   */
+  function identifiedBy(receipt: Receipt, company: Company): string {
+    const read = receipt.ocr?.orgNumbers.some((candidate) => candidate.value === company.orgNumber);
+    return read ? 'Organisationsnummer på kvittot' : 'Sökning på butikens namn';
+  }
+
   function companyFooter(receipt: Receipt): string | undefined {
     const ocr = receipt.ocr;
     if (!ocr) return 'Kvittots text har inte lästs av på den här enheten.';
@@ -657,7 +673,11 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       case 'invalid-org-number':
         return 'Inget giltigt organisationsnummer hittades på kvittot.';
       case 'not-found':
-        return 'Organisationsnumret finns inte i registret.';
+        return 'Varken organisationsnummer eller butiksnamn gav någon träff i registret.';
+      case 'no-query':
+        return 'Inget läsbart butiksnamn hittades att söka på.';
+      case 'budget-spent':
+        return 'Dagens namnsökningar är slut. Höj gränsen under Inställningar eller försök imorgon.';
       case 'unauthorised':
         return 'API-nyckeln för företagsuppslag avvisades.';
       case 'rate-limited':

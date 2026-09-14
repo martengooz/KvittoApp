@@ -27,12 +27,20 @@ import { confirmDialog, toast } from '../core/toast.js';
 import { testConnection } from '../ai/index.js';
 import { APIVERKET_BASE_URL } from '../api/apiverket.js';
 import { cvClient } from '../cv/client.js';
-import { clearCompanyMisses, listCompanies } from '../db/companies.js';
+import { clearCompanyMisses, listCompanies, searchBudgetUsed } from '../db/companies.js';
 import { blobStoreSize, collectGarbage, discardOriginals } from '../db/blobs.js';
 import { requestPersistentStorage, storageEstimate } from '../db/db.js';
 import { eraseAllData, purgeTombstones } from '../db/repo.js';
-import { pairDevice, whoAmI } from '../sync/client.js';
-import { countPending, getSyncState, sync } from '../sync/engine.js';
+import {
+  llmPull,
+  llmRequeue,
+  llmScan,
+  llmStatus,
+  pairDevice,
+  whoAmI,
+  type LlmStatusResponse,
+} from '../sync/client.js';
+import { countPending, getSyncState, resetSyncBackoff, sync, syncNow, type SyncReport } from '../sync/engine.js';
 import {
   getAccountId,
   getDeviceName,
@@ -76,6 +84,7 @@ export async function settingsView(): Promise<HTMLElement> {
       renderImageSection(),
       await renderCompanySection(),
       await renderSyncSection(refresh),
+      await renderLocalModelSection(refresh),
       await renderStorageSection(refresh),
       renderAppearanceSection(),
       renderAbout(),
@@ -467,7 +476,7 @@ function renderImageSection(): HTMLElement {
  */
 async function renderCompanySection(): Promise<HTMLElement> {
   const { company } = getSettings();
-  const stored = await listCompanies();
+  const [stored, searchesUsed] = await Promise.all([listCompanies(), searchBudgetUsed()]);
 
   const rows: HTMLElement[] = [
     switchRow({
@@ -508,8 +517,48 @@ async function renderCompanySection(): Promise<HTMLElement> {
         },
       }),
     }),
-    row({ label: 'Sparade företag', value: String(stored.length) }),
+    switchRow({
+      label: 'Sök på namn om nummer saknas',
+      checked: company.nameSearch,
+      icon: 'search',
+      iconColor: GLYPH.company,
+      onChange: (checked) => void updateSettings({ company: { nameSearch: checked } }),
+    }),
   ];
+
+  if (company.nameSearch) {
+    rows.push(
+      el(
+        'div',
+        { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:4px' },
+        el(
+          'span',
+          { class: 'stack stack--between' },
+          el('span', { class: 'row__label', text: 'Namnsökningar per dag' }),
+          el('span', {
+            class: 'row__value',
+            text: `${searchesUsed} av ${company.searchBudget} idag`,
+          }),
+        ),
+        el('input', {
+          type: 'range',
+          min: 0,
+          max: 20,
+          step: 1,
+          value: String(company.searchBudget),
+          'aria-label': 'Namnsökningar per dag',
+          on: {
+            change: (event) => {
+              const value = Number((event.target as HTMLInputElement).value);
+              void updateSettings({ company: { searchBudget: value } });
+            },
+          },
+        }),
+      ),
+    );
+  }
+
+  rows.push(row({ label: 'Sparade företag', value: String(stored.length) }));
 
   if (stored.length > 0) {
     rows.push(
@@ -534,7 +583,9 @@ async function renderCompanySection(): Promise<HTMLElement> {
       footer:
         'Organisationsnumret läses av kvittot på enheten och slås upp mot Bolagsverket via ' +
         'Apiverket. Ett företag som redan är sparat slås aldrig upp igen, så ett kvitto från ' +
-        'samma butik kostar inget. Nyckeln lämnar aldrig enheten.',
+        'samma butik kostar inget. Går numret inte att läsa söks butikens namn istället — ' +
+        'den sökningen har en egen, mycket mindre kvot hos Apiverket (20 per dygn på en ' +
+        'gratisnyckel), därför dagsgränsen. Nyckeln lämnar aldrig enheten.',
     },
     ...rows,
   );
@@ -567,6 +618,9 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
             void updateSettings({
               sync: { serverUrl: (event.target as HTMLInputElement).value.trim().replace(/\/+$/, '') },
             });
+            // A new address is a new server; whatever the old one was failing
+            // at says nothing about this one.
+            resetSyncBackoff();
           },
         },
       }),
@@ -659,10 +713,12 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
           const button = event.currentTarget as HTMLButtonElement;
           button.disabled = true;
           button.textContent = 'Synkar…';
-          const report = await sync();
+          // The explicit button bypasses the breaker and the change probe:
+          // someone watching a spinner wants the round trip actually made.
+          const report = await syncNow();
           toast(
             report.ok
-              ? `Klart: ${report.pushed} skickade, ${report.pulled} hämtade.`
+              ? summarise(report)
               : (report.error ?? 'Synkroniseringen misslyckades.'),
             { kind: report.ok ? 'success' : 'error' },
           );
@@ -715,9 +771,148 @@ function statusLabel(status: string): string {
       return 'Fel vid synk';
     case 'offline':
       return 'Offline';
+    case 'paused':
+      return 'Pausad efter upprepade fel';
     default:
       return 'Inte parkopplad';
   }
+}
+
+// --- the server's own model -----------------------------------------------
+
+/**
+ * The companion server's local model, when it has one.
+ *
+ * Rendered only for a paired device whose server reports the feature: it is an
+ * operator's setting, not a user's, and a server without it should not grow a
+ * section explaining what it is missing.
+ */
+async function renderLocalModelSection(refresh: () => Promise<void>): Promise<HTMLElement | null> {
+  const { sync: syncSettings } = getSettings();
+  if (!syncSettings.serverUrl || !(await isPaired())) return null;
+
+  let status: LlmStatusResponse;
+  try {
+    status = await llmStatus(syncSettings.serverUrl);
+  } catch {
+    // An older server has no such endpoint, and an unreachable one is the sync
+    // section's problem to report, not this one's.
+    return null;
+  }
+  if (!status.enabled) return null;
+
+  const { runtime, queue } = status;
+  const rows: HTMLElement[] = [
+    row({
+      label: 'Modell',
+      icon: 'sparkles',
+      iconColor: GLYPH.ai,
+      value: runtime.model,
+    }),
+    row({ label: 'Status', trailing: modelStateBadge(runtime) }),
+  ];
+
+  if (runtime.state === 'pulling' && runtime.pull) {
+    rows.push(row({ label: 'Laddar ner', value: `${runtime.pull.status} · ${runtime.pull.percent} %` }));
+  }
+
+  rows.push(
+    row({
+      label: 'Kö',
+      value: `${queue.pending} väntar · ${queue.done} klara${queue.failed > 0 ? ` · ${queue.failed} misslyckade` : ''}`,
+    }),
+  );
+
+  if (runtime.state === 'no-model') {
+    rows.push(
+      actionRow('Ladda ner modellen', async () => {
+        await llmPull(syncSettings.serverUrl);
+        toast('Nedladdningen startade. Den tar några minuter.', { kind: 'success' });
+      }, refresh),
+    );
+  }
+
+  if (runtime.state === 'ready') {
+    rows.push(
+      actionRow('Läs kvitton nu', async () => {
+        const report = await llmScan(syncSettings.serverUrl);
+        toast(
+          report.blocked ??
+            `${report.extracted} tolkade, ${report.skipped} överhoppade, ${report.failed} misslyckade.`,
+          { kind: report.blocked ? 'error' : 'success' },
+        );
+        // The results arrive as ordinary changes, so a normal sync collects them.
+        void syncNow();
+      }, refresh),
+    );
+  }
+
+  if (queue.failed > 0) {
+    rows.push(
+      actionRow('Försök misslyckade igen', async () => {
+        const { requeued } = await llmRequeue(syncSettings.serverUrl);
+        toast(`${requeued} kvitton lades tillbaka i kön.`, { kind: 'success' });
+      }, refresh),
+    );
+  }
+
+  return listGroup(
+    {
+      title: 'Lokal modell på servern',
+      footer:
+        runtime.state === 'missing'
+          ? `Ollama hittades inte på servern${runtime.installHint ? `. Installera med: ${runtime.installHint}` : '.'}`
+          : (runtime.detail ??
+            'Servern läser synkade kvitton med en modell som körs lokalt — inget lämnar ditt ' +
+              'nätverk. Resultatet kommer tillbaka med vanlig synkronisering, och det du själv ' +
+              'har fyllt i skrivs aldrig över.'),
+    },
+    ...rows,
+  );
+}
+
+function modelStateBadge(runtime: LlmStatusResponse['runtime']): HTMLElement {
+  const [text, tone] = ((): [string, string] => {
+    switch (runtime.state) {
+      case 'ready':
+        return [runtime.managed ? 'Redo (startad av servern)' : 'Redo', 'success'];
+      case 'pulling':
+        return ['Laddar ner modellen', 'warning'];
+      case 'starting':
+        return ['Startar', 'warning'];
+      case 'no-model':
+        return ['Modellen saknas', 'warning'];
+      case 'missing':
+        return ['Ollama saknas', 'danger'];
+      default:
+        return ['Avstängd', 'label-secondary'];
+    }
+  })();
+  return el('span', { class: 'row__value', style: `color:var(--${tone})`, text });
+}
+
+/** A tappable row that runs an async action and refreshes the screen after. */
+function actionRow(label: string, action: () => Promise<void>, refresh: () => Promise<void>): HTMLElement {
+  return el('button', {
+    class: 'row',
+    type: 'button',
+    style: 'color:var(--tint);justify-content:center',
+    text: label,
+    on: {
+      click: async (event) => {
+        const button = event.currentTarget as HTMLButtonElement;
+        button.disabled = true;
+        try {
+          await action();
+        } catch (error) {
+          toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
+        } finally {
+          button.disabled = false;
+          await refresh();
+        }
+      },
+    },
+  });
 }
 
 // --- storage --------------------------------------------------------------
@@ -858,6 +1053,18 @@ function renderAppearanceSection(): HTMLElement {
       onChange: (checked) => void updateSettings({ ui: { showAuxiliaryLines: checked } }),
     }),
   );
+}
+
+/** One line describing what a completed pass actually did. */
+function summarise(report: SyncReport): string {
+  if (report.resynced) return 'Servern hade byggts om — allt synkades om från början.';
+  if (report.skipped) return 'Allt var redan i synk.';
+
+  const parts = [`${report.pushed} skickade`, `${report.pulled} hämtade`];
+  if (report.merged > 0) parts.push(`${report.merged} sammanfogade`);
+  if (report.blobsUploaded > 0) parts.push(`${report.blobsUploaded} bilder upp`);
+  if (report.blobsDownloaded > 0) parts.push(`${report.blobsDownloaded} bilder ner`);
+  return `Klart: ${parts.join(', ')}.`;
 }
 
 function renderAbout(): HTMLElement {

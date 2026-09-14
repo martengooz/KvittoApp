@@ -1,10 +1,18 @@
 /**
  * Apiverket company-registry client.
  *
- * `GET /v1/companies/{orgNumber}` looks up one Swedish organisation number via
- * Bolagsverket with SCB Företagsregister enrichment. Authentication is a bearer
- * API key: `sk_test_*` returns curated sandbox companies, `sk_live_*` the real
- * registry.
+ * Two endpoints, and the difference between them matters:
+ *
+ * - `GET /v1/companies/{orgNumber}` looks up one organisation number via
+ *   Bolagsverket with SCB Företagsregister enrichment. It spends the regular
+ *   API quota, which is generous.
+ * - `GET /v1/companies/search` finds companies by name. It has its **own, far
+ *   smaller** daily quota — twenty calls a day on a free key — because it goes
+ *   through Apiverket's shared SCB client certificate. It is a last resort, not
+ *   a convenience.
+ *
+ * Authentication is a bearer API key: `sk_test_*` returns curated sandbox
+ * companies, `sk_live_*` the real registry.
  *
  * Contract taken from https://apiverket.se/openapi.json (version 2026-02-15).
  */
@@ -33,6 +41,15 @@ interface SuccessBody {
   data?: CompanyData;
 }
 
+interface SearchBody {
+  meta?: Record<string, unknown>;
+  data?: {
+    total?: number;
+    query?: string;
+    companies?: CompanyData[];
+  };
+}
+
 interface ErrorBody {
   error?: {
     type?: string;
@@ -56,7 +73,11 @@ export type LookupFailure =
   /** Upstream registry problem, or any other server-side failure. */
   | 'unavailable'
   /** Could not reach the API at all. */
-  | 'offline';
+  | 'offline'
+  /** Nothing on the receipt was usable as a search term. */
+  | 'no-query'
+  /** The local daily budget for name searches is spent. */
+  | 'budget-spent';
 
 export class CompanyLookupError extends Error {
   readonly failure: LookupFailure;
@@ -118,33 +139,72 @@ export async function lookupCompany(
     );
   }
 
-  const baseUrl = (options.baseUrl?.trim() || APIVERKET_BASE_URL).replace(/\/+$/, '');
-
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}/v1/companies/${check.digits}`, {
-      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-      signal: options.signal ?? null,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new CompanyLookupError('offline', 'Uppslaget avbröts.');
-    }
-    throw new CompanyLookupError('offline', 'Kunde inte nå företagsregistret.', true);
-  }
-
-  if (!response.ok) throw await toLookupError(response);
-
-  const body = (await response.json()) as SuccessBody;
+  const body = await request<SuccessBody>(`/v1/companies/${check.digits}`, options);
   const data = body.data;
   if (!data?.name) {
     throw new CompanyLookupError('unavailable', 'Registret svarade utan företagsuppgifter.', true);
   }
 
+  return toRecord(data, check.formatted ?? check.digits, check.legalForm);
+}
+
+/** One hit from a name search, before it has been matched against a receipt. */
+export interface CompanySearchHit extends CompanyRecord {
+  /** Ten digits, unformatted. */
+  digits: string;
+}
+
+/** Hits per search. Small: the fuzzy match only needs the plausible few. */
+const SEARCH_LIMIT = 10;
+
+/**
+ * Searches the registry by company name.
+ *
+ * Every caller must treat this as expensive. The endpoint has a separate daily
+ * quota an order of magnitude smaller than the rest of the API, so a hit's
+ * organisation number should be cached and reused rather than searched for
+ * again — which is exactly what `db/companies.ts` does with it.
+ */
+export async function searchCompanies(
+  query: string,
+  options: LookupOptions,
+): Promise<CompanySearchHit[]> {
+  const key = options.apiKey.trim();
+  if (!key) {
+    throw new CompanyLookupError('not-configured', 'Ingen API-nyckel för företagsuppslag angiven.');
+  }
+
+  const term = query.trim();
+  // The API requires two characters; anything that short would match half the
+  // register anyway and is not worth a call.
+  if (term.length < 3) {
+    throw new CompanyLookupError('no-query', 'Söktermen är för kort för ett företagsuppslag.');
+  }
+
+  const path = `/v1/companies/search?q=${encodeURIComponent(term)}&limit=${SEARCH_LIMIT}`;
+  const body = await request<SearchBody>(path, options);
+
+  const hits: CompanySearchHit[] = [];
+  for (const data of body.data?.companies ?? []) {
+    if (!data.name || !data.org_number) continue;
+    const check = checkOrgNumber(data.org_number);
+    // A hit whose own organisation number does not validate is not usable as a
+    // key, and the whole point of the search is to recover a usable key.
+    if (!check.valid || !check.digits) continue;
+    hits.push({
+      ...toRecord(data, check.formatted ?? check.digits, check.legalForm),
+      digits: check.digits,
+    });
+  }
+  return hits;
+}
+
+/** Flattens one registry payload, keeping the original alongside. */
+function toRecord(data: CompanyData, orgNumber: string, fallbackLegalForm: string | null): CompanyRecord {
   return {
-    orgNumber: check.formatted ?? check.digits,
-    name: data.name,
-    legalForm: data.legal_form ?? check.legalForm,
+    orgNumber,
+    name: data.name ?? '',
+    legalForm: data.legal_form ?? fallbackLegalForm,
     status: data.status ?? null,
     active: data.active ?? null,
     address: data.address ?? null,
@@ -156,6 +216,27 @@ export async function lookupCompany(
     source: 'apiverket',
     fetchedAt: Date.now(),
   };
+}
+
+/** Performs one authenticated GET and turns any failure into a typed error. */
+async function request<T>(path: string, options: LookupOptions): Promise<T> {
+  const baseUrl = (options.baseUrl?.trim() || APIVERKET_BASE_URL).replace(/\/+$/, '');
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      headers: { authorization: `Bearer ${options.apiKey.trim()}`, accept: 'application/json' },
+      signal: options.signal ?? null,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new CompanyLookupError('offline', 'Uppslaget avbröts.');
+    }
+    throw new CompanyLookupError('offline', 'Kunde inte nå företagsregistret.', true);
+  }
+
+  if (!response.ok) throw await toLookupError(response);
+  return (await response.json()) as T;
 }
 
 async function toLookupError(response: Response): Promise<CompanyLookupError> {

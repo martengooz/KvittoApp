@@ -79,7 +79,29 @@ export interface CompanySettings {
   baseUrl: string;
   /** Look the company up automatically after a scan finds an org number. */
   autoLookup: boolean;
+  /**
+   * Fall back to searching the registry by the shop's name when no
+   * organisation number could be read.
+   */
+  nameSearch: boolean;
+  /**
+   * Name searches allowed per day. Apiverket meters this endpoint separately
+   * and far more tightly than the rest of the API — twenty a day on a free key
+   * — so the app keeps its own budget well inside that.
+   */
+  searchBudget: number;
 }
+
+/**
+ * Name searches allowed per day, by default.
+ *
+ * Apiverket's search endpoint has its own daily quota — twenty calls on a free
+ * key — shared with everything else the user does with that key. Budgeting
+ * locally means a pile of unreadable receipts scanned in one sitting cannot
+ * exhaust it, and the name cache means the budget is only ever spent on a shop
+ * this device has never seen before.
+ */
+export const DEFAULT_SEARCH_BUDGET = 8;
 
 export interface UiSettings {
   theme: 'system' | 'light' | 'dark';
@@ -119,6 +141,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     apiKey: '',
     baseUrl: APIVERKET_BASE_URL,
     autoLookup: true,
+    nameSearch: true,
+    searchBudget: DEFAULT_SEARCH_BUDGET,
   },
   sync: {
     serverUrl: '',

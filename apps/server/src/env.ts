@@ -76,11 +76,54 @@ export const config = {
     allowedModels: list('KVITTO_AI_ALLOWED_MODELS'),
   },
 
+  /**
+   * The optional local model.
+   *
+   * Off by default: it is a 3 GB download and a CPU-hungry background job, and
+   * a sync relay must stay something you can run on a Raspberry Pi without
+   * discovering it has started doing inference.
+   */
+  llm: {
+    enabled: bool('KVITTO_LLM_ENABLED', false),
+    baseUrl: str('KVITTO_LLM_BASE_URL', 'http://127.0.0.1:11434'),
+    /**
+     * Qwen3-VL 4B: the smallest vision model that reliably holds a JSON schema
+     * over a receipt-sized image, and it fits in about 4 GB of RAM.
+     */
+    model: str('KVITTO_LLM_MODEL', 'qwen3-vl:4b'),
+    /** Start `ollama serve` as a child process when nothing is listening. */
+    manageProcess: bool('KVITTO_LLM_MANAGE_PROCESS', true),
+    /** Explicit path to the binary, when it is somewhere unusual. */
+    binary: str('KVITTO_LLM_BINARY', ''),
+    /** Download the model on first use instead of waiting to be told. */
+    autoPull: bool('KVITTO_LLM_AUTO_PULL', false),
+    startupTimeoutMs: int('KVITTO_LLM_STARTUP_TIMEOUT_MS', 60_000),
+    /** Per-receipt deadline. Generous: 4B on CPU is slow but not useless. */
+    requestTimeoutMs: int('KVITTO_LLM_TIMEOUT_MS', 300_000),
+    maxOutputTokens: int('KVITTO_LLM_MAX_TOKENS', 4096),
+    /** Context window. A receipt image plus the schema needs more than 2k. */
+    contextTokens: int('KVITTO_LLM_CONTEXT', 8192),
+    /** Receipts taken from the queue per pass. */
+    batchSize: int('KVITTO_LLM_BATCH_SIZE', 4),
+    /** How often the worker looks for new work, in seconds. */
+    intervalSeconds: int('KVITTO_LLM_INTERVAL_SECONDS', 60),
+    /** Attempts before a receipt is parked as failed. */
+    maxAttempts: int('KVITTO_LLM_MAX_ATTEMPTS', 3),
+    /** First retry delay; doubles each attempt. */
+    retryBaseMs: int('KVITTO_LLM_RETRY_BASE_MS', 30_000),
+    /** Ceiling for the backoff. */
+    retryMaxMs: int('KVITTO_LLM_RETRY_MAX_MS', 30 * 60_000),
+  },
+
   /** Serve the built PWA from this directory, when set. */
   staticDir: process.env['KVITTO_STATIC_DIR'] ? resolve(process.env['KVITTO_STATIC_DIR']) : null,
 
   trustProxy: bool('KVITTO_TRUST_PROXY', false),
 } as const;
+
+export function llmEnabled(): boolean {
+  return config.llm.enabled;
+}
 
 export function aiProxyEnabled(): boolean {
   return config.ai.provider !== '' && config.ai.apiKey !== '';

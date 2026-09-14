@@ -6,6 +6,9 @@
  * denied permission, or a browser without the API — it silently falls back to a
  * file input with `capture="environment"`, which opens the native camera app on
  * every mobile browser. The scan button therefore always does something.
+ *
+ * Picking an existing photo is a separate path with no `capture` attribute, for
+ * the reason spelled out at {@link openFilePicker}.
  */
 
 import { formatBytes } from '@kvitto/shared';
@@ -95,7 +98,7 @@ export function scanView(): HTMLElement {
 
   async function startCamera(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
-      openFilePicker();
+      openFilePicker('camera');
       return;
     }
     try {
@@ -114,15 +117,25 @@ export function scanView(): HTMLElement {
     } catch (error) {
       // A denied permission is a decision, not a failure — fall back quietly.
       console.warn('Camera unavailable, using the file picker instead', error);
-      openFilePicker();
+      openFilePicker('camera');
     }
   }
 
-  function openFilePicker(): void {
+  /**
+   * Opens the native file picker.
+   *
+   * `source` is not cosmetic on iOS. The `capture` attribute does not *suggest*
+   * the camera there, it replaces the picker with it: the sheet loses "Photo
+   * Library" and "Choose File" altogether. So it is set only where the camera
+   * genuinely is the intent — the fallback when `getUserMedia` is unavailable
+   * or refused — and never for the gallery button, which exists precisely to
+   * reach photos already taken.
+   */
+  function openFilePicker(source: 'camera' | 'library'): void {
     const input = el('input', {
       type: 'file',
       accept: 'image/*',
-      capture: 'environment',
+      ...(source === 'camera' ? { capture: 'environment' } : {}),
       class: 'visually-hidden',
     });
     input.addEventListener('change', () => {
@@ -338,7 +351,7 @@ export function scanView(): HTMLElement {
         class: 'btn btn--plain',
         type: 'button',
         text: 'Välj bild från galleriet',
-        on: { click: openFilePicker },
+        on: { click: () => openFilePicker('library') },
       }),
       el(
         'div',
@@ -422,7 +435,7 @@ export function scanView(): HTMLElement {
             on: {
               click: () => {
                 stopCamera();
-                openFilePicker();
+                openFilePicker('library');
               },
             },
           },

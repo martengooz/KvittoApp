@@ -351,3 +351,67 @@ test('a protocol version mismatch is reported explicitly', async () => {
   assert.equal(response.statusCode, 409);
   assert.equal(response.json().protocolVersion, 1);
 });
+
+// --- the change probe and the epoch ---------------------------------------
+
+test('the status probe reports what is waiting without sending any of it', async () => {
+  const before = (await app.inject({
+    method: 'GET',
+    url: '/sync/status',
+    headers: { authorization: `Bearer ${token}` },
+  })).json() as { cursor: number; epoch: string; hasChanges: boolean };
+
+  assert.ok(before.epoch, 'every response carries the revision history it belongs to');
+
+  // Nothing new since the current cursor.
+  const caughtUp = (await app.inject({
+    method: 'GET',
+    url: `/sync/status?since=${before.cursor}`,
+    headers: { authorization: `Bearer ${token}` },
+  })).json() as { hasChanges: boolean; pendingTotal: number };
+
+  assert.equal(caughtUp.hasChanges, false);
+  assert.equal(caughtUp.pendingTotal, 0);
+
+  await app.inject({
+    method: 'POST',
+    url: '/sync/push',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { deviceId: DEVICE_ID, changes: { receipts: [receipt('probe-1', Date.now())] } },
+  });
+
+  const afterPush = (await app.inject({
+    method: 'GET',
+    url: `/sync/status?since=${before.cursor}`,
+    headers: { authorization: `Bearer ${token}` },
+  })).json() as { hasChanges: boolean; pendingTotal: number; pending: Record<string, number> };
+
+  assert.equal(afterPush.hasChanges, true);
+  assert.equal(afterPush.pendingTotal, 1);
+  assert.equal(afterPush.pending['receipts'], 1);
+});
+
+test('a cursor ahead of the server is reported as a divergence, not as "nothing new"', async () => {
+  // What a client holds after the server has been restored from an older backup.
+  const body = (await app.inject({
+    method: 'GET',
+    url: '/sync/status?since=999999',
+    headers: { authorization: `Bearer ${token}` },
+  })).json() as { diverged?: boolean; hasChanges: boolean };
+
+  assert.equal(body.diverged, true);
+  assert.equal(body.hasChanges, true, 'a diverged client must not be told it is up to date');
+});
+
+test('the epoch is stable across calls and travels with every sync response', async () => {
+  const auth = { authorization: `Bearer ${token}` };
+  const status = (await app.inject({ method: 'GET', url: '/sync/status', headers: auth })).json() as { epoch: string };
+  const pulled = (await app.inject({ method: 'GET', url: '/sync/pull?since=0', headers: auth })).json() as { epoch: string };
+  const pushed = (await app.inject({
+    method: 'POST', url: '/sync/push', headers: auth,
+    payload: { deviceId: DEVICE_ID, changes: {} },
+  })).json() as { epoch: string };
+
+  assert.equal(pulled.epoch, status.epoch);
+  assert.equal(pushed.epoch, status.epoch);
+});
