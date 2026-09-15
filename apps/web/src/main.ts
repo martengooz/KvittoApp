@@ -13,7 +13,6 @@ import { registerAppServiceWorker } from './core/app-update.js';
 import { installClientDebugLogging } from './core/debug-log.js';
 import { bus } from './core/events.js';
 import { loadSettings } from './core/settings.js';
-import { toast } from './core/toast.js';
 import { db, requestPersistentStorage } from './db/db.js';
 import { seedDefaultCategoriesOnce } from './db/repo.js';
 import { startAutoSync } from './sync/engine.js';

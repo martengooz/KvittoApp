@@ -162,10 +162,13 @@ test('server dashboard serves its shell and assets without exposing account data
   assert.doesNotMatch(page.body, /id="pair-code"/);
   assert.doesNotMatch(page.body, new RegExp(accountId));
 
-  const [styles, script, aiSettings] = await Promise.all([
+  const [styles, script, aiSettings, dom, uiRows, format] = await Promise.all([
     app.inject({ method: 'GET', url: '/server/styles.css' }),
     app.inject({ method: 'GET', url: '/server/app.js' }),
     app.inject({ method: 'GET', url: '/server/ai-settings.js' }),
+    app.inject({ method: 'GET', url: '/server/dom.js' }),
+    app.inject({ method: 'GET', url: '/server/ui-rows.js' }),
+    app.inject({ method: 'GET', url: '/server/format.js' }),
   ]);
   assert.equal(styles.statusCode, 200);
   assert.match(styles.headers['content-type'] ?? '', /^text\/css/);
@@ -176,6 +179,20 @@ test('server dashboard serves its shell and assets without exposing account data
   assert.equal(aiSettings.statusCode, 200);
   assert.match(aiSettings.headers['content-type'] ?? '', /^text\/javascript/);
   assert.match(aiSettings.body, /createAiSettingsView/);
+  // ai-settings.js imports its dom/ui-rows siblings by the exact relative
+  // paths this module graph must also serve, or the dashboard's AI panel
+  // fails silently in the browser.
+  assert.match(aiSettings.body, /from '\.\/dom\.js'/);
+  assert.match(aiSettings.body, /from '\.\/ui-rows\.js'/);
+  assert.equal(dom.statusCode, 200);
+  assert.match(dom.headers['content-type'] ?? '', /^text\/javascript/);
+  assert.match(dom.body, /export function el/);
+  assert.equal(uiRows.statusCode, 200);
+  assert.match(uiRows.headers['content-type'] ?? '', /^text\/javascript/);
+  assert.match(uiRows.body, /export function listGroup/);
+  assert.equal(format.statusCode, 200);
+  assert.match(format.headers['content-type'] ?? '', /^text\/javascript/);
+  assert.match(format.body, /export function formatDateTimeShort/);
 });
 
 test('server dashboard mints pairing codes for clients', async () => {

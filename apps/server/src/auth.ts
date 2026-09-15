@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { getDb, schema } from './db/index.ts';
+import { fail } from './http/reply.ts';
 
 export interface DeviceContext {
   deviceId: string;
@@ -65,7 +66,7 @@ function readBearer(request: FastifyRequest): string | null {
 export async function requireDevice(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const token = readBearer(request);
   if (!token) {
-    await reply.code(401).send({ error: 'unauthorized', message: 'Missing bearer token.' });
+    await fail(reply, 401, 'unauthorized', 'Missing bearer token.');
     return;
   }
 
@@ -79,7 +80,7 @@ export async function requireDevice(request: FastifyRequest, reply: FastifyReply
 
   const device = rows[0];
   if (!device || device.revokedAt !== null) {
-    await reply.code(401).send({ error: 'unauthorized', message: 'Unknown or revoked device token.' });
+    await fail(reply, 401, 'unauthorized', 'Unknown or revoked device token.');
     return;
   }
 
@@ -104,4 +105,25 @@ export async function requireDevice(request: FastifyRequest, reply: FastifyReply
 export function device(request: FastifyRequest): DeviceContext {
   if (!request.device) throw new Error('Route is missing the requireDevice preHandler.');
   return request.device;
+}
+
+/**
+ * Whether this request reached us over loopback rather than the network.
+ *
+ * Checks both the hostname Fastify parsed from the `Host` header and the
+ * actual socket endpoint. The header is client-supplied, so a request that
+ * spoofs it to "localhost" still arrives on a real socket — and the socket
+ * is the one part of this an attacker cannot fake.
+ */
+export function isLoopback(request: FastifyRequest): boolean {
+  const hostname = request.hostname.replace(/^\[|\]$/g, '');
+  const remoteAddress = request.socket.remoteAddress ?? '';
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    remoteAddress === '127.0.0.1' ||
+    remoteAddress === '::1' ||
+    remoteAddress === '::ffff:127.0.0.1'
+  );
 }

@@ -16,16 +16,15 @@ import {
   type Receipt,
 } from '@kvitto/shared';
 
-import { listGroup, row as listRow } from '../components/ui.js';
+import { actionRow, listGroup, row as listRow } from '../components/ui.js';
 import { el } from '../core/dom.js';
+import { busyTask } from '../core/live-view.js';
 import { router, type RouteContext } from '../core/router.js';
 import { isAiConfigured } from '../core/settings.js';
 import { toast } from '../core/toast.js';
-import { parseReceipt } from '../ai/index.js';
 import { enrichReceipt, verifyCompanyName } from '../ocr/enrich.js';
-import type { ReceiptBundle } from '../db/queries.js';
 import { updateReceipt } from '../db/repo.js';
-import { receiptCrumb, receiptScreen } from './receipt-shared.js';
+import { receiptCrumb, receiptScreen, runParse, type ReceiptScreenData } from './receipt-shared.js';
 
 const STATUS_LABELS: Record<Receipt['status'], string> = {
   draft: 'Inte tolkat',
@@ -41,56 +40,13 @@ const SOURCE_LABELS: Record<Receipt['source'], string> = {
   manual: 'Inskrivet för hand',
 };
 
-export async function receiptDetailsView(context: RouteContext): Promise<HTMLElement> {
-  let reading = false;
-  let parsing = false;
-  let refreshScreen: () => Promise<void> = async () => {};
+export function receiptDetailsView(context: RouteContext): Promise<HTMLElement> {
+  const parseTask = busyTask();
+  const enrichTask = busyTask();
 
-  /**
-   * Re-reads the stored image and re-links the company.
-   *
-   * Offered as an explicit action as well as running after a scan, because a
-   * receipt saved before OCR existed has no reading at all, and because a user
-   * who has just pasted an API key wants the lookup now.
-   */
-  async function runEnrich(id: string): Promise<void> {
-    if (reading) return;
-    reading = true;
-    await refreshScreen();
-    try {
-      const outcome = await enrichReceipt(id);
-      if (!outcome.ok) {
-        toast(outcome.reason ?? 'Kvittot kunde inte läsas av.', { kind: 'error' });
-      } else if (outcome.company) {
-        toast(`Företag: ${outcome.company.name}`, { kind: 'success' });
-      } else {
-        toast(describeLookup(outcome.lookupReason), { kind: 'info' });
-      }
-    } catch (error) {
-      toast(error instanceof Error ? error.message : 'Avläsningen misslyckades.', { kind: 'error' });
-    } finally {
-      reading = false;
-      await refreshScreen();
-    }
-  }
+  return receiptScreen(context.segments[1], ({ bundle }, refresh) => render(bundle, refresh));
 
-  async function runParse(id: string): Promise<void> {
-    if (parsing) return;
-    parsing = true;
-    await refreshScreen();
-    const outcome = await parseReceipt(id);
-    parsing = false;
-    if (outcome.ok) toast('Kvittot tolkades.', { kind: 'success' });
-    else if (outcome.error) toast(outcome.error, { kind: 'error' });
-    await refreshScreen();
-  }
-
-  return receiptScreen(context.segments[1], ({ bundle }, refresh) => {
-    refreshScreen = refresh;
-    return render(bundle);
-  });
-
-  function render(bundle: ReceiptBundle): HTMLElement {
+  function render(bundle: ReceiptScreenData['bundle'], refresh: () => Promise<void>): HTMLElement {
     const { receipt } = bundle;
     return el(
       'div',
@@ -99,11 +55,35 @@ export async function receiptDetailsView(context: RouteContext): Promise<HTMLEle
       renderPayment(receipt),
       renderSlip(receipt),
       renderVat(receipt),
-      renderCompany(receipt, bundle.company),
-      renderReading(receipt),
-      renderExtraction(receipt),
+      renderCompany(receipt, bundle.company, refresh),
+      renderReading(receipt, refresh),
+      renderExtraction(receipt, refresh),
       renderRecord(receipt),
     );
+  }
+
+  /**
+   * Re-reads the stored image and re-links the company.
+   *
+   * Offered as an explicit action as well as running after a scan, because a
+   * receipt saved before OCR existed has no reading at all, and because a user
+   * who has just pasted an API key wants the lookup now.
+   */
+  async function runEnrich(id: string, refresh: () => Promise<void>): Promise<void> {
+    await enrichTask.run(async () => {
+      try {
+        const outcome = await enrichReceipt(id);
+        if (!outcome.ok) {
+          toast(outcome.reason ?? 'Kvittot kunde inte läsas av.', { kind: 'error' });
+        } else if (outcome.company) {
+          toast(`Företag: ${outcome.company.name}`, { kind: 'success' });
+        } else {
+          toast(describeLookup(outcome.lookupReason), { kind: 'info' });
+        }
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Avläsningen misslyckades.', { kind: 'error' });
+      }
+    }, refresh);
   }
 
   function renderPayment(receipt: Receipt): HTMLElement {
@@ -203,20 +183,17 @@ export async function receiptDetailsView(context: RouteContext): Promise<HTMLEle
    * archive is not a company-register browser, so this stays to the handful of
    * fields that tell the user *which* company this is.
    */
-  function renderCompany(receipt: Receipt, company: Company | null): HTMLElement | null {
+  function renderCompany(receipt: Receipt, company: Company | null, refresh: () => Promise<void>): HTMLElement | null {
     const orgNumber = receipt.merchant.orgNumber;
     if (!company) {
       if (!orgNumber) return null;
       return listGroup(
         { title: 'Företag', footer: companyFooter(receipt) },
         listRow({ label: 'Org.nr', value: orgNumber }),
-        el('button', {
-          class: 'row',
-          type: 'button',
-          style: 'color:var(--tint);justify-content:center',
-          disabled: reading,
-          text: reading ? 'Läser…' : 'Hämta företagsuppgifter',
-          on: { click: () => void runEnrich(receipt.id) },
+        actionRow({
+          label: enrichTask.busy ? 'Läser…' : 'Hämta företagsuppgifter',
+          disabled: enrichTask.busy,
+          onClick: () => runEnrich(receipt.id, refresh),
         }),
       );
     }
@@ -287,19 +264,16 @@ export async function receiptDetailsView(context: RouteContext): Promise<HTMLEle
     return undefined;
   }
 
-  function renderReading(receipt: Receipt): HTMLElement | null {
+  function renderReading(receipt: Receipt, refresh: () => Promise<void>): HTMLElement | null {
     const ocr = receipt.ocr;
     if (!ocr) {
       if (!receipt.imageId) return null;
       return listGroup(
         { title: 'Avläsning på enheten', footer: 'Texten läses av lokalt och lämnar aldrig enheten.' },
-        el('button', {
-          class: 'row',
-          type: 'button',
-          style: 'color:var(--tint);justify-content:center',
-          disabled: reading,
-          text: reading ? 'Läser…' : 'Läs av kvittot på enheten',
-          on: { click: () => void runEnrich(receipt.id) },
+        actionRow({
+          label: enrichTask.busy ? 'Läser…' : 'Läs av kvittot på enheten',
+          disabled: enrichTask.busy,
+          onClick: () => runEnrich(receipt.id, refresh),
         }),
       );
     }
@@ -319,27 +293,21 @@ export async function receiptDetailsView(context: RouteContext): Promise<HTMLEle
             value: ocr.orgNumbers.slice(1).map((candidate) => candidate.value).join(', '),
           })
         : null,
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center',
-        disabled: reading,
-        text: reading ? 'Läser…' : 'Läs av kvittot igen',
-        on: { click: () => void runEnrich(receipt.id) },
+      actionRow({
+        label: enrichTask.busy ? 'Läser…' : 'Läs av kvittot igen',
+        disabled: enrichTask.busy,
+        onClick: () => runEnrich(receipt.id, refresh),
       }),
     );
   }
 
-  function renderExtraction(receipt: Receipt): HTMLElement | null {
+  function renderExtraction(receipt: Receipt, refresh: () => Promise<void>): HTMLElement | null {
     const extraction = receipt.extraction;
     const reparse = isAiConfigured()
-      ? el('button', {
-          class: 'row',
-          type: 'button',
-          style: 'color:var(--tint);justify-content:center',
-          disabled: parsing || receipt.status === 'processing',
-          text: parsing ? 'Tolkar…' : extraction ? 'Tolka om' : 'Tolka med AI',
-          on: { click: () => void runParse(receipt.id) },
+      ? actionRow({
+          label: parseTask.busy ? 'Tolkar…' : extraction ? 'Tolka om' : 'Tolka med AI',
+          disabled: parseTask.busy || receipt.status === 'processing',
+          onClick: () => runParse(receipt.id, refresh, parseTask),
         })
       : null;
 
@@ -374,11 +342,11 @@ export async function receiptDetailsView(context: RouteContext): Promise<HTMLEle
       extraction.warnings.length > 0
         ? el(
             'div',
-            { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:4px' },
-            el('span', { class: 'field__label', style: 'margin:0', text: 'Anmärkningar' }),
+            { class: 'row row--stacked' },
+            el('span', { class: 'field__label', text: 'Anmärkningar' }),
             el(
               'ul',
-              { class: 'faint', style: 'margin:0;padding-left:18px' },
+              { class: 'faint' },
               ...extraction.warnings.map((warning) => el('li', { text: warning })),
             ),
           )

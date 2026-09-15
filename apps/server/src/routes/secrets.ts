@@ -5,8 +5,6 @@ import { SECRET_NAMES, type SecretName, type SyncedSecret } from '@kvitto/shared
 import { device, requireDevice } from '../auth.ts';
 import { readRecord, writeServerRecords } from '../db/sync.ts';
 
-const allowedNames = new Set<string>(SECRET_NAMES);
-
 export function registerSecretRoutes(app: FastifyInstance): void {
   app.get('/secrets', { preHandler: requireDevice }, async (request) => {
     const accountId = device(request).accountId;
@@ -33,11 +31,9 @@ export function registerSecretRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async (request, reply) => {
-      if (!allowedNames.has(request.params.id)) {
-        return reply.code(404).send({ error: 'not_found', message: 'Okänd hemlighet.' });
-      }
-
+    async (request) => {
+      // No further validation needed: the schema's `enum: [...SECRET_NAMES]`
+      // above already rejects anything else before this handler runs.
       const accountId = device(request).accountId;
       const id = request.params.id as SecretName;
       const existing = readRecord(accountId, 'secrets', id);

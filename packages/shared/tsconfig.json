@@ -1,9 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2023", "DOM"],
+    "lib": ["ES2023"],
+    "composite": true,
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"]
+  "references": [{ "path": "./tsconfig.browser.json" }],
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/dom.ts", "src/ui-rows.ts", "src/ai-settings-ui.ts"]
 }

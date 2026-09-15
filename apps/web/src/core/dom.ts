@@ -4,41 +4,17 @@
  * The app has no framework on purpose, so this file is the whole rendering
  * abstraction: `el()` builds elements, and views return elements. Everything
  * else is plain DOM.
- */
-
-type Falsy = null | undefined | false;
-export type Child = Node | string | number | Falsy | Child[];
-
-/** Attributes accepted by {@link el}, beyond the element's own properties. */
-export interface ElementProps {
-  class?: string | Falsy | (string | Falsy)[];
-  text?: string | number;
-  html?: string;
-  dataset?: Record<string, string | number | boolean | undefined>;
-  style?: Partial<CSSStyleDeclaration> | string;
-  /** Event listeners, keyed without the `on` prefix: `{ click: handler }`. */
-  on?: {
-    [K in keyof HTMLElementEventMap]?: (event: HTMLElementEventMap[K]) => void;
-  };
-  /** Anything else is set as an attribute, or as a property when one exists. */
-  [key: string]: unknown;
-}
-
-/**
- * Creates an element.
  *
- * `el('button', { class: 'btn', on: { click } }, 'Spara')`
+ * `el()` itself, along with `Child` and `ElementProps`, lives in
+ * `packages/shared/src/dom.ts` — the server dashboard's inline browser
+ * script needs the identical, dependency-free factory, served as a raw ES
+ * module. This file re-exports it and adds the extras that are specific to
+ * the web app and have no reason to be servable on their own.
  */
-export function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: ElementProps | null = null,
-  ...children: Child[]
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (props) applyProps(node, props);
-  append(node, children);
-  return node;
-}
+
+import { append, el, type Child, type ElementProps } from '@kvitto/shared';
+
+export { el, type Child, type ElementProps };
 
 /** Same as {@link el} but for SVG, which needs the namespaced constructor. */
 export function svg<K extends keyof SVGElementTagNameMap>(
@@ -50,62 +26,6 @@ export function svg<K extends keyof SVGElementTagNameMap>(
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
   append(node, children);
   return node;
-}
-
-function applyProps(node: HTMLElement, props: ElementProps): void {
-  for (const [key, value] of Object.entries(props)) {
-    if (value === undefined || value === null || value === false) continue;
-
-    switch (key) {
-      case 'class': {
-        const list = Array.isArray(value) ? value : [value];
-        const classes = list.filter((entry): entry is string => typeof entry === 'string' && entry !== '');
-        if (classes.length) node.className = classes.join(' ');
-        break;
-      }
-      case 'text':
-        node.textContent = String(value);
-        break;
-      case 'html':
-        // Only ever called with markup this codebase authored; never user data.
-        node.innerHTML = String(value);
-        break;
-      case 'dataset':
-        for (const [dataKey, dataValue] of Object.entries(value as Record<string, unknown>)) {
-          if (dataValue === undefined) continue;
-          node.dataset[dataKey] = String(dataValue);
-        }
-        break;
-      case 'style':
-        if (typeof value === 'string') node.setAttribute('style', value);
-        else Object.assign(node.style, value);
-        break;
-      case 'on':
-        for (const [type, handler] of Object.entries(value as Record<string, EventListener>)) {
-          node.addEventListener(type, handler);
-        }
-        break;
-      default:
-        if (key in node && typeof value !== 'object') {
-          (node as unknown as Record<string, unknown>)[key] = value;
-        } else {
-          node.setAttribute(key, String(value));
-        }
-    }
-  }
-}
-
-function append(node: Node, children: Child[]): void {
-  for (const child of children) {
-    if (child === null || child === undefined || child === false) continue;
-    if (Array.isArray(child)) {
-      append(node, child);
-    } else if (child instanceof Node) {
-      node.appendChild(child);
-    } else {
-      node.appendChild(document.createTextNode(String(child)));
-    }
-  }
 }
 
 /** Removes every child of `node`. */
@@ -147,4 +67,38 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: numb
 /** Yields to the browser so a spinner can paint before heavy work starts. */
 export function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Runs `swap` — typically a `replaceChildren` that rebuilds a whole subtree —
+ * without losing focus.
+ *
+ * A full re-render tears down and rebuilds every input, so the browser drops
+ * focus and, with it, an in-progress text selection: fatal for a search field
+ * being typed into while a `data:changed` event happens to land. An element
+ * that needs to survive a swap marks itself with `data-focus-key`
+ * (`searchField()` does); if the currently focused element carries one and
+ * sits inside `root`, this finds its replacement by the same key afterwards
+ * and restores focus and the caret.
+ */
+export function preserveFocus(root: Element, swap: () => void): void {
+  const active = document.activeElement;
+  const focused = active instanceof HTMLElement && root.contains(active) ? active : null;
+  const key = focused?.dataset.focusKey;
+  const selectionStart = isTextInput(focused) ? focused.selectionStart : null;
+  const selectionEnd = isTextInput(focused) ? focused.selectionEnd : null;
+
+  swap();
+
+  if (!key) return;
+  const restored = root.querySelector<HTMLElement>(`[data-focus-key="${key}"]`);
+  if (!restored) return;
+  restored.focus({ preventScroll: true });
+  if (isTextInput(restored) && selectionStart !== null && selectionEnd !== null) {
+    restored.setSelectionRange(selectionStart, selectionEnd);
+  }
+}
+
+function isTextInput(node: unknown): node is HTMLInputElement | HTMLTextAreaElement {
+  return node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement;
 }

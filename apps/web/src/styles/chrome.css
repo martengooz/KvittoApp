@@ -1,0 +1,324 @@
+/* --- navigation bar ------------------------------------------------------ */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-top: var(--safe-top);
+  background: var(--material-bar);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  /* Hairline: 1 physical pixel on a retina display, as in UIKit. */
+  box-shadow: inset 0 -0.5px 0 var(--separator);
+  transition: box-shadow 0.2s ease;
+}
+
+/* The bar is transparent until the content scrolls under it. */
+.app-header[data-scrolled='false'] {
+  background: var(--bg-grouped);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.app-header__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--nav-bar-height);
+  padding-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+}
+
+/* Inline title, shown once the large title has scrolled away. */
+.app-header__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.app-header[data-scrolled='true'] .app-header__title {
+  opacity: 1;
+  transform: none;
+}
+
+.app-header__actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  /* Reserve the mirrored width so the centred title stays centred. */
+  min-width: 44px;
+  justify-content: flex-end;
+}
+
+.app-header__leading {
+  min-width: 44px;
+}
+
+.avatar-chip {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--k-soft);
+  color: var(--k-accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.bar-edit-button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--k-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-progress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ai-progress__bar {
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--tint);
+  animation: ai-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes ai-progress-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(395%); }
+}
+
+/* The iOS large title, in the content flow so it scrolls away. */
+.large-title {
+  margin: 0;
+  padding: 4px max(var(--gutter), var(--safe-left)) 8px;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-main {
+  flex: 1;
+  padding-bottom: calc(var(--tab-bar-height) + var(--safe-bottom) + 24px);
+}
+
+/* --- tab bar ------------------------------------------------------------- */
+
+.app-nav {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--safe-bottom);
+  background: var(--material-bar);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--k-line);
+  background: var(--k-card);
+  box-shadow: none;
+}
+
+.app-nav[hidden] {
+  display: none;
+}
+
+.app-nav__inner {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  width: 100%;
+  max-width: 640px;
+  padding-inline: max(0px, var(--safe-left)) max(0px, var(--safe-right));
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 7px 2px 5px;
+  border: 0;
+  background: none;
+  color: var(--label-secondary);
+  font: inherit;
+  /* 10 px caption, as in the iOS tab bar. */
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.nav-item[aria-current='page'] {
+  color: var(--tint);
+}
+
+.nav-item__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+}
+
+.nav-item__icon svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.nav-item__icon--scan {
+  width: 44px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--k-accent);
+  color: var(--k-on-accent);
+}
+
+.nav-item__label {
+  white-space: nowrap;
+}
+
+.nav-item:active .nav-item__icon {
+  opacity: 0.4;
+}
+
+/* --- controls ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* 44 pt is Apple's minimum touch target. */
+  min-height: 44px;
+  padding: 11px 18px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--fill-tertiary);
+  color: var(--tint);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+
+/* iOS presses dim rather than shifting or changing colour. */
+.btn:active:not(:disabled) {
+  opacity: 0.45;
+}
+
+.btn:disabled {
+  color: var(--label-tertiary);
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--tint);
+  color: var(--on-tint);
+}
+
+.btn--primary:disabled {
+  background: var(--fill-tertiary);
+}
+
+.btn--plain {
+  background: none;
+  padding-inline: 8px;
+  font-weight: 400;
+}
+
+.btn--ghost {
+  background: var(--fill-tertiary);
+}
+
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn--danger-plain {
+  background: none;
+  color: var(--danger);
+}
+
+.btn--sm {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 15px;
+}
+
+.btn--icon {
+  min-width: 44px;
+  padding-inline: 10px;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+/* Lets a plain button sit flush against the edge of a row it shares with
+   another one, instead of leaving the button's own inline padding as a gap. */
+.btn--flush-start {
+  padding-left: 0;
+}
+
+.btn--flush-end {
+  padding-right: 0;
+}
+
+/* Header bar buttons are plain tinted text, as in UIKit. */
+.bar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--tint);
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.bar-button:active {
+  opacity: 0.4;
+}
+
+/* Installed as a Home Screen app: no browser chrome, so the bars own the
+   safe areas outright. */
+@media (display-mode: standalone) {
+  .app-header {
+    padding-top: max(var(--safe-top), 8px);
+  }
+}

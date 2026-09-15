@@ -1,3 +1,6 @@
+import { el } from './dom.js';
+import { actionRow, fieldRow, listGroup, stackedRow, toggleRow, valueRow } from './ui-rows.js';
+
 export type AiSettingsProvider =
   | 'none'
   | 'anthropic'
@@ -68,8 +71,7 @@ export const AI_DEFAULT_BASE_URLS: Partial<Record<AiSettingsProvider, string>> =
 };
 
 export function createAiSettingsView(options: AiSettingsViewOptions): HTMLElement {
-  const root = document.createElement('div');
-  root.className = 'ai-settings-view';
+  const root = el('div', { class: 'ai-settings-view' });
   root.append(renderProviderSettings(options));
   if (options.ai.provider !== 'none') root.append(renderAdvancedSettings(options));
   if (options.localModel) root.append(renderLocalModel(options.localModel, options.onLocalAction));
@@ -128,7 +130,7 @@ function renderProviderSettings(options: AiSettingsViewOptions): HTMLElement {
     if (typeof ai.autoParse === 'boolean') {
       rows.push(toggleRow('Tolka direkt efter skanning', ai.autoParse, (autoParse) => {
         void options.onChange({ autoParse });
-      }));
+      }, 'switch toggle'));
     }
     if (options.onTest) rows.push(actionRow('Testa anslutningen', options.onTest, 'Testar…'));
   }
@@ -140,7 +142,7 @@ function renderProviderSettings(options: AiSettingsViewOptions): HTMLElement {
       : ai.provider === 'server'
         ? 'Servern håller nyckeln åt dig.'
         : 'Nyckeln synkroniseras mellan dina parkopplade enheter.';
-  return listGroup('AI-tolkning', footer, rows);
+  return listGroup({ title: 'AI-tolkning', footer }, ...rows);
 }
 
 function renderAdvancedSettings(options: AiSettingsViewOptions): HTMLElement {
@@ -164,15 +166,17 @@ function renderAdvancedSettings(options: AiSettingsViewOptions): HTMLElement {
   rows.push(
     toggleRow('Tvinga JSON-schema', ai.structuredOutput, (structuredOutput) => {
       void options.onChange({ structuredOutput });
-    }),
+    }, 'switch toggle'),
     stackedRow('Extra instruktioner till modellen', textarea(ai.extraInstructions, (extraInstructions) => {
       void options.onChange({ extraInstructions });
     })),
   );
   return listGroup(
-    'Avancerat',
-    'Ett långt kvitto med många rader behöver fler tokens. JSON-schema ger stabilare svar och faller automatiskt tillbaka om modellen inte stödjer det.',
-    rows,
+    {
+      title: 'Avancerat',
+      footer: 'Ett långt kvitto med många rader behöver fler tokens. JSON-schema ger stabilare svar och faller automatiskt tillbaka om modellen inte stödjer det.',
+    },
+    ...rows,
   );
 }
 
@@ -203,70 +207,11 @@ function renderLocalModel(
     : runtime.state === 'missing'
       ? `Ollama hittades inte på servern${runtime.installHint ? `. Installera med: ${runtime.installHint}` : '.'}`
       : runtime.detail ?? 'Servern läser synkade kvitton lokalt. Inget lämnar ditt nätverk.';
-  return listGroup('Lokal modell på servern', footer, rows);
-}
-
-function listGroup(title: string, footer: string, rows: HTMLElement[]): HTMLElement {
-  return node('section', { className: 'list-group' },
-    node('h2', { className: 'list-group__title', textContent: title }),
-    node('div', { className: 'inset-list' }, ...rows),
-    node('p', { className: 'list-group__footer', textContent: footer }),
-  );
-}
-
-function fieldRow(label: string, control: HTMLElement): HTMLElement {
-  return node('label', { className: 'row' }, node('span', { className: 'row__label', textContent: label }), control);
-}
-
-function valueRow(label: string, value: string): HTMLElement {
-  return node('div', { className: 'row' },
-    node('span', { className: 'row__label', textContent: label }),
-    node('span', { className: 'row__value', textContent: value }),
-  );
-}
-
-function stackedRow(label: string, control: HTMLElement): HTMLElement {
-  return node('label', { className: 'row row--stacked' }, node('span', { className: 'row__label', textContent: label }), control);
-}
-
-function toggleRow(label: string, checked: boolean, onChange: (checked: boolean) => void): HTMLElement {
-  const control = node('input', { className: 'switch toggle', type: 'checkbox', checked }) as HTMLInputElement;
-  control.setAttribute('aria-label', label);
-  control.addEventListener('change', () => onChange(control.checked));
-  return fieldRow(label, control);
-}
-
-function actionRow(label: string, action: () => Promise<unknown>, pendingLabel = 'Arbetar…'): HTMLElement {
-  const button = node('button', { className: 'row', type: 'button', textContent: label }) as HTMLButtonElement;
-  button.style.color = 'var(--tint)';
-  button.style.justifyContent = 'center';
-  button.addEventListener('click', async () => {
-    let resultLabel = label;
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    button.replaceChildren(
-      node('span', { className: 'spinner action-spinner', ariaHidden: 'true' }),
-      node('span', { textContent: pendingLabel }),
-    );
-    try {
-      const result = await action();
-      if (typeof result === 'string') resultLabel = result;
-      if (result && typeof result === 'object' && 'message' in result && typeof result.message === 'string') {
-        resultLabel = result.message;
-      }
-    } catch (error) {
-      resultLabel = error instanceof Error ? error.message : String(error);
-    } finally {
-      button.textContent = resultLabel;
-      button.disabled = false;
-      button.removeAttribute('aria-busy');
-    }
-  });
-  return button;
+  return listGroup({ title: 'Lokal modell på servern', footer }, ...rows);
 }
 
 function input(type: string, value: string, placeholder: string, onChange: (value: string) => void): HTMLInputElement {
-  const control = node('input', { type, value, placeholder, autocomplete: 'off' }) as HTMLInputElement;
+  const control = el('input', { type, value, placeholder, autocomplete: 'off' });
   control.addEventListener('change', () => onChange(control.value));
   return control;
 }
@@ -283,7 +228,7 @@ function numberInput(value: number, onChange: (value: number) => void): HTMLInpu
 }
 
 function textarea(value: string, onChange: (value: string) => void): HTMLTextAreaElement {
-  const control = node('textarea', { value, rows: 2 }) as HTMLTextAreaElement;
+  const control = el('textarea', { value, rows: 2 });
   control.placeholder = 'T.ex. "Min lokala butik skriver pant som PANT+".';
   control.addEventListener('change', () => onChange(control.value));
   return control;
@@ -295,17 +240,16 @@ function select(
   value: string,
   onChange: (value: string) => void,
 ): HTMLSelectElement {
-  const control = node('select', {}) as HTMLSelectElement;
-  control.setAttribute('aria-label', label);
+  const control = el('select', { 'aria-label': label });
   for (const option of options) {
-    control.append(node('option', { value: option.value, textContent: option.label, selected: option.value === value }));
+    control.append(el('option', { value: option.value, text: option.label, selected: option.value === value }));
   }
   control.addEventListener('change', () => onChange(control.value));
   return control;
 }
 
 function datalist(id: string, values: string[]): HTMLDataListElement {
-  return node('datalist', { id }, ...values.map((value) => node('option', { value }))) as HTMLDataListElement;
+  return el('datalist', { id }, ...values.map((value) => el('option', { value })));
 }
 
 function localModelState(runtime: SharedLocalModelStatus['runtime']): string {
@@ -317,17 +261,4 @@ function localModelState(runtime: SharedLocalModelStatus['runtime']): string {
     case 'missing': return 'Ollama saknas';
     default: return 'Avstängd';
   }
-}
-
-function node<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  properties: Record<string, unknown>,
-  ...children: Node[]
-): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  for (const [key, value] of Object.entries(properties)) {
-    if (value !== undefined) (element as unknown as Record<string, unknown>)[key] = value;
-  }
-  element.append(...children);
-  return element;
 }

@@ -4,31 +4,35 @@
  * These exist so the views describe *what* they are showing (a grouped list, a
  * switch row, a segmented control) rather than repeating the markup each
  * pattern needs. Everything renders plain DOM through `el()`.
+ *
+ * The grouped-list shell and the plain row shape are the same markup the AI
+ * settings panel builds for the server dashboard, so that part lives in
+ * `packages/shared/src/ui-rows.ts` and this file layers the app-specific
+ * bits (icons, haptics, the destructive/tone variants) on top of it.
  */
 
-import { el, type Child } from '../core/dom.js';
+import {
+  parseAmount,
+  listGroup as sharedListGroup,
+  row as sharedRow,
+  spinner as sharedSpinner,
+  wireBusyAction,
+  type ListGroupOptions,
+  type RowOptions as SharedRowOptions,
+} from '@kvitto/shared';
+
+import { confirmDialog } from './dialog.js';
+import { el, replaceChildren, type Child } from '../core/dom.js';
 import { icon, type IconName } from '../core/icons.js';
 import { haptic, supportsNativeSwitch } from '../core/platform.js';
+import { toast } from '../core/toast.js';
 
 /**
  * An inset grouped list, the iOS Settings pattern: rounded card, optional
  * uppercase header above and explanatory footer below.
  */
-export function listGroup(
-  options: { title?: string; footer?: string | Child },
-  ...rows: Child[]
-): HTMLElement {
-  return el(
-    'section',
-    { class: 'list-group' },
-    options.title ? el('h2', { class: 'list-group__title', text: options.title }) : null,
-    el('div', { class: 'inset-list' }, ...rows),
-    options.footer
-      ? typeof options.footer === 'string'
-        ? el('p', { class: 'list-group__footer', text: options.footer })
-        : el('p', { class: 'list-group__footer' }, options.footer)
-      : null,
-  );
+export function listGroup(options: ListGroupOptions, ...rows: Child[]): HTMLElement {
+  return sharedListGroup(options, ...rows);
 }
 
 export interface RowOptions {
@@ -62,41 +66,25 @@ export function row(options: RowOptions): HTMLElement {
       )
     : null;
 
-  const label = el('span', {
-    class: 'row__label',
-    text: options.label,
-    style: options.destructive ? 'color:var(--danger)' : undefined,
-  });
+  const trailing: Child = [
+    options.trailing ?? null,
+    options.onClick ? icon('chevron-right', { size: 12, className: 'row__chevron', weight: 2.4 }) : null,
+  ];
 
-  const trailing: Child[] = [];
-  if (options.value !== undefined && options.value !== null) {
-    trailing.push(el('span', { class: 'row__value', text: options.value }));
-  }
-  if (options.trailing) trailing.push(options.trailing);
-  if (options.onClick) {
-    trailing.push(icon('chevron-right', { size: 12, className: 'row__chevron', weight: 2.4 }));
-  }
-
-  if (!options.onClick) {
-    return el('div', { class: 'row' }, leading, label, ...trailing);
-  }
-
-  return el(
-    'button',
-    {
-      class: 'row',
-      type: 'button',
-      on: {
-        click: () => {
+  const shared: SharedRowOptions = {
+    label: options.label,
+    value: options.value,
+    leading,
+    trailing,
+    destructive: options.destructive,
+    onClick: options.onClick
+      ? () => {
           haptic('selection');
           options.onClick?.();
-        },
-      },
-    },
-    leading,
-    label,
-    ...trailing,
-  );
+        }
+      : undefined,
+  };
+  return sharedRow(shared);
 }
 
 /** A row whose trailing control is a switch. */
@@ -247,80 +235,6 @@ export function emptyState(options: {
   );
 }
 
-export interface ActionSheetOption<T extends string> {
-  value: T;
-  label: string;
-  destructive?: boolean;
-}
-
-/**
- * An action sheet: the iOS way to pick one of several options.
- *
- * Used instead of a segmented control wherever the choices are too many or too
- * wordy to fit across the screen — a five-option segmented control truncates
- * every label to "Datu…" and reads as broken.
- *
- * Resolves to the chosen value, or `null` if dismissed.
- */
-export function actionSheet<T extends string>(options: {
-  title?: string;
-  options: ActionSheetOption<T>[];
-  selected?: T;
-  cancelLabel?: string;
-}): Promise<T | null> {
-  return new Promise((resolve) => {
-    const dialog = el('dialog', { class: 'sheet' });
-
-    const finish = (value: T | null): void => {
-      dialog.close();
-      dialog.remove();
-      resolve(value);
-    };
-
-    const group = el(
-      'div',
-      { class: 'sheet__group' },
-      options.title ? el('p', { class: 'sheet__title', text: options.title }) : null,
-      ...options.options.map((option) =>
-        el('button', {
-          class: 'sheet__option',
-          type: 'button',
-          'aria-selected': String(option.value === options.selected),
-          style: option.destructive ? 'color:var(--danger)' : undefined,
-          text: option.label,
-          on: {
-            click: () => {
-              haptic('selection');
-              finish(option.value);
-            },
-          },
-        }),
-      ),
-    );
-
-    const cancel = el('button', {
-      class: 'sheet__option sheet__option--cancel',
-      type: 'button',
-      text: options.cancelLabel ?? 'Avbryt',
-      on: { click: () => finish(null) },
-    });
-
-    dialog.appendChild(el('div', { class: 'sheet__body' }, group, cancel));
-
-    // Esc and a tap on the dimmed backdrop both mean cancel.
-    dialog.addEventListener('cancel', (event) => {
-      event.preventDefault();
-      finish(null);
-    });
-    dialog.addEventListener('click', (event) => {
-      if (event.target === dialog) finish(null);
-    });
-
-    document.body.appendChild(dialog);
-    dialog.showModal();
-  });
-}
-
 /** A search field with the standard leading magnifier. */
 export function searchField(options: {
   value: string;
@@ -337,11 +251,202 @@ export function searchField(options: {
       value: options.value,
       placeholder: options.placeholder,
       'aria-label': options.label,
+      // Lets `preserveFocus` find this exact field again after a re-render —
+      // there is only ever one search field per screen, so a fixed key is fine.
+      dataset: { focusKey: 'search' },
       enterkeyhint: 'search',
       autocapitalize: 'none',
       autocorrect: 'off',
       spellcheck: false,
       on: { input: (event) => options.onInput((event.target as HTMLInputElement).value.trim()) },
     }),
+  );
+}
+
+/**
+ * A tinted, centred row that acts like a button — "Ny etikett", "Synka nu",
+ * "Radera all data" — the shape every list ends its actions with.
+ *
+ * `busyLabel` covers the self-contained busy state a handful of these need
+ * (a network call the row itself waits on): the row disables, shows a
+ * spinner and that label, then restores once `onClick` settles. Rows whose
+ * busy state is driven by the screen re-rendering around them (a shared
+ * `parsing` flag, say) should just pass an already-computed `label` and
+ * `disabled` instead.
+ */
+export function actionRow(options: {
+  label: string;
+  tone?: 'tint' | 'danger';
+  icon?: Child;
+  disabled?: boolean;
+  busyLabel?: string;
+  onClick: (event: MouseEvent) => void | Promise<void>;
+}): HTMLButtonElement {
+  const idle = (): Child[] => [options.icon ?? null, el('span', { text: options.label })];
+  const button = el(
+    'button',
+    {
+      class: ['row', 'row--action', options.tone === 'danger' ? 'row--action--danger' : ''],
+      type: 'button',
+      disabled: options.disabled,
+    },
+    ...idle(),
+  );
+
+  if (!options.busyLabel) {
+    button.addEventListener('click', (event) => void options.onClick(event));
+    return button;
+  }
+  wireBusyAction(button, options.busyLabel, (event) => Promise.resolve(options.onClick(event)), (btn) => {
+    btn.disabled = options.disabled ?? false;
+    replaceChildren(btn, ...idle());
+  });
+
+  return button;
+}
+
+/**
+ * A row whose control sits below its label rather than beside it — a range
+ * slider, a segmented control, a block of running text — because the control
+ * itself is too wide, or too tall, to share a line.
+ */
+export function stackedRow(options: { label: string; value?: string; control: Child }): HTMLElement {
+  return el(
+    'div',
+    { class: 'row row--stacked' },
+    options.value !== undefined
+      ? el(
+          'span',
+          { class: 'stack stack--between' },
+          el('span', { class: 'row__label', text: options.label }),
+          el('span', { class: 'row__value', text: options.value }),
+        )
+      : el('span', { class: 'row__label', text: options.label }),
+    options.control,
+  );
+}
+
+/** A range input with its current value spelled out above it. */
+export function sliderRow(options: {
+  label: string;
+  value: number;
+  valueLabel: string;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+}): HTMLElement {
+  return stackedRow({
+    label: options.label,
+    value: options.valueLabel,
+    control: el('input', {
+      type: 'range',
+      min: options.min,
+      max: options.max,
+      step: options.step ?? 1,
+      value: String(options.value),
+      'aria-label': options.label,
+      on: {
+        change: (event) => options.onChange(Number((event.target as HTMLInputElement).value)),
+      },
+    }),
+  });
+}
+
+/** A labelled form control, for the editor's dense grids. */
+export function field(label: string, control: HTMLElement): HTMLElement {
+  return el('label', { class: 'field' }, el('span', { class: 'field__label', text: label }), control);
+}
+
+/**
+ * A text input that accepts Swedish money formatting and normalises on blur, so
+ * `12,50`, `12.50` and `12 kr` all work.
+ */
+export function moneyInput(
+  value: number | null,
+  onCommit: (value: number | null) => Promise<void> | void,
+): HTMLElement {
+  return el('input', {
+    type: 'text',
+    inputmode: 'decimal',
+    value: value === null ? '' : value.toFixed(2).replace('.', ','),
+    on: {
+      change: (event) => {
+        const input = event.target as HTMLInputElement;
+        const raw = input.value.trim();
+        if (!raw) {
+          input.value = '';
+          void onCommit(null);
+          return;
+        }
+        const parsed = parseAmount(raw);
+        if (parsed === null) {
+          toast('Kunde inte tolka beloppet.', { kind: 'error' });
+          input.value = value === null ? '' : value.toFixed(2).replace('.', ',');
+          return;
+        }
+        input.value = parsed.toFixed(2).replace('.', ',');
+        void onCommit(parsed);
+      },
+    },
+  });
+}
+
+/** A small spinner, for a busy button or an inline loading row. */
+export function spinner(options: { size?: number; className?: string } = {}): HTMLElement {
+  return sharedSpinner(options);
+}
+
+/**
+ * A centred "working on it" state: a spinner, a title, and optionally a line
+ * explaining what is happening. `extra` appends further content below that —
+ * a filename, a progress bar — for the screens that need more than text.
+ */
+export function loadingState(
+  options: { title: string; body?: string; className?: string },
+  ...extra: Child[]
+): HTMLElement {
+  return el(
+    'div',
+    { class: ['empty-state', options.className] },
+    spinner({ size: 28 }),
+    el('p', { class: 'empty-state__title', text: options.title }),
+    options.body ? el('p', { text: options.body }) : null,
+    ...extra,
+  );
+}
+
+/**
+ * The icon button + confirm dialog every delete action in the app uses.
+ *
+ * `confirmDialog` lives in `components/dialog.js`; this just wires it to a
+ * trash icon so the 3 call sites don't each restate the same options object.
+ */
+export function deleteButton(options: {
+  label: string;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+}): HTMLElement {
+  return el(
+    'button',
+    {
+      class: 'btn btn--sm btn--icon btn--danger-plain',
+      type: 'button',
+      'aria-label': options.label,
+      on: {
+        click: async () => {
+          const confirmed = await confirmDialog({
+            title: options.title,
+            message: options.message,
+            confirmLabel: options.confirmLabel ?? 'Ta bort',
+            destructive: true,
+          });
+          if (confirmed) await options.onConfirm();
+        },
+      },
+    },
+    icon('trash', { size: 18 }),
   );
 }

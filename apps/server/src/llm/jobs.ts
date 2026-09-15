@@ -10,7 +10,7 @@
  * was already struggling.
  */
 
-import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 
 import type { Receipt } from '@kvitto/shared';
 
@@ -281,13 +281,12 @@ export function recentFailures(accountId: string, limit = 5): Job[] {
       and(
         eq(schema.extractionJobs.accountId, accountId),
         inArray(schema.extractionJobs.state, ['failed', 'pending']),
-        or(isNull(schema.extractionJobs.lastError), sql`${schema.extractionJobs.lastError} IS NOT NULL`),
+        isNotNull(schema.extractionJobs.lastError),
       ),
     )
     .orderBy(sql`${schema.extractionJobs.updatedAt} DESC`)
     .limit(limit)
-    .all()
-    .filter((job) => (job as Job).lastError !== null) as Job[];
+    .all() as Job[];
 }
 
 function upsert(job: Job): void {

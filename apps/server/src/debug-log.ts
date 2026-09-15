@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Readable } from 'node:stream';
 
 import { device, requireDevice } from './auth.ts';
+import { intQuery, withServerTime } from './http/reply.ts';
 
 export type DebugValue = string | number | boolean | null | DebugValue[] | { [key: string]: DebugValue };
 
@@ -56,13 +57,11 @@ export function registerDebugLog(app: FastifyInstance): void {
     '/debug/logs',
     { preHandler: requireDevice },
     async (request) => {
-      const requested = Number.parseInt(request.query.limit ?? String(MAX_ENTRIES), 10);
-      const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), MAX_ENTRIES) : MAX_ENTRIES;
-      return {
+      const limit = intQuery(request.query, 'limit', { min: 1, max: MAX_ENTRIES, default: MAX_ENTRIES });
+      return withServerTime({
         entries: entries.slice(-limit).reverse(),
         capacity: MAX_ENTRIES,
-        serverTime: Date.now(),
-      };
+      });
     },
   );
 

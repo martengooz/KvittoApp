@@ -4,12 +4,17 @@
  * Ollama rather than a bundled runtime because the requirement is "works on
  * Linux and macOS with a 4B vision model", and Ollama is the only option that
  * ships one binary covering CUDA, ROCm, Metal and plain CPU without this
- * project growing a native build step. Everything here is plain `fetch`
- * against its HTTP API: no SDK, no dependency.
+ * project growing a native build step.
  *
- * Only four calls are needed — is it there, what does it have, fetch a model,
- * run one image — so they are written out rather than pulled in.
+ * `generate` calls the shared Ollama core in `@kvitto/shared` — the same code
+ * the phone talks to a local Ollama with. Everything here that is genuinely
+ * server-only stays: bringing the process up is {@link ./runtime.ts}'s job,
+ * `ping`/`listModels`/`hasModel` are the small admin calls that back it and
+ * the status endpoint, and `pullModel`'s NDJSON download stream has no
+ * equivalent on the phone at all.
  */
+
+import { ProviderError, callOllama, timedFetch } from '@kvitto/shared';
 
 import { config } from '../env.ts';
 
@@ -49,23 +54,32 @@ export interface OllamaModel {
 
 export interface GenerateOptions {
   model: string;
-  system: string;
   prompt: string;
   /** Base64-encoded image bytes, without a data: prefix. */
   images: string[];
-  /** JSON Schema the response must satisfy. */
-  schema?: unknown;
+  /** Constrain the response to the receipt JSON Schema at the sampler. */
+  structuredOutput: boolean;
   maxOutputTokens: number;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** Appended to the system prompt, for store-specific quirks. */
+  extraInstructions?: string | null;
+  /**
+   * Use the compact system prompt tuned for small local models. Defaults to
+   * `true` — this client only ever talks to the local model, which is always
+   * small enough to need it.
+   */
+  compactPrompt?: boolean;
 }
 
 export interface GenerateResult {
-  text: string;
+  /** The model's parsed JSON response. */
+  raw: Record<string, unknown>;
   model: string;
   promptTokens: number | null;
   outputTokens: number | null;
   durationMs: number;
+  structuredOutputFallback: boolean;
 }
 
 function baseUrl(): string {
@@ -75,10 +89,7 @@ function baseUrl(): string {
 /** Whether Ollama is answering. Cheap; used by the health endpoint. */
 export async function ping(timeoutMs = 2000): Promise<{ ok: boolean; version: string | null }> {
   try {
-    const response = await withTimeout(
-      (signal) => fetch(`${baseUrl()}/api/version`, { signal }),
-      timeoutMs,
-    );
+    const response = await timedFetch(`${baseUrl()}/api/version`, {}, { timeoutMs });
     if (!response.ok) return { ok: false, version: null };
     const body = (await response.json()) as { version?: string };
     return { ok: true, version: body.version ?? null };
@@ -89,11 +100,9 @@ export async function ping(timeoutMs = 2000): Promise<{ ok: boolean; version: st
 
 /** Models the local instance already holds. */
 export async function listModels(timeoutMs = 5000): Promise<OllamaModel[]> {
-  const response = await withTimeout((signal) => fetch(`${baseUrl()}/api/tags`, { signal }), timeoutMs).catch(
-    () => {
-      throw new LlmError('unreachable', `Ingen Ollama-instans svarar på ${baseUrl()}.`, true);
-    },
-  );
+  const response = await timedFetch(`${baseUrl()}/api/tags`, {}, { timeoutMs }).catch(() => {
+    throw new LlmError('unreachable', `Ingen Ollama-instans svarar på ${baseUrl()}.`, true);
+  });
   if (!response.ok) throw new LlmError('failed', `Ollama svarade ${response.status}.`, true);
 
   const body = (await response.json()) as {
@@ -126,6 +135,8 @@ export interface PullProgress {
  *
  * Ollama streams newline-delimited JSON for this one, and a 4B vision model is
  * roughly 3 GB, so the caller wants to know it is moving rather than hung.
+ * Server-only — the phone never pulls a model on someone else's machine —
+ * so it stays here rather than in the shared core.
  */
 export async function pullModel(
   model: string,
@@ -160,110 +171,64 @@ export async function pullModel(
 }
 
 /**
- * Runs one image through the model and returns its raw text.
+ * Runs one image through the model and returns its parsed JSON response.
  *
- * `format` carries the JSON Schema. Ollama constrains generation to it at the
- * sampler, which is a far stronger guarantee than asking a 4B model to please
- * return JSON — small models comply with prose instructions unreliably, and
- * this one has to produce a fixed shape every time.
+ * Delegates the wire call to the shared Ollama core — the request shape, the
+ * structured-output fallback, the "model missing" 404 and the "not valid
+ * JSON" failure are all decided there now, the same way for the phone and the
+ * server.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
-  const started = Date.now();
-
-  let response: Response;
   try {
-    response = await withTimeout(
-      (signal) =>
-        fetch(`${baseUrl()}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          signal,
-          body: JSON.stringify({
-            model: options.model,
-            stream: false,
-            ...(options.schema ? { format: options.schema } : {}),
-            options: {
-              num_predict: options.maxOutputTokens,
-              // Deterministic: the same receipt must not extract differently on
-              // a retry, or the merge below cannot tell a correction from noise.
-              temperature: 0,
-              // A receipt plus a schema plus the answer needs the room.
-              num_ctx: config.llm.contextTokens,
-            },
-            messages: [
-              { role: 'system', content: options.system },
-              { role: 'user', content: options.prompt, images: options.images },
-            ],
-          }),
-        }),
-      options.timeoutMs,
-      options.signal,
-    );
+    const result = await callOllama({
+      baseUrl: baseUrl(),
+      model: options.model,
+      images: options.images,
+      maxOutputTokens: options.maxOutputTokens,
+      contextTokens: config.llm.contextTokens,
+      structuredOutput: options.structuredOutput,
+      extraInstructions: options.extraInstructions ?? null,
+      compactPrompt: options.compactPrompt ?? true,
+      userPrompt: options.prompt,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
+
+    return {
+      raw: result.raw,
+      model: result.model,
+      promptTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      durationMs: result.durationMs,
+      structuredOutputFallback: result.structuredOutputFallback,
+    };
   } catch (error) {
-    if (error instanceof LlmError) throw error;
-    throw new LlmError('unreachable', `Ingen Ollama-instans svarar på ${baseUrl()}.`, true);
+    throw toLlmError(error, options.signal);
   }
-
-  if (response.status === 404) {
-    throw new LlmError(
-      'model-missing',
-      `Modellen "${options.model}" finns inte lokalt. Kör "ollama pull ${options.model}".`,
-    );
-  }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new LlmError('failed', detail.slice(0, 300) || `Ollama svarade ${response.status}.`, response.status >= 500);
-  }
-
-  const body = (await response.json()) as {
-    message?: { content?: string };
-    model?: string;
-    prompt_eval_count?: number;
-    eval_count?: number;
-    error?: string;
-  };
-  if (body.error) throw new LlmError('failed', body.error, true);
-
-  const text = body.message?.content ?? '';
-  if (!text.trim()) throw new LlmError('bad-output', 'Modellen svarade tomt.', true);
-
-  return {
-    text,
-    model: body.model ?? options.model,
-    promptTokens: body.prompt_eval_count ?? null,
-    outputTokens: body.eval_count ?? null,
-    durationMs: Date.now() - started,
-  };
 }
 
-/**
- * Runs `work` with a deadline.
- *
- * A vision model on CPU can take minutes, and a hung request would otherwise
- * hold a queue slot forever. The external signal is honoured too, so a server
- * shutdown does not wait for inference to finish.
- */
-async function withTimeout(
-  work: (signal: AbortSignal) => Promise<Response>,
-  timeoutMs: number,
-  external?: AbortSignal,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
-  const forward = (): void => controller.abort(external?.reason);
-  external?.addEventListener('abort', forward, { once: true });
-
-  try {
-    return await work(controller.signal);
-  } catch (error) {
-    if (controller.signal.aborted && !external?.aborted) {
-      throw new LlmError('timeout', `Modellen svarade inte inom ${Math.round(timeoutMs / 1000)} s.`, true);
+function toLlmError(error: unknown, signal?: AbortSignal): LlmError {
+  if (error instanceof LlmError) return error;
+  if (error instanceof ProviderError) {
+    if (error.kind === 'aborted' || (signal?.aborted && error.kind !== 'timeout')) {
+      // A caller-initiated abort (e.g. server shutdown) is not a model failure.
+      return new LlmError('failed', error.message, false);
     }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    external?.removeEventListener('abort', forward);
+    if (error.kind === 'timeout') {
+      return new LlmError('timeout', error.message, true);
+    }
+    if (error.kind === 'network') {
+      return new LlmError('unreachable', `Ingen Ollama-instans svarar på ${baseUrl()}.`, true);
+    }
+    if (error.status === 404) {
+      return new LlmError('model-missing', error.message);
+    }
+    if (error.kind === 'invalid-response') {
+      return new LlmError('bad-output', error.message, true);
+    }
+    return new LlmError('failed', error.message, error.retryable);
   }
+  return new LlmError('unreachable', `Ingen Ollama-instans svarar på ${baseUrl()}.`, true);
 }
 
 /** Yields newline-delimited JSON from a streaming response body. */

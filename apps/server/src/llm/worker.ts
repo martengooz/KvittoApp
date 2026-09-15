@@ -19,14 +19,12 @@ import { readFile } from 'node:fs/promises';
 import {
   EMPTY_SYNC_META,
   LOCAL_LLM_PROVIDER,
-  RECEIPT_JSON_SCHEMA,
   RECEIPT_USER_PROMPT,
-  buildSystemPrompt,
-  extractJsonObject,
   guessCategorySlug,
   mergeEnrichment,
   newId,
   normalizeExtraction,
+  validateExtraction,
   type ExtractionInfo,
   type Receipt,
   type ReceiptItem,
@@ -145,46 +143,50 @@ async function extractOne(accountId: string, receiptId: string): Promise<Outcome
     return 'failed';
   }
 
-  let raw: Record<string, unknown> | null;
+  let raw: Record<string, unknown>;
   let durationMs = 0;
   let model = config.llm.model;
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
   try {
     const response = await generate({
       model: config.llm.model,
       // The compact prompt: a 4B model follows short rules better than long
       // explanations, and the schema does the structural work anyway.
-      system: buildSystemPrompt(null, { compact: true }),
       prompt: RECEIPT_USER_PROMPT,
       images: [image.toString('base64')],
-      schema: RECEIPT_JSON_SCHEMA,
+      structuredOutput: true,
       maxOutputTokens: config.llm.maxOutputTokens,
       timeoutMs: config.llm.requestTimeoutMs,
     });
     durationMs = response.durationMs;
     model = response.model;
-    raw = extractJsonObject(response.text);
+    inputTokens = response.promptTokens;
+    outputTokens = response.outputTokens;
+    raw = response.raw;
   } catch (error) {
     const retryable = error instanceof LlmError ? error.retryable : true;
     jobs.fail(receiptId, describe(error), retryable);
     return 'failed';
   }
 
-  if (!raw) {
-    // Schema-constrained output should make this impossible; when it happens
-    // anyway it is worth one more try, not an endless loop.
-    jobs.fail(receiptId, 'Modellen svarade inte med giltig JSON.', true);
-    return 'failed';
-  }
-
   const extraction = normalizeExtraction(raw);
+  // Arithmetic/consistency issues, same check the phone runs after every
+  // extraction — a receipt the local model reads must get the same review
+  // prompts as one read on a device.
+  const report = validateExtraction(extraction);
+  const warnings = [
+    ...extraction.warnings,
+    ...report.issues.filter((issue) => issue.severity !== 'info').map((issue) => issue.message),
+  ];
   const info: ExtractionInfo = {
     provider: LOCAL_LLM_PROVIDER,
     model,
     at: Date.now(),
     durationMs,
-    inputTokens: null,
-    outputTokens: null,
-    warnings: extraction.warnings,
+    inputTokens,
+    outputTokens,
+    warnings,
     error: null,
   };
 

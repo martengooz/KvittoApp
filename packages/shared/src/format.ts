@@ -73,6 +73,16 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * A timestamp as a short localized date and time, e.g. `2024-03-15 14:30`.
+ * Returns `null` for a falsy `value` so callers can supply their own
+ * "never happened" copy instead of a generic one.
+ */
+export function formatDateTimeShort(value: string | number | null | undefined): string | null {
+  if (!value) return null;
+  return new Intl.DateTimeFormat(LOCALE, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+}
+
 /** Coarse "for han sedan" style relative time, used for sync status. */
 export function formatRelativeTime(timestamp: number | null): string {
   if (!timestamp) return 'aldrig';

@@ -1,0 +1,367 @@
+/* --- banners and notices ------------------------------------------------- */
+
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 max(var(--gutter), var(--safe-left)) 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  background: var(--bg-grouped-secondary);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.banner__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+
+.banner--info .banner__icon { color: var(--tint); }
+.banner--warning .banner__icon { color: var(--warning); }
+.banner--danger .banner__icon { color: var(--danger); }
+.banner--success .banner__icon { color: var(--success); }
+
+.banner__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner__body strong {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.banner p {
+  margin: 0;
+  color: var(--label-secondary);
+}
+
+.banner ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--label-secondary);
+}
+
+/* --- badges -------------------------------------------------------------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: var(--fill-tertiary);
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill--accent { background: color-mix(in srgb, var(--tint) 15%, transparent); color: var(--tint); }
+.pill--warning { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
+.pill--danger { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.pill--success { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+
+.pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* --- empty states -------------------------------------------------------- */
+
+.empty-state {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 64px 32px;
+  text-align: center;
+  color: var(--label-secondary);
+}
+
+.empty-state__icon {
+  width: 52px;
+  height: 52px;
+  color: var(--label-tertiary);
+  margin-bottom: 4px;
+}
+
+.empty-state__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--label);
+  letter-spacing: -0.022em;
+}
+
+.empty-state p {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.view-error {
+  padding: 32px var(--gutter);
+  color: var(--danger);
+}
+
+/* --- toasts and dialogs -------------------------------------------------- */
+
+.toast-host {
+  position: fixed;
+  inset-inline: 0;
+  bottom: calc(var(--tab-bar-height) + var(--safe-bottom) + 12px);
+  z-index: 60;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding-inline: var(--gutter);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 460px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--material-thick);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  color: var(--label);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 18%);
+  font-size: 15px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.2, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+.toast--visible {
+  opacity: 1;
+  transform: none;
+}
+
+.toast__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.toast--success .toast__icon { color: var(--success); }
+.toast--error .toast__icon { color: var(--danger); }
+.toast--info .toast__icon { color: var(--tint); }
+
+.toast__message {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast__action {
+  border: 0;
+  background: none;
+  color: var(--tint);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/*
+ * Alerts, modelled on UIAlertController: a narrow blurred card, a bold title,
+ * and full-width buttons split by hairlines.
+ */
+.dialog {
+  border: 0;
+  padding: 0;
+  border-radius: 14px;
+  background: var(--material-thick);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  color: var(--label);
+  width: 270px;
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 20%);
+}
+
+.dialog__body {
+  display: grid;
+}
+
+.dialog__content {
+  padding: 19px 16px 15px;
+  text-align: center;
+}
+
+.dialog__title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+
+.dialog__message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--label);
+}
+
+/* A prompt dialog's text input, under the title. */
+.dialog__content input[type='text'] {
+  margin-top: 12px;
+  text-align: left;
+}
+
+.dialog__actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border-top: 0.5px solid var(--separator);
+}
+
+.dialog__actions .btn {
+  border-radius: 0;
+  background: none;
+  min-height: 44px;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.dialog__actions .btn + .btn {
+  border-left: 0.5px solid var(--separator);
+  font-weight: 600;
+}
+
+.dialog__actions .btn--danger {
+  background: none;
+  color: var(--danger);
+}
+
+/* --- action sheet -------------------------------------------------------- */
+
+/*
+ * UIAlertController's action-sheet style: a stack of full-width options that
+ * slides up from the bottom, with Cancel detached below it.
+ */
+.sheet {
+  border: 0;
+  padding: 0;
+  /* A modal <dialog> defaults to `margin: auto`, which centres it. An action
+     sheet belongs at the bottom, within thumb reach. */
+  margin: auto auto 0;
+  width: 100%;
+  max-width: min(640px, 100%);
+  max-height: 100dvh;
+  background: none;
+  overscroll-behavior: contain;
+}
+
+.sheet::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+
+.sheet__body {
+  display: grid;
+  gap: 8px;
+  padding: 0 8px calc(8px + var(--safe-bottom));
+  animation: sheet-in 0.28s cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+.sheet__group {
+  border-radius: var(--radius-sheet);
+  background: var(--material-thick);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  overflow: hidden;
+}
+
+.sheet__title {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--label-secondary);
+  text-align: center;
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.sheet__option {
+  display: block;
+  width: 100%;
+  min-height: 57px;
+  padding: 17px 16px;
+  border: 0;
+  background: none;
+  color: var(--tint);
+  font: inherit;
+  font-size: 20px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.sheet__option + .sheet__option {
+  border-top: 0.5px solid var(--separator);
+}
+
+.sheet__option:active {
+  background: var(--fill-quaternary);
+}
+
+.sheet__option[aria-selected='true'] {
+  font-weight: 600;
+}
+
+.sheet__option--cancel {
+  font-weight: 600;
+  background: var(--material-thick);
+  border-radius: var(--radius-sheet);
+}
+
+.sheet__option--danger {
+  color: var(--danger);
+}
+
+/* --- status indicators --------------------------------------------------- */
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+  flex: none;
+}
+
+.status-dot--ok { background: var(--success); }
+.status-dot--warn { background: var(--warning); }
+.status-dot--error { background: var(--danger); }
+.status-dot--busy { background: var(--tint); animation: pulse 1.2s ease-in-out infinite; }
+
+@keyframes pulse {
+  50% { opacity: 0.3; }
+}

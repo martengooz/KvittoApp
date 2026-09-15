@@ -82,6 +82,36 @@ export interface SyncState {
   retryAt: number | null;
 }
 
+/** Swedish label for a sync status, for the settings screen. */
+export function statusLabel(status: string): string {
+  switch (status) {
+    case 'idle':
+      return 'Synkad';
+    case 'syncing':
+      return 'Synkar…';
+    case 'error':
+      return 'Fel vid synk';
+    case 'offline':
+      return 'Offline';
+    case 'paused':
+      return 'Pausad efter upprepade fel';
+    default:
+      return 'Inte parkopplad';
+  }
+}
+
+/** One line describing what a completed sync pass actually did. */
+export function summarise(report: SyncReport): string {
+  if (report.resynced) return 'Servern hade byggts om — allt synkades om från början.';
+  if (report.skipped) return 'Allt var redan i synk.';
+
+  const parts = [`${report.pushed} skickade`, `${report.pulled} hämtade`];
+  if (report.merged > 0) parts.push(`${report.merged} sammanfogade`);
+  if (report.blobsUploaded > 0) parts.push(`${report.blobsUploaded} bilder upp`);
+  if (report.blobsDownloaded > 0) parts.push(`${report.blobsDownloaded} bilder ner`);
+  return `Klart: ${parts.join(', ')}.`;
+}
+
 let running: Promise<SyncReport> | null = null;
 let lastError: string | null = null;
 const breaker = new Breaker();
