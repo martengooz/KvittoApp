@@ -1,0 +1,63 @@
+/* --- collections --------------------------------------------------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 1px;
+  margin-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--separator);
+}
+
+.stat {
+  padding: 14px 12px;
+  background: var(--bg-grouped-secondary);
+  text-align: center;
+}
+
+.stat__value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.022em;
+}
+
+.stat__label {
+  font-size: 13px;
+  color: var(--label-secondary);
+  margin-top: 2px;
+}
+
+.bar-chart {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.bar-chart__row {
+  display: grid;
+  grid-template-columns: minmax(72px, 28%) 1fr auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 15px;
+}
+
+.bar-chart__track {
+  height: 8px;
+  border-radius: 100px;
+  background: var(--fill-tertiary);
+  overflow: hidden;
+}
+
+.bar-chart__fill {
+  height: 100%;
+  background: var(--tint);
+  border-radius: 100px;
+}
+
+.bar-chart__value {
+  font-variant-numeric: tabular-nums;
+  color: var(--label-secondary);
+  font-size: 13px;
+}

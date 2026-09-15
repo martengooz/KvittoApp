@@ -1,0 +1,384 @@
+/* --- scan ------------------------------------------------------------------ */
+
+.scan {
+  display: grid;
+  gap: 16px;
+  padding: 0;
+}
+
+.camera-stage {
+  position: relative;
+  width: min(100%, 520px);
+  min-height: 340px;
+  margin-inline: auto;
+  border-radius: 24px;
+  overflow: hidden;
+  background: var(--k-dark-panel);
+}
+
+.camera-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.camera-frame {
+  position: absolute;
+  inset: 16% 21%;
+  border: 3px solid var(--k-ramp-3);
+  border-radius: 14px;
+  box-shadow: 0 0 0 999px rgb(39 22 25 / 28%);
+  pointer-events: none;
+}
+
+/* The iOS camera shutter: white disc inside a ring. */
+.shutter {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 3px solid rgb(255 255 255 / 90%);
+  background: transparent;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.shutter::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.1s ease;
+}
+
+.shutter:active::after {
+  transform: scale(0.88);
+}
+
+.camera-hint {
+  position: absolute;
+  right: auto;
+  bottom: 16px;
+  left: 50%;
+  top: auto;
+  margin: 0;
+  padding: 7px 13px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 14%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* --- crop editor --------------------------------------------------------- */
+
+.crop {
+  display: grid;
+  gap: 12px;
+}
+
+.crop-stage {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sheet);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.crop-stage img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.crop-handle {
+  fill: var(--tint);
+  stroke: #fff;
+  stroke-width: 2.5;
+  cursor: grab;
+}
+
+.crop-handle--active {
+  cursor: grabbing;
+}
+
+.crop-outline {
+  fill: color-mix(in srgb, var(--tint) 12%, transparent);
+  stroke: var(--tint);
+  stroke-width: 2.5;
+}
+
+.preview-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sheet);
+  background: var(--bg-secondary);
+}
+
+.app-shell:has(.scan) {
+  max-width: none;
+}
+
+.app-shell:has(.scan-capture) {
+  background: var(--k-dark);
+}
+
+.app-shell:has(.scan-capture) > .app-header,
+.app-shell:has(.scan-capture) > .app-main > .large-title,
+.app-shell:has(.scan) > .app-nav {
+  display: none;
+}
+
+.app-shell:has(.scan-capture) > .app-main {
+  padding: 0;
+}
+
+.scan-capture {
+  display: grid;
+  grid-template-rows: auto minmax(280px, 1fr) auto auto auto;
+  gap: 20px;
+  min-height: 100dvh;
+  padding: calc(var(--safe-top) + 18px) max(20px, var(--safe-left)) calc(var(--safe-bottom) + 22px);
+  background: var(--k-dark);
+  color: #fff;
+}
+
+.scan-capture__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scan-capture__header h2,
+.scan-review__header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.scan-capture__header button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--k-dark-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.scan-viewfinder {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100%, 520px);
+  min-height: 340px;
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--k-dark-panel);
+}
+
+.scan-viewfinder__paper {
+  width: 58%;
+  height: 72%;
+  border: 3px solid var(--k-ramp-3);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 18%);
+  box-shadow: inset 0 -5px 0 rgb(0 0 0 / 20%);
+}
+
+.scan-viewfinder__hint {
+  position: absolute;
+  bottom: 16px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 14%);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scan-shutter {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  margin-inline: auto;
+  padding: 0;
+  border: 5px solid rgb(255 255 255 / 24%);
+  border-radius: 50%;
+  background: var(--k-accent);
+  color: var(--k-on-accent);
+  background-clip: padding-box;
+}
+
+.scan-capture__tools {
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+}
+
+.scan-capture__tools button {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 12%);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scan-capture__offline {
+  margin: 0;
+  color: var(--k-dark-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.app-shell:has(.scan-review) > .app-main {
+  padding: calc(var(--safe-top) + 20px) 0 calc(var(--safe-bottom) + 28px);
+}
+
+.scan-review {
+  width: min(100%, 640px);
+  margin-inline: auto;
+  padding: 0 max(var(--gutter), var(--safe-left));
+}
+
+.scan-review__header {
+  margin-bottom: 18px;
+}
+
+.scan-review__header p {
+  margin: 5px 0 0;
+  color: var(--k-muted);
+  font-size: 13px;
+}
+
+.scan-review__image-card {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px;
+  border-radius: 20px;
+  background: var(--k-card);
+  box-shadow: var(--shadow-card);
+}
+
+.scan-review__preview {
+  height: 150px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--k-soft);
+}
+
+.scan-review__preview .preview-image,
+.scan-review__preview .crop-stage {
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  object-fit: cover;
+}
+
+.scan-review__image-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+}
+
+.scan-review__image-copy strong {
+  font-size: 14px;
+}
+
+.scan-review__image-copy span {
+  margin: 5px 0 10px;
+  color: var(--k-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.scan-review__image-copy .btn {
+  min-height: 36px;
+  border-radius: 999px;
+  background: var(--k-chip);
+  color: var(--k-ink);
+  font-size: 12px;
+}
+
+.scan-review__utilities {
+  display: flex;
+  justify-content: space-between;
+}
+
+.scan-review__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* --- unattended import ------------------------------------------------- */
+
+.scan-import {
+  gap: 4px;
+}
+
+.scan-import .truncate {
+  max-width: 100%;
+}
+
+/* Determinate, unlike the navigation bar's AI strip: the batch knows how many
+   images are left, and a count that visibly advances is what makes an
+   unattended import feel like progress rather than a hang. */
+.scan-import__bar {
+  width: min(280px, 80%);
+  height: 4px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--fill-tertiary);
+  overflow: hidden;
+}
+
+.scan-import__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tint);
+  transition: width 0.25s ease-out;
+}
+
+.scan-review__actions .btn {
+  min-height: 50px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+@media (max-height: 700px) {
+  .scan-capture {
+    gap: 12px;
+  }
+
+  .scan-viewfinder {
+    min-height: 260px;
+  }
+}
