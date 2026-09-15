@@ -10,18 +10,19 @@
 
 import { createAiSettingsView, formatBytes, formatRelativeTime, type AiSettingsViewOptions } from '@kvitto/shared';
 
-import { banner, listGroup, row, segmented, switchRow } from '../components/ui.js';
+import { actionRow, banner, listGroup, row, segmented, sliderRow, stackedRow, switchRow } from '../components/ui.js';
 import { checkForAppUpdate } from '../core/app-update.js';
-import { el, replaceChildren } from '../core/dom.js';
-import { bus } from '../core/events.js';
+import { el } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { liveView } from '../core/live-view.js';
 import { isIos, isStandalone } from '../core/platform.js';
 import { router } from '../core/router.js';
 import {
   getSettings,
   updateSettings,
 } from '../core/settings.js';
-import { confirmDialog, toast } from '../core/toast.js';
+import { confirmDialog } from '../components/dialog.js';
+import { toast } from '../core/toast.js';
 import { testConnection } from '../ai/index.js';
 import { APIVERKET_BASE_URL, testApiverketConnection } from '../api/apiverket.js';
 import { cvClient } from '../cv/client.js';
@@ -61,15 +62,14 @@ const GLYPH = {
   danger: 'var(--ios-red)',
 } as const;
 
-export async function settingsView(): Promise<HTMLElement> {
-  const root = el('div', {});
-
-  const unsubscribe = bus.on('settings:changed', () => void refresh());
-  router.onTeardown(unsubscribe);
-
-  async function refresh(): Promise<void> {
-    replaceChildren(
-      root,
+export function settingsView(): Promise<HTMLElement> {
+  // Both events matter here: `settings:changed` covers a value edited on this
+  // screen, `data:changed` the saved-company count and storage figures that
+  // move only when a scan or sync writes data, not settings.
+  return liveView({
+    on: ['settings:changed', 'data:changed'],
+    load: async () => {},
+    render: async (_data, refresh) => [
       renderInstallHint(),
       await renderAiSection(refresh),
       renderImageSection(),
@@ -79,11 +79,8 @@ export async function settingsView(): Promise<HTMLElement> {
       renderAppearanceSection(),
       renderDeveloperSection(),
       renderAbout(),
-    );
-  }
-
-  await refresh();
-  return root;
+    ],
+  });
 }
 
 /**
@@ -152,11 +149,9 @@ function renderImageSection(): HTMLElement {
   const cv = cvClient.status;
 
   const rows: HTMLElement[] = [
-    el(
-      'div',
-      { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:8px' },
-      el('span', { class: 'row__label', style: 'flex:none', text: 'Efterbehandling' }),
-      segmented({
+    stackedRow({
+      label: 'Efterbehandling',
+      control: segmented({
         label: 'Efterbehandling',
         value: image.enhance,
         options: [
@@ -167,7 +162,7 @@ function renderImageSection(): HTMLElement {
         ],
         onChange: (value) => void updateSettings({ image: { enhance: value } }),
       }),
-    ),
+    }),
     switchRow({
       label: 'Hitta kanter automatiskt',
       checked: image.detectEdges,
@@ -175,29 +170,15 @@ function renderImageSection(): HTMLElement {
       iconColor: GLYPH.image,
       onChange: (checked) => void updateSettings({ image: { detectEdges: checked } }),
     }),
-    el(
-      'div',
-      { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:4px' },
-      el(
-        'span',
-        { class: 'stack stack--between' },
-        el('span', { class: 'row__label', text: 'Maxstorlek' }),
-        el('span', { class: 'row__value', text: `${image.maxDimension} px` }),
-      ),
-      el('input', {
-        type: 'range',
-        min: 800,
-        max: 3000,
-        step: 128,
-        value: String(image.maxDimension),
-        'aria-label': 'Maxstorlek i pixlar',
-        on: {
-          change: (event) => {
-            void updateSettings({ image: { maxDimension: Number((event.target as HTMLInputElement).value) } });
-          },
-        },
-      }),
-    ),
+    sliderRow({
+      label: 'Maxstorlek',
+      value: image.maxDimension,
+      valueLabel: `${image.maxDimension} px`,
+      min: 800,
+      max: 3000,
+      step: 128,
+      onChange: (value) => void updateSettings({ image: { maxDimension: value } }),
+    }),
     switchRow({
       label: 'Spara originalbilden',
       checked: image.keepOriginal,
@@ -209,23 +190,14 @@ function renderImageSection(): HTMLElement {
 
   if (!cv.ready) {
     rows.push(
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:500',
-        text: 'Ladda ner för offline-bruk',
-        on: {
-          click: async (event) => {
-            const button = event.currentTarget as HTMLButtonElement;
-            button.disabled = true;
-            button.textContent = 'Laddar ner…';
-            const ok = await cvClient.warmup();
-            toast(ok ? 'Bildbehandling är nu tillgänglig offline.' : 'Nedladdningen misslyckades.', {
-              kind: ok ? 'success' : 'error',
-            });
-            button.disabled = false;
-            button.textContent = 'Ladda ner för offline-bruk';
-          },
+      actionRow({
+        label: 'Ladda ner för offline-bruk',
+        busyLabel: 'Laddar ner…',
+        onClick: async () => {
+          const ok = await cvClient.warmup();
+          toast(ok ? 'Bildbehandling är nu tillgänglig offline.' : 'Nedladdningen misslyckades.', {
+            kind: ok ? 'success' : 'error',
+          });
         },
       }),
     );
@@ -312,33 +284,15 @@ async function renderCompanySection(): Promise<HTMLElement> {
 
   if (company.nameSearch) {
     rows.push(
-      el(
-        'div',
-        { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:4px' },
-        el(
-          'span',
-          { class: 'stack stack--between' },
-          el('span', { class: 'row__label', text: 'Namnsökningar per dag' }),
-          el('span', {
-            class: 'row__value',
-            text: `${searchesUsed} av ${company.searchBudget} idag`,
-          }),
-        ),
-        el('input', {
-          type: 'range',
-          min: 0,
-          max: 20,
-          step: 1,
-          value: String(company.searchBudget),
-          'aria-label': 'Namnsökningar per dag',
-          on: {
-            change: (event) => {
-              const value = Number((event.target as HTMLInputElement).value);
-              void updateSettings({ company: { searchBudget: value } });
-            },
-          },
-        }),
-      ),
+      sliderRow({
+        label: 'Namnsökningar per dag',
+        value: company.searchBudget,
+        valueLabel: `${searchesUsed} av ${company.searchBudget} idag`,
+        min: 0,
+        max: 20,
+        step: 1,
+        onChange: (value) => void updateSettings({ company: { searchBudget: value } }),
+      }),
     );
   }
 
@@ -346,16 +300,11 @@ async function renderCompanySection(): Promise<HTMLElement> {
 
   if (stored.length > 0) {
     rows.push(
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center',
-        text: 'Glöm misslyckade uppslag',
-        on: {
-          click: async () => {
-            await clearCompanyMisses();
-            toast('Nekade organisationsnummer slås upp igen vid nästa avläsning.', { kind: 'success' });
-          },
+      actionRow({
+        label: 'Glöm misslyckade uppslag',
+        onClick: async () => {
+          await clearCompanyMisses();
+          toast('Nekade organisationsnummer slås upp igen vid nästa avläsning.', { kind: 'success' });
         },
       }),
     );
@@ -444,40 +393,26 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
     });
 
     rows.push(
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:600',
-        text: 'Skanna QR-kod',
-        on: { click: () => router.navigate('/pair-scan') },
-      }),
+      actionRow({ label: 'Skanna QR-kod', onClick: () => router.navigate('/pair-scan') }),
       row({ label: 'Kod', trailing: codeInput }),
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:600',
-        text: 'Parkoppla enheten',
-        on: {
-          click: async (event) => {
-            const button = event.currentTarget as HTMLButtonElement;
-            const url = getSettings().sync.serverUrl;
-            if (!url) {
-              toast('Fyll i serveradressen först.', { kind: 'error' });
-              return;
-            }
-            button.disabled = true;
-            try {
-              const result = await pairDevice(url, codeInput.value);
-              await setDeviceToken(result.token, result.accountId);
-              toast('Enheten är parkopplad.', { kind: 'success' });
-              void sync();
-              await refresh();
-            } catch (error) {
-              toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
-            } finally {
-              button.disabled = false;
-            }
-          },
+      actionRow({
+        label: 'Parkoppla enheten',
+        busyLabel: 'Parkopplar…',
+        onClick: async () => {
+          const url = getSettings().sync.serverUrl;
+          if (!url) {
+            toast('Fyll i serveradressen först.', { kind: 'error' });
+            return;
+          }
+          try {
+            const result = await pairDevice(url, codeInput.value);
+            await setDeviceToken(result.token, result.accountId);
+            toast('Enheten är parkopplad.', { kind: 'success' });
+            void sync();
+            await refresh();
+          } catch (error) {
+            toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
+          }
         },
       }),
     );
@@ -508,49 +443,37 @@ async function renderSyncSection(refresh: () => Promise<void>): Promise<HTMLElem
       checked: syncSettings.syncImages,
       onChange: (checked) => void updateSettings({ sync: { syncImages: checked } }),
     }),
-    el('button', {
-      class: 'row',
-      type: 'button',
-      style: 'color:var(--tint);justify-content:center;font-weight:500',
-      text: 'Synka nu',
-      on: {
-        click: async (event) => {
-          const button = event.currentTarget as HTMLButtonElement;
-          button.disabled = true;
-          button.textContent = 'Synkar…';
-          // The explicit button bypasses the breaker and the change probe:
-          // someone watching a spinner wants the round trip actually made.
-          const report = await syncNow();
-          toast(
-            report.ok
-              ? summarise(report)
-              : (report.error ?? 'Synkroniseringen misslyckades.'),
-            { kind: report.ok ? 'success' : 'error' },
-          );
-          button.disabled = false;
-          await refresh();
-        },
+    actionRow({
+      label: 'Synka nu',
+      busyLabel: 'Synkar…',
+      onClick: async () => {
+        // The explicit button bypasses the breaker and the change probe:
+        // someone watching a spinner wants the round trip actually made.
+        const report = await syncNow();
+        toast(
+          report.ok
+            ? summarise(report)
+            : (report.error ?? 'Synkroniseringen misslyckades.'),
+          { kind: report.ok ? 'success' : 'error' },
+        );
+        await refresh();
       },
     }),
-    el('button', {
-      class: 'row',
-      type: 'button',
-      style: 'color:var(--danger);justify-content:center',
-      text: 'Koppla från servern',
-      on: {
-        click: async () => {
-          const confirmed = await confirmDialog({
-            title: 'Koppla från?',
-            message:
-              'Dina kvitton ligger kvar på enheten. Nästa gång du parkopplar laddas hela arkivet upp igen.',
-            confirmLabel: 'Koppla från',
-            destructive: true,
-          });
-          if (!confirmed) return;
-          await unpair();
-          toast('Enheten är frånkopplad.');
-          await refresh();
-        },
+    actionRow({
+      label: 'Koppla från servern',
+      tone: 'danger',
+      onClick: async () => {
+        const confirmed = await confirmDialog({
+          title: 'Koppla från?',
+          message:
+            'Dina kvitton ligger kvar på enheten. Nästa gång du parkopplar laddas hela arkivet upp igen.',
+          confirmLabel: 'Koppla från',
+          destructive: true,
+        });
+        if (!confirmed) return;
+        await unpair();
+        toast('Enheten är frånkopplad.');
+        await refresh();
       },
     }),
   );
@@ -586,31 +509,15 @@ function statusLabel(status: string): string {
 function connectionTestRow(
   label: string,
   action: () => Promise<{ ok: boolean; message: string }>,
-): HTMLButtonElement {
-  const button = el('button', {
-    class: 'row',
-    type: 'button',
-    style: 'color:var(--tint);justify-content:center;font-weight:500',
-    text: label,
-  });
-  button.addEventListener('click', async () => {
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    replaceChildren(
-      button,
-      el('span', { class: 'spinner action-spinner', 'aria-hidden': 'true' }),
-      el('span', { text: 'Testar…' }),
-    );
-    try {
+): HTMLElement {
+  return actionRow({
+    label,
+    busyLabel: 'Testar…',
+    onClick: async () => {
       const result = await action();
       toast(result.message, { kind: result.ok ? 'success' : 'error' });
-    } finally {
-      button.textContent = label;
-      button.disabled = false;
-      button.removeAttribute('aria-busy');
-    }
+    },
   });
-  return button;
 }
 
 // --- storage --------------------------------------------------------------
@@ -625,19 +532,10 @@ async function renderStorageSection(refresh: () => Promise<void>): Promise<HTMLE
 
   if (estimate) {
     rows.push(
-      el(
-        'div',
-        { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:6px' },
-        el(
-          'span',
-          { class: 'stack stack--between' },
-          el('span', { class: 'row__label', text: 'Använt utrymme' }),
-          el('span', {
-            class: 'row__value',
-            text: `${formatBytes(estimate.usage)} / ${formatBytes(estimate.quota)}`,
-          }),
-        ),
-        el(
+      stackedRow({
+        label: 'Använt utrymme',
+        value: `${formatBytes(estimate.usage)} / ${formatBytes(estimate.quota)}`,
+        control: el(
           'span',
           { class: 'progress' },
           el('span', {
@@ -645,68 +543,54 @@ async function renderStorageSection(refresh: () => Promise<void>): Promise<HTMLE
             style: `width:${Math.min(100, (estimate.usage / estimate.quota) * 100)}%`,
           }),
         ),
-      ),
+      }),
     );
   }
 
   if (!persisted) {
     rows.push(
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:500',
-        text: 'Be om permanent lagring',
-        on: {
-          click: async () => {
-            const granted = await requestPersistentStorage();
-            toast(granted ? 'Lagringen är nu permanent.' : 'Webbläsaren nekade permanent lagring.', {
-              kind: granted ? 'success' : 'error',
-            });
-            await refresh();
-          },
+      actionRow({
+        label: 'Be om permanent lagring',
+        onClick: async () => {
+          const granted = await requestPersistentStorage();
+          toast(granted ? 'Lagringen är nu permanent.' : 'Webbläsaren nekade permanent lagring.', {
+            kind: granted ? 'success' : 'error',
+          });
+          await refresh();
         },
       }),
     );
   }
 
   rows.push(
-    el('button', {
-      class: 'row',
-      type: 'button',
-      style: 'color:var(--tint);justify-content:center;font-weight:500',
-      text: 'Frigör utrymme',
-      on: {
-        click: async () => {
-          const originals = await discardOriginals();
-          const orphans = await collectGarbage();
-          const tombstones = await purgeTombstones();
-          toast(
-            `Frigjorde ${formatBytes(originals.bytes + orphans.bytes)} · ${tombstones} poster rensade.`,
-            { kind: 'success' },
-          );
-          await refresh();
-        },
+    actionRow({
+      label: 'Frigör utrymme',
+      onClick: async () => {
+        const originals = await discardOriginals();
+        const orphans = await collectGarbage();
+        const tombstones = await purgeTombstones();
+        toast(
+          `Frigjorde ${formatBytes(originals.bytes + orphans.bytes)} · ${tombstones} poster rensade.`,
+          { kind: 'success' },
+        );
+        await refresh();
       },
     }),
-    el('button', {
-      class: 'row',
-      type: 'button',
-      style: 'color:var(--danger);justify-content:center',
-      text: 'Radera all data',
-      on: {
-        click: async () => {
-          const confirmed = await confirmDialog({
-            title: 'Radera allt?',
-            message:
-              'Alla kvitton, varor, etiketter och bilder på den här enheten tas bort. Det går inte att ångra.',
-            confirmLabel: 'Radera',
-            destructive: true,
-          });
-          if (!confirmed) return;
-          await eraseAllData();
-          toast('All data raderades.');
-          router.navigate('/receipts');
-        },
+    actionRow({
+      label: 'Radera all data',
+      tone: 'danger',
+      onClick: async () => {
+        const confirmed = await confirmDialog({
+          title: 'Radera allt?',
+          message:
+            'Alla kvitton, varor, etiketter och bilder på den här enheten tas bort. Det går inte att ångra.',
+          confirmLabel: 'Radera',
+          destructive: true,
+        });
+        if (!confirmed) return;
+        await eraseAllData();
+        toast('All data raderades.');
+        router.navigate('/receipts');
       },
     }),
   );
@@ -742,11 +626,9 @@ function renderAppearanceSection(): HTMLElement {
 
   return listGroup(
     { title: 'Utseende' },
-    el(
-      'div',
-      { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:8px' },
-      el('span', { class: 'row__label', style: 'flex:none', text: 'Tema' }),
-      el(
+    stackedRow({
+      label: 'Tema',
+      control: el(
         'div',
         { class: 'theme-picker', role: 'radiogroup', 'aria-label': 'Tema' },
         ...themes.map((theme) =>
@@ -764,7 +646,7 @@ function renderAppearanceSection(): HTMLElement {
           ),
         ),
       ),
-    ),
+    }),
     switchRow({
       label: 'Visa rabatt- och pantrader',
       checked: ui.showAuxiliaryLines,
@@ -822,10 +704,9 @@ function summarise(report: SyncReport): string {
 function renderAbout(): HTMLElement {
   return el(
     'div',
-    { class: 'empty-state', style: 'padding:24px 32px 8px' },
+    { class: 'empty-state settings-about' },
     icon('receipt', { size: 34, className: 'empty-state__icon', weight: 1.3 }),
     el('p', {
-      style: 'margin:0;font-size:13px;max-width:34ch',
       text:
         'KvittoApp fungerar helt offline. Kvitton, bilder och inställningar ligger bara på den ' +
         'här enheten tills du väljer att synka dem till din egen server.',

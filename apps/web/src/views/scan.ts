@@ -16,7 +16,7 @@
 import { formatBytes } from '@kvitto/shared';
 
 import { createCropEditor, type CropEditor } from '../components/crop-editor.js';
-import { banner, emptyState } from '../components/ui.js';
+import { banner, loadingState } from '../components/ui.js';
 import { el, nextFrame, replaceChildren } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { haptic } from '../core/platform.js';
@@ -414,19 +414,14 @@ export function scanView(): HTMLElement {
     const index = Math.min(progress?.index ?? 1, total);
     const done = total > 0 && (progress?.imported ?? 0) >= total;
 
-    return el(
-      'div',
-      { class: 'empty-state scan-import' },
-      el('div', { class: 'spinner', style: 'width:28px;height:28px' }),
-      el('p', {
-        class: 'empty-state__title',
-        text: total === 1 ? 'Lägger till kvittot…' : `Lägger till kvitto ${index} av ${total}`,
-      }),
-      el('p', {
-        text: done
+    return loadingState(
+      {
+        className: 'scan-import',
+        title: total === 1 ? 'Lägger till kvittot…' : `Lägger till kvitto ${index} av ${total}`,
+        body: done
           ? 'Klart. Öppnar kvittolistan…'
           : 'Hittar kvittots kanter, rätar ut och sparar. Ingen granskning behövs.',
-      }),
+      },
       progress?.name ? el('p', { class: 'faint truncate', text: progress.name }) : null,
       el(
         'div',
@@ -585,13 +580,10 @@ export function scanView(): HTMLElement {
   }
 
   function renderProcessing(): HTMLElement {
-    return el(
-      'div',
-      { class: 'empty-state' },
-      el('div', { class: 'spinner', style: 'width:28px;height:28px' }),
-      el('p', { class: 'empty-state__title', text: 'Behandlar bilden…' }),
-      el('p', { text: 'Hittar kvittots kanter, rätar ut och förbättrar kontrasten.' }),
-    );
+    return loadingState({
+      title: 'Behandlar bilden…',
+      body: 'Hittar kvittots kanter, rätar ut och förbättrar kontrasten.',
+    });
   }
 
   function renderReview(): HTMLElement {
@@ -729,7 +721,7 @@ export function scanView(): HTMLElement {
       editor.element,
       el(
         'div',
-        { class: 'stack', style: 'margin-top:10px' },
+        { class: ['stack', 'stack--top-gap'] },
         el('button', {
           class: 'btn btn--sm',
           type: 'button',

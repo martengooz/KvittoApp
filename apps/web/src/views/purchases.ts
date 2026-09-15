@@ -7,17 +7,20 @@
  */
 
 import {
+  formatAmount,
   formatDate,
   formatMoney,
   formatQuantity,
   formatUnit,
   type Category,
+  type Tag,
 } from '@kvitto/shared';
 
-import { actionSheet, chip as chipControl, emptyState, searchField } from '../components/ui.js';
-import { debounce, el, replaceChildren } from '../core/dom.js';
-import { bus } from '../core/events.js';
+import { actionSheet } from '../components/dialog.js';
+import { actionRow, chip as chipControl, emptyState, searchField } from '../components/ui.js';
+import { debounce, el } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { liveView } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
 import { getSettings } from '../core/settings.js';
@@ -43,20 +46,22 @@ const SORT_LABELS: Record<ItemSortKey, string> = {
 /** Rows rendered before the "show more" button appears. */
 const PAGE_SIZE = 150;
 
-export async function purchasesView(context: RouteContext): Promise<HTMLElement> {
-  const root = el('div', {});
+interface PurchasesData {
+  rows: PurchaseRow[];
+  categories: Map<string, Category>;
+  tags: Map<string, Tag>;
+  merchants: string[];
+}
+
+export function purchasesView(context: RouteContext): Promise<HTMLElement> {
   const filter = filterFromParams(context.params);
   filter.includeDiscounts ??= getSettings().ui.showAuxiliaryLines;
   filter.includeDeposits ??= getSettings().ui.showAuxiliaryLines;
 
+  // "Show more" paging, like the filter panel elsewhere, is UI state that must
+  // survive a `data:changed` refresh rather than reset the list to one page.
   let limit = PAGE_SIZE;
-
-  const unsubscribe = bus.on('data:changed', () => void refresh());
-  router.onTeardown(unsubscribe);
-
-  const summaryHost = el('div', {});
-  const listHost = el('div', { class: 'purchase-list' });
-  const filtersHost = el('div', { class: 'purchase-filters' });
+  let refreshView: () => Promise<void> = async () => {};
 
   function updateUrl(): void {
     const query = paramsFromFilter(filter).toString();
@@ -66,7 +71,7 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
   function onFilterChange(): void {
     limit = PAGE_SIZE;
     updateUrl();
-    void refresh();
+    void refreshView();
   }
 
   const applySearch = debounce((value: string) => {
@@ -74,27 +79,56 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
     onFilterChange();
   }, 220);
 
-  async function refresh(): Promise<void> {
-    const [rows, categories] = await Promise.all([searchPurchases(filter), categoriesById()]);
+  return liveView<PurchasesData>({
+    // Merchants, categories and tags are reloaded on every pass — not cached
+    // once outside it — so a tag or category created elsewhere shows up in
+    // these filters immediately instead of only after leaving and returning.
+    load: async () => {
+      const [rows, categories, tags, merchants] = await Promise.all([
+        searchPurchases(filter),
+        categoriesById(),
+        tagsById(),
+        knownMerchants(),
+      ]);
+      return { rows, categories, tags, merchants };
+    },
+    render: ({ rows, categories, tags, merchants }, refresh) => {
+      refreshView = refresh;
 
-    replaceChildren(summaryHost, renderPurchaseHero(rows, filter.query));
+      return [
+        renderFilters({ filter, categories, tags, merchants, onSearch: applySearch, onChange: onFilterChange }),
+        renderPurchaseHero(rows, filter.query),
+        el(
+          'div',
+          { class: 'purchase-list' },
+          renderRows(rows, categories, limit, () => {
+            limit += PAGE_SIZE;
+            void refreshView();
+          }),
+        ),
+      ];
+    },
+  });
+}
 
-    replaceChildren(listHost, renderRows(rows, categories, limit, () => {
-      limit += PAGE_SIZE;
-      void refresh();
-    }));
-  }
+function renderFilters(options: {
+  filter: ItemFilter;
+  categories: Map<string, Category>;
+  tags: Map<string, Tag>;
+  merchants: string[];
+  onSearch: (value: string) => void;
+  onChange: () => void;
+}): HTMLElement {
+  const { filter, categories, tags, merchants, onSearch, onChange } = options;
 
-  const merchants = await knownMerchants();
-  const [categories, tags] = await Promise.all([categoriesById(), tagsById()]);
-
-  replaceChildren(
-    filtersHost,
+  return el(
+    'div',
+    { class: 'purchase-filters' },
     searchField({
       value: filter.query ?? '',
       placeholder: 'Sök vara, t.ex. mjölk',
       label: 'Sök bland köpta varor',
-      onInput: applySearch,
+      onInput: onSearch,
     }),
     el(
       'div',
@@ -102,9 +136,8 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
       el(
         'button',
         {
-          class: 'btn btn--sm btn--plain',
+          class: 'btn btn--sm btn--plain btn--flush-start',
           type: 'button',
-          style: 'padding-left:0',
           on: {
             click: async () => {
               const chosen = await actionSheet({
@@ -117,7 +150,7 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
               });
               if (!chosen) return;
               filter.sort = chosen;
-              onFilterChange();
+              onChange();
             },
           },
         },
@@ -127,14 +160,13 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
       el(
         'button',
         {
-          class: 'btn btn--sm btn--plain',
+          class: 'btn btn--sm btn--plain btn--flush-end',
           type: 'button',
-          style: 'padding-right:0',
           'aria-label': 'Byt sorteringsordning',
           on: {
             click: () => {
               filter.direction = (filter.direction ?? 'desc') === 'desc' ? 'asc' : 'desc';
-              onFilterChange();
+              onChange();
             },
           },
         },
@@ -152,7 +184,7 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
         on: {
           change: (event) => {
             filter.from = (event.target as HTMLInputElement).value || undefined;
-            onFilterChange();
+            onChange();
           },
         },
       }),
@@ -163,18 +195,18 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
         on: {
           change: (event) => {
             filter.to = (event.target as HTMLInputElement).value || undefined;
-            onFilterChange();
+            onChange();
           },
         },
       }),
     ),
     renderChipRow('Kategori', [...categories.values()], filter.categoryIds ?? [], (ids) => {
       filter.categoryIds = ids.length ? ids : undefined;
-      onFilterChange();
+      onChange();
     }),
     renderChipRow('Etikett', [...tags.values()], filter.tagIds ?? [], (ids) => {
       filter.tagIds = ids.length ? ids : undefined;
-      onFilterChange();
+      onChange();
     }),
     merchants.length > 1
       ? renderChipRow(
@@ -183,7 +215,7 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
           filter.merchants ?? [],
           (ids) => {
             filter.merchants = ids.length ? ids : undefined;
-            onFilterChange();
+            onChange();
           },
         )
       : null,
@@ -195,7 +227,7 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
         pressed: filter.includeDiscounts ?? false,
         onToggle: () => {
           filter.includeDiscounts = !filter.includeDiscounts;
-          onFilterChange();
+          onChange();
         },
       }),
       chipControl({
@@ -203,15 +235,11 @@ export async function purchasesView(context: RouteContext): Promise<HTMLElement>
         pressed: filter.includeDeposits ?? false,
         onToggle: () => {
           filter.includeDeposits = !filter.includeDeposits;
-          onFilterChange();
+          onChange();
         },
       }),
     ),
   );
-
-  replaceChildren(root, filtersHost, summaryHost, listHost);
-  await refresh();
-  return root;
 }
 
 function renderPurchaseHero(rows: PurchaseRow[], query?: string): HTMLElement | null {
@@ -251,7 +279,7 @@ function renderPurchaseHero(rows: PurchaseRow[], query?: string): HTMLElement | 
     el(
       'div',
       { class: 'purchase-hero__average' },
-      el('strong', { text: formatMoney(average).replace(/\s*kr$/, '') }),
+      el('strong', { text: formatAmount(average) }),
       el('span', { text: `kr/${formatUnit(item.unit) || 'st'} i snitt` }),
     ),
     el(
@@ -325,12 +353,9 @@ function renderRows(
 
   if (rows.length > limit) {
     container.appendChild(
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:500',
-        text: `Visa ${Math.min(PAGE_SIZE, rows.length - limit)} till (${rows.length - limit} kvar)`,
-        on: { click: onMore },
+      actionRow({
+        label: `Visa ${Math.min(PAGE_SIZE, rows.length - limit)} till (${rows.length - limit} kvar)`,
+        onClick: onMore,
       }),
     );
   }

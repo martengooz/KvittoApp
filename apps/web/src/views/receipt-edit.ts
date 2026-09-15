@@ -24,11 +24,11 @@ import {
   type Tag,
 } from '@kvitto/shared';
 
-import { banner, listGroup, row as listRow } from '../components/ui.js';
+import { banner, deleteButton, field, listGroup, moneyInput, row as listRow } from '../components/ui.js';
 import { el } from '../core/dom.js';
-import { icon } from '../core/icons.js';
 import { router, type RouteContext } from '../core/router.js';
-import { confirmDialog, toast } from '../core/toast.js';
+import { promptDialog } from '../components/dialog.js';
+import { toast } from '../core/toast.js';
 import type { ReceiptBundle } from '../db/queries.js';
 import {
   addItem,
@@ -38,7 +38,7 @@ import {
   updateItem,
   updateReceipt,
 } from '../db/repo.js';
-import { labelled, moneyInput, receiptCrumb, receiptScreen, UNITS } from './receipt-shared.js';
+import { receiptCrumb, receiptScreen, UNITS } from './receipt-shared.js';
 
 export function receiptEditView(context: RouteContext): Promise<HTMLElement> {
   return receiptScreen(context.segments[1], ({ bundle, categories, tags }) =>
@@ -152,13 +152,12 @@ function renderFacts(receipt: Receipt, categories: Category[]): HTMLElement {
     }),
     el(
       'div',
-      { class: 'row', style: 'flex-direction:column;align-items:stretch;gap:6px' },
-      el('span', { class: 'field__label', style: 'margin:0', text: 'Anteckning' }),
+      { class: 'row row--stacked' },
+      el('span', { class: 'field__label', text: 'Anteckning' }),
       el('textarea', {
         value: receipt.notes ?? '',
         placeholder: 'Egna anteckningar…',
         rows: 2,
-        style: 'background:var(--fill-tertiary);border-radius:8px;padding:8px 10px;text-align:left',
         on: {
           change: (event) => {
             const value = (event.target as HTMLTextAreaElement).value.trim() || null;
@@ -204,10 +203,11 @@ function renderTags(receiptId: string, current: Tag[], all: Tag[]): HTMLElement 
         type: 'button',
         text: 'Ny etikett',
         on: {
-          click: () => {
-            const name = prompt('Namn på etiketten');
-            if (!name?.trim()) return;
-            void createTag(name).then((tag) => setReceiptTags(receiptId, [...selected, tag.id]));
+          click: async () => {
+            const name = await promptDialog({ title: 'Namn på etiketten', label: 'Etikettens namn' });
+            if (!name) return;
+            const tag = await createTag(name);
+            void setReceiptTags(receiptId, [...selected, tag.id]);
           },
         },
       }),
@@ -223,8 +223,8 @@ function renderItems(receipt: Receipt, items: ReceiptItem[], categories: Categor
     { class: 'list-group' },
     el(
       'div',
-      { class: 'stack stack--between pad', style: 'margin-bottom:7px' },
-      el('h2', { class: 'list-group__title', style: 'margin:0;padding:0', text: `Varor (${items.length})` }),
+      { class: ['stack', 'stack--between', 'pad', 'list-group__header'] },
+      el('h2', { class: ['list-group__title', 'list-group__title--flush'], text: `Varor (${items.length})` }),
       el('button', {
         class: 'btn btn--sm btn--plain',
         type: 'button',
@@ -250,43 +250,27 @@ function renderItem(item: ReceiptItem, categories: Category[]): HTMLElement {
       'div',
       { class: 'stack' },
       el('input', {
-        class: 'grow',
+        class: ['grow', 'item-editor__name'],
         type: 'text',
         value: item.name,
         'aria-label': 'Varunamn',
-        style: 'background:none;padding:0;min-height:24px;font-weight:500',
         on: {
           change: (event) => {
             void updateItem(item.id, { name: (event.target as HTMLInputElement).value.trim() || 'Namnlös' });
           },
         },
       }),
-      el(
-        'button',
-        {
-          class: 'btn btn--sm btn--icon btn--plain',
-          type: 'button',
-          'aria-label': `Ta bort ${item.name}`,
-          style: 'color:var(--danger)',
-          on: {
-            click: async () => {
-              const confirmed = await confirmDialog({
-                title: 'Ta bort raden?',
-                message: `"${item.name}" tas bort från kvittot.`,
-                confirmLabel: 'Ta bort',
-                destructive: true,
-              });
-              if (confirmed) void deleteItem(item.id);
-            },
-          },
-        },
-        icon('trash', { size: 18 }),
-      ),
+      deleteButton({
+        label: `Ta bort ${item.name}`,
+        title: 'Ta bort raden?',
+        message: `"${item.name}" tas bort från kvittot.`,
+        onConfirm: () => deleteItem(item.id),
+      }),
     ),
     el(
       'div',
       { class: 'item-editor__grid' },
-      labelled('Antal', el('input', {
+      field('Antal', el('input', {
         type: 'text',
         inputmode: 'decimal',
         value: formatQuantity(item.quantity),
@@ -297,7 +281,7 @@ function renderItem(item: ReceiptItem, categories: Category[]): HTMLElement {
           },
         },
       })),
-      labelled('Enhet', el(
+      field('Enhet', el(
         'select',
         {
           on: {
@@ -310,11 +294,11 @@ function renderItem(item: ReceiptItem, categories: Category[]): HTMLElement {
           el('option', { value: unit, text: formatUnit(unit) || '—', selected: item.unit === unit }),
         ),
       )),
-      labelled('À-pris', moneyInput(item.unitPrice, (value) => updateItem(item.id, { unitPrice: value }))),
-      labelled('Summa', moneyInput(item.totalPrice, (value) =>
+      field('À-pris', moneyInput(item.unitPrice, (value) => updateItem(item.id, { unitPrice: value }))),
+      field('Summa', moneyInput(item.totalPrice, (value) =>
         updateItem(item.id, { totalPrice: value ?? 0 }),
       )),
-      labelled('Kategori', el(
+      field('Kategori', el(
         'select',
         {
           on: {

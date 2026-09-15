@@ -148,3 +148,37 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: numb
 export function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
+
+/**
+ * Runs `swap` — typically a `replaceChildren` that rebuilds a whole subtree —
+ * without losing focus.
+ *
+ * A full re-render tears down and rebuilds every input, so the browser drops
+ * focus and, with it, an in-progress text selection: fatal for a search field
+ * being typed into while a `data:changed` event happens to land. An element
+ * that needs to survive a swap marks itself with `data-focus-key`
+ * (`searchField()` does); if the currently focused element carries one and
+ * sits inside `root`, this finds its replacement by the same key afterwards
+ * and restores focus and the caret.
+ */
+export function preserveFocus(root: Element, swap: () => void): void {
+  const active = document.activeElement;
+  const focused = active instanceof HTMLElement && root.contains(active) ? active : null;
+  const key = focused?.dataset.focusKey;
+  const selectionStart = isTextInput(focused) ? focused.selectionStart : null;
+  const selectionEnd = isTextInput(focused) ? focused.selectionEnd : null;
+
+  swap();
+
+  if (!key) return;
+  const restored = root.querySelector<HTMLElement>(`[data-focus-key="${key}"]`);
+  if (!restored) return;
+  restored.focus({ preventScroll: true });
+  if (isTextInput(restored) && selectionStart !== null && selectionEnd !== null) {
+    restored.setSelectionRange(selectionStart, selectionEnd);
+  }
+}
+
+function isTextInput(node: unknown): node is HTMLInputElement | HTMLTextAreaElement {
+  return node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement;
+}

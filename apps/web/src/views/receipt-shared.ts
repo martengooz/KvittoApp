@@ -8,21 +8,14 @@
  * that scaffolding lives here instead of being written out three times.
  */
 
-import {
-  formatDate,
-  formatMoney,
-  parseAmount,
-  type Category,
-  type ItemUnit,
-  type Receipt,
-  type Tag,
-} from '@kvitto/shared';
+import { formatDate, formatMoney, type Category, type ItemUnit, type Receipt, type Tag } from '@kvitto/shared';
 
 import { emptyState } from '../components/ui.js';
-import { el, replaceChildren } from '../core/dom.js';
-import { bus } from '../core/events.js';
+import { el, type Child } from '../core/dom.js';
+import { liveView, type BusyTask } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import { toast } from '../core/toast.js';
+import { parseReceipt } from '../ai/index.js';
 import { getReceiptBundle, liveCategories, liveTags, type ReceiptBundle } from '../db/queries.js';
 
 /** Units offered by the item editor, in the order a Swedish shop prints them. */
@@ -37,7 +30,7 @@ export interface ReceiptScreenData {
 export type ReceiptScreenRender = (
   data: ReceiptScreenData,
   refresh: () => Promise<void>,
-) => HTMLElement | Promise<HTMLElement>;
+) => Child | Promise<Child>;
 
 /**
  * Mounts one of the receipt screens.
@@ -46,29 +39,34 @@ export type ReceiptScreenRender = (
  * an edit on this screen, an edit on another tab, or an incoming sync — so the
  * views only have to describe what a given bundle looks like.
  */
-export async function receiptScreen(
-  id: string | undefined,
-  render: ReceiptScreenRender,
-): Promise<HTMLElement> {
-  if (!id) return receiptNotFound();
+export function receiptScreen(id: string | undefined, render: ReceiptScreenRender): Promise<HTMLElement> {
+  if (!id) return Promise.resolve(receiptNotFound());
   const receiptId = id;
-  const root = el('div', {});
 
-  async function refresh(): Promise<void> {
-    const bundle = await getReceiptBundle(receiptId);
-    if (!bundle) {
-      replaceChildren(root, receiptNotFound());
-      return;
-    }
-    const [categories, tags] = await Promise.all([liveCategories(), liveTags()]);
-    replaceChildren(root, await render({ bundle, categories, tags }, refresh));
-  }
+  return liveView<ReceiptScreenData | null>({
+    load: async () => {
+      const bundle = await getReceiptBundle(receiptId);
+      if (!bundle) return null;
+      const [categories, tags] = await Promise.all([liveCategories(), liveTags()]);
+      return { bundle, categories, tags };
+    },
+    render: (data, refresh) => (data ? render(data, refresh) : receiptNotFound()),
+  });
+}
 
-  const unsubscribe = bus.on('data:changed', () => void refresh());
-  router.onTeardown(unsubscribe);
-
-  await refresh();
-  return root;
+/**
+ * Runs the AI extraction for a receipt while the screen shows it as busy.
+ *
+ * Shared between the receipt screen and its details screen — both offer this
+ * action and both need the same "don't run twice, always re-render around it"
+ * guard, previously duplicated byte-for-byte between the two.
+ */
+export async function runParse(id: string, refresh: () => Promise<void>, task: BusyTask): Promise<void> {
+  await task.run(async () => {
+    const outcome = await parseReceipt(id);
+    if (outcome.ok) toast('Kvittot tolkades.', { kind: 'success' });
+    else if (outcome.error) toast(outcome.error, { kind: 'error' });
+  }, refresh);
 }
 
 /**
@@ -91,45 +89,6 @@ export function receiptCrumb(receipt: Receipt): HTMLElement {
     el('span', { class: 'receipt-crumb__name', text: receipt.merchant.name ?? 'Okänd butik' }),
     el('span', { class: 'receipt-crumb__meta', text: meta }),
   );
-}
-
-/** A labelled form control, for the editor's dense grids. */
-export function labelled(label: string, control: HTMLElement): HTMLElement {
-  return el('label', { style: 'display:block' }, el('span', { class: 'field__label', text: label }), control);
-}
-
-/**
- * A text input that accepts Swedish money formatting and normalises on blur, so
- * `12,50`, `12.50` and `12 kr` all work.
- */
-export function moneyInput(
-  value: number | null,
-  onCommit: (value: number | null) => Promise<void> | void,
-): HTMLElement {
-  return el('input', {
-    type: 'text',
-    inputmode: 'decimal',
-    value: value === null ? '' : value.toFixed(2).replace('.', ','),
-    on: {
-      change: (event) => {
-        const input = event.target as HTMLInputElement;
-        const raw = input.value.trim();
-        if (!raw) {
-          input.value = '';
-          void onCommit(null);
-          return;
-        }
-        const parsed = parseAmount(raw);
-        if (parsed === null) {
-          toast('Kunde inte tolka beloppet.', { kind: 'error' });
-          input.value = value === null ? '' : value.toFixed(2).replace('.', ',');
-          return;
-        }
-        input.value = parsed.toFixed(2).replace('.', ',');
-        void onCommit(parsed);
-      },
-    },
-  });
 }
 
 export function receiptNotFound(): HTMLElement {

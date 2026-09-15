@@ -156,14 +156,13 @@ export default tseslint.config(
   // copies of the same tinted, centred action row — `components/ui.ts` has the
   // helpers now, so reach for those instead of restating the CSS.
   //
-  // Still 'warn', not 'error': the existing views have not been migrated to
-  // those helpers yet. A later track does that migration and promotes this
-  // back to 'error' once the inline strings are gone.
+  // 'error', not 'warn': the views have been migrated to those helpers and the
+  // inline strings are gone, so a new one is a regression, not a backlog item.
   {
     files: ['apps/web/src/views/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
-        'warn',
+        'error',
         {
           selector: "Property[key.name='style'][value.type='Literal']",
           message:

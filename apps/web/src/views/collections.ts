@@ -8,12 +8,12 @@
 
 import { formatMoney, formatMonth, type Category, type Tag } from '@kvitto/shared';
 
-import { listGroup, row as listRow } from '../components/ui.js';
-import { el, replaceChildren } from '../core/dom.js';
-import { icon } from '../core/icons.js';
-import { bus } from '../core/events.js';
+import { promptDialog } from '../components/dialog.js';
+import { actionRow, deleteButton, listGroup } from '../components/ui.js';
+import { el, type Child } from '../core/dom.js';
+import { liveView } from '../core/live-view.js';
 import { router } from '../core/router.js';
-import { confirmDialog, toast } from '../core/toast.js';
+import { toast } from '../core/toast.js';
 import {
   categoriesById,
   liveCategories,
@@ -31,38 +31,40 @@ import {
   updateTag,
 } from '../db/repo.js';
 
-export async function collectionsView(): Promise<HTMLElement> {
-  const root = el('div', {});
+interface CollectionsData {
+  tags: Tag[];
+  categories: Category[];
+  summary: SpendSummary;
+  tagCounts: Map<string, number>;
+  categoryLookup: Map<string, Category>;
+}
 
-  const unsubscribe = bus.on('data:changed', () => void refresh());
-  router.onTeardown(unsubscribe);
+export function collectionsView(): Promise<HTMLElement> {
+  return liveView<CollectionsData>({
+    load: async () => {
+      const [tags, categories, summary, tagLinks, categoryLookup] = await Promise.all([
+        liveTags(),
+        liveCategories(),
+        summarize(),
+        tagIdsByReceipt(),
+        categoriesById(),
+      ]);
 
-  async function refresh(): Promise<void> {
-    const [tags, categories, summary, tagLinks, categoryLookup] = await Promise.all([
-      liveTags(),
-      liveCategories(),
-      summarize(),
-      tagIdsByReceipt(),
-      categoriesById(),
-    ]);
+      const tagCounts = new Map<string, number>();
+      for (const ids of tagLinks.values()) {
+        for (const id of ids) tagCounts.set(id, (tagCounts.get(id) ?? 0) + 1);
+      }
 
-    const tagCounts = new Map<string, number>();
-    for (const ids of tagLinks.values()) {
-      for (const id of ids) tagCounts.set(id, (tagCounts.get(id) ?? 0) + 1);
-    }
-
-    replaceChildren(
-      root,
+      return { tags, categories, summary, tagCounts, categoryLookup };
+    },
+    render: ({ tags, categories, summary, tagCounts, categoryLookup }) => [
       renderOverview(summary),
       renderSpendByCategory(summary, categoryLookup),
       renderSpendByMonth(summary),
       renderTags(tags, tagCounts),
       renderCategories(categories),
-    );
-  }
-
-  await refresh();
-  return root;
+    ],
+  });
 }
 
 function renderOverview(summary: SpendSummary): HTMLElement {
@@ -136,161 +138,115 @@ function renderSpendByMonth(summary: SpendSummary): HTMLElement | null {
   );
 }
 
-function renderTags(tags: Tag[], counts: Map<string, number>): HTMLElement {
-  const rows: HTMLElement[] = tags.map((tag) =>
+/**
+ * A colour-and-name editable list with a delete action and a "new…" row at
+ * the foot — the shape tags and categories both are, differing only in the
+ * repo calls behind each action and what (if anything) trails the name.
+ */
+function renderCollection<T extends { id: string; name: string; color: string }>(
+  items: T[],
+  options: {
+    title: string;
+    footer?: string;
+    nameLabel: string;
+    newLabel: string;
+    promptTitle: string;
+    trailing?: (item: T) => Child;
+    update: (id: string, patch: { name?: string; color?: string }) => Promise<unknown>;
+    remove: (item: T) => Promise<void>;
+    create: (name: string) => Promise<unknown>;
+    deleteTitle: string;
+    deleteMessage: (item: T) => string;
+    deletedToast: string;
+  },
+): HTMLElement {
+  const rows: HTMLElement[] = items.map((item) =>
     el(
       'div',
       { class: 'row' },
       el('input', {
         type: 'color',
-        value: tag.color,
-        'aria-label': `Färg för ${tag.name}`,
+        value: item.color,
+        'aria-label': `Färg för ${item.name}`,
         on: {
-          change: (event) => void updateTag(tag.id, { color: (event.target as HTMLInputElement).value }),
+          change: (event) => void options.update(item.id, { color: (event.target as HTMLInputElement).value }),
         },
       }),
       el('input', {
         class: 'row__label',
         type: 'text',
-        value: tag.name,
-        'aria-label': 'Etikettens namn',
-        style: 'text-align:left',
+        value: item.name,
+        'aria-label': options.nameLabel,
         on: {
           change: (event) => {
             const name = (event.target as HTMLInputElement).value.trim();
-            if (name) void updateTag(tag.id, { name });
+            if (name) void options.update(item.id, { name });
           },
         },
       }),
+      options.trailing?.(item) ?? null,
+      deleteButton({
+        label: `Ta bort ${item.name}`,
+        title: options.deleteTitle,
+        message: options.deleteMessage(item),
+        onConfirm: async () => {
+          await options.remove(item);
+          toast(options.deletedToast);
+        },
+      }),
+    ),
+  );
+
+  rows.push(
+    actionRow({
+      label: options.newLabel,
+      onClick: async () => {
+        const name = await promptDialog({ title: options.promptTitle, label: options.nameLabel });
+        if (name) void options.create(name);
+      },
+    }),
+  );
+
+  return listGroup({ title: options.title, footer: options.footer }, ...rows);
+}
+
+function renderTags(tags: Tag[], counts: Map<string, number>): HTMLElement {
+  return renderCollection(tags, {
+    title: 'Etiketter',
+    footer: 'Etiketter grupperar kvitton i samlingar — en resa, ett projekt, allt avdragsgillt.',
+    nameLabel: 'Etikettens namn',
+    newLabel: 'Ny etikett',
+    promptTitle: 'Namn på etiketten',
+    trailing: (tag) =>
       el('button', {
-        class: 'row__value',
+        class: ['row__value', 'row__value--link'],
         type: 'button',
-        style: 'background:none;border:0;font:inherit;color:var(--tint);cursor:pointer',
         text: `${counts.get(tag.id) ?? 0} kvitton`,
         on: { click: () => router.navigate(`/receipts?tag=${encodeURIComponent(tag.id)}`) },
       }),
-      el(
-        'button',
-        {
-          class: 'btn btn--sm btn--icon btn--plain',
-          type: 'button',
-          'aria-label': `Ta bort ${tag.name}`,
-          style: 'color:var(--danger)',
-          on: {
-            click: async () => {
-              const confirmed = await confirmDialog({
-                title: 'Ta bort etiketten?',
-                message: `"${tag.name}" tas bort från alla kvitton som har den.`,
-                confirmLabel: 'Ta bort',
-                destructive: true,
-              });
-              if (confirmed) {
-                await deleteTag(tag.id);
-                toast('Etiketten togs bort.');
-              }
-            },
-          },
-        },
-        icon('trash', { size: 18 }),
-      ),
-    ),
-  );
-
-  rows.push(
-    el('button', {
-      class: 'row',
-      type: 'button',
-      style: 'color:var(--tint);justify-content:center;font-weight:500',
-      text: 'Ny etikett',
-      on: {
-        click: () => {
-          const name = prompt('Namn på etiketten');
-          if (name?.trim()) void createTag(name);
-        },
-      },
-    }),
-  );
-
-  return listGroup(
-    {
-      title: 'Etiketter',
-      footer: 'Etiketter grupperar kvitton i samlingar — en resa, ett projekt, allt avdragsgillt.',
-    },
-    ...rows,
-  );
+    update: (id, patch) => updateTag(id, patch),
+    remove: (tag) => deleteTag(tag.id),
+    create: (name) => createTag(name),
+    deleteTitle: 'Ta bort etiketten?',
+    deleteMessage: (tag) => `"${tag.name}" tas bort från alla kvitton som har den.`,
+    deletedToast: 'Etiketten togs bort.',
+  });
 }
 
 function renderCategories(categories: Category[]): HTMLElement {
-  const rows: HTMLElement[] = categories.map((category) =>
-    el(
-      'div',
-      { class: 'row' },
-      el('input', {
-        type: 'color',
-        value: category.color,
-        'aria-label': `Färg för ${category.name}`,
-        on: {
-          change: (event) =>
-            void updateCategory(category.id, { color: (event.target as HTMLInputElement).value }),
-        },
-      }),
-      el('input', {
-        class: 'row__label',
-        type: 'text',
-        value: category.name,
-        'aria-label': 'Kategorinamn',
-        style: 'text-align:left',
-        on: {
-          change: (event) => {
-            const name = (event.target as HTMLInputElement).value.trim();
-            if (name) void updateCategory(category.id, { name });
-          },
-        },
-      }),
-      el('span', { class: 'pill', text: scopeLabel(category.scope) }),
-      el(
-        'button',
-        {
-          class: 'btn btn--sm btn--icon btn--plain',
-          type: 'button',
-          'aria-label': `Ta bort ${category.name}`,
-          style: 'color:var(--danger)',
-          on: {
-            click: async () => {
-              const confirmed = await confirmDialog({
-                title: 'Ta bort kategorin?',
-                message: `Kvitton och varor i "${category.name}" blir okategoriserade.`,
-                confirmLabel: 'Ta bort',
-                destructive: true,
-              });
-              if (confirmed) {
-                await deleteCategory(category.id);
-                toast('Kategorin togs bort.');
-              }
-            },
-          },
-        },
-        icon('trash', { size: 18 }),
-      ),
-    ),
-  );
-
-  rows.push(
-    el('button', {
-      class: 'row',
-      type: 'button',
-      style: 'color:var(--tint);justify-content:center;font-weight:500',
-      text: 'Ny kategori',
-      on: {
-        click: () => {
-          const name = prompt('Namn på kategorin');
-          if (name?.trim()) void createCategory({ name: name.trim() });
-        },
-      },
-    }),
-  );
-
-  return listGroup({ title: `Kategorier (${categories.length})` }, ...rows);
+  return renderCollection(categories, {
+    title: `Kategorier (${categories.length})`,
+    nameLabel: 'Kategorinamn',
+    newLabel: 'Ny kategori',
+    promptTitle: 'Namn på kategorin',
+    trailing: (category) => el('span', { class: 'pill', text: scopeLabel(category.scope) }),
+    update: (id, patch) => updateCategory(id, patch),
+    remove: (category) => deleteCategory(category.id),
+    create: (name) => createCategory({ name }),
+    deleteTitle: 'Ta bort kategorin?',
+    deleteMessage: (category) => `Kvitton och varor i "${category.name}" blir okategoriserade.`,
+    deletedToast: 'Kategorin togs bort.',
+  });
 }
 
 function scopeLabel(scope: Category['scope']): string {

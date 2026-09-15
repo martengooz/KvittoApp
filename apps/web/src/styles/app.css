@@ -373,6 +373,7 @@ body {
 
 .boot-splash__spinner,
 .spinner {
+  flex: none;
   width: 20px;
   height: 20px;
   border: 2px solid var(--fill);
@@ -680,6 +681,16 @@ body {
   width: 100%;
 }
 
+/* Lets a plain button sit flush against the edge of a row it shares with
+   another one, instead of leaving the button's own inline padding as a gap. */
+.btn--flush-start {
+  padding-left: 0;
+}
+
+.btn--flush-end {
+  padding-right: 0;
+}
+
 /* Header bar buttons are plain tinted text, as in UIKit. */
 .bar-button {
   display: inline-flex;
@@ -728,6 +739,17 @@ body {
   font-size: 13px;
   line-height: 1.35;
   color: var(--label-secondary);
+}
+
+/* A title sharing its line with a trailing button, e.g. "Varor (N)" next to
+   "Lägg till" — the wrapping row owns the spacing and inline padding instead. */
+.list-group__title--flush {
+  margin: 0;
+  padding: 0;
+}
+
+.list-group__header {
+  margin-bottom: 7px;
 }
 
 .inset-list {
@@ -796,6 +818,22 @@ a.row:active {
   white-space: nowrap;
 }
 
+/* A `row__value` that is itself the row's action — a tap target rather than
+   read-only trailing text — so it needs button reset plus the tint colour. */
+.row__value--link {
+  background: none;
+  border: 0;
+  font: inherit;
+  color: var(--tint);
+  cursor: pointer;
+}
+
+/* An editable row's own name/label, not a trailing value — `.row` inputs are
+   right-aligned by default, which reads wrong for the row's primary text. */
+.row input[type='text'].row__label {
+  text-align: left;
+}
+
 /* The iOS disclosure chevron. */
 .row__chevron {
   flex: none;
@@ -813,6 +851,47 @@ a.row:active {
   border-radius: 7px;
   background: var(--fill-tertiary);
   font-size: 16px;
+}
+
+/* A row that acts like a button: "Ny etikett", "Synka nu", "Radera all data". */
+.row--action {
+  color: var(--tint);
+  justify-content: center;
+  font-weight: 500;
+}
+
+.row--action--danger {
+  color: var(--danger);
+}
+
+/* A row whose control sits below its label rather than beside it. */
+.row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* A caption above a stacked control reads as a field label, not a row label —
+   `.field__label`'s own bottom margin would double up with the row's gap. */
+.row--stacked .field__label {
+  margin: 0;
+}
+
+/* A warnings list stacked under its own caption; not a paragraph, so it needs
+   its own reset rather than `.faint`'s. */
+.row--stacked ul.faint {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* A free-text control stacked under its own caption, styled as an editable
+   block rather than the trailing, right-aligned field `.row textarea` resets
+   every other textarea to. */
+.row--stacked textarea {
+  background: var(--fill-tertiary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
 }
 
 /* --- forms --------------------------------------------------------------- */
@@ -1322,6 +1401,15 @@ input.detail-merchant {
   margin-bottom: 3px;
 }
 
+/* The item's own name, not one of the grid's boxed fields — reads as inline
+   editable text, so it opts back out of `.item-editor input`'s field chrome. */
+.item-editor input.item-editor__name {
+  background: none;
+  padding: 0;
+  min-height: 24px;
+  font-weight: 500;
+}
+
 .totals-table {
   width: 100%;
   border-collapse: collapse;
@@ -1703,6 +1791,17 @@ input.detail-merchant {
   line-height: 1.35;
 }
 
+/* The about blurb at the foot of Settings: not really an empty state, just
+   reusing its centred-icon-plus-text layout at a smaller, tighter size. */
+.settings-about {
+  padding: 24px 32px 8px;
+}
+
+.settings-about p {
+  font-size: 13px;
+  max-width: 34ch;
+}
+
 .view-error {
   padding: 32px var(--gutter);
   color: var(--danger);
@@ -1815,6 +1914,12 @@ input.detail-merchant {
   color: var(--label);
 }
 
+/* A prompt dialog's text input, under the title. */
+.dialog__content input[type='text'] {
+  margin-top: 12px;
+  text-align: left;
+}
+
 .dialog__actions {
   display: grid;
   grid-auto-flow: column;
@@ -1924,6 +2029,10 @@ input.detail-merchant {
   font-weight: 600;
   background: var(--material-thick);
   border-radius: var(--radius-sheet);
+}
+
+.sheet__option--danger {
+  color: var(--danger);
 }
 
 /* --- misc ---------------------------------------------------------------- */
@@ -2347,6 +2456,11 @@ input.detail-merchant {
 
 .receipt-image-details {
   margin-top: 6px;
+}
+
+.receipt-image-details summary {
+  cursor: pointer;
+  color: var(--tint);
 }
 
 .receipt-detail .list-group .inset-list,
@@ -3115,6 +3229,7 @@ input.detail-merchant {
 .stack--wrap { flex-wrap: wrap; }
 .stack--between { justify-content: space-between; }
 .stack--pad { padding-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right)); }
+.stack--top-gap { margin-top: 10px; }
 
 .grow { flex: 1; min-width: 0; }
 .muted { color: var(--label-secondary); }

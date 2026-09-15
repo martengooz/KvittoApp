@@ -1,8 +1,10 @@
-import { listGroup, segmented } from '../components/ui.js';
+import { listGroup, loadingState, segmented } from '../components/ui.js';
 import { getClientDebugEntries, clearClientDebugEntries, type DebugEntry } from '../core/debug-log.js';
 import { el, replaceChildren } from '../core/dom.js';
+import { router } from '../core/router.js';
 import { getSettings } from '../core/settings.js';
-import { confirmDialog, toast } from '../core/toast.js';
+import { confirmDialog } from '../components/dialog.js';
+import { toast } from '../core/toast.js';
 import { clearServerDebugLog, serverDebugLog } from '../sync/client.js';
 
 type LogSource = 'client' | 'server';
@@ -10,13 +12,22 @@ type LogSource = 'client' | 'server';
 export async function debugLogView(): Promise<HTMLElement> {
   const root = el('div', {});
   let source: LogSource = 'client';
+  // A fetch (especially the server log, a network round trip) can still be in
+  // flight when the user navigates away; this stops it writing into a root
+  // nobody is looking at any more.
+  let disposed = false;
+  router.onTeardown(() => {
+    disposed = true;
+  });
 
   async function render(): Promise<void> {
-    replaceChildren(root, controls(true), el('p', { class: 'page-message', text: 'Hämtar logg…' }));
+    replaceChildren(root, controls(true), loadingState({ title: 'Hämtar logg…' }));
     try {
       const entries = await load(source);
+      if (disposed) return;
       replaceChildren(root, controls(false), renderEntries(entries));
     } catch (error) {
+      if (disposed) return;
       replaceChildren(
         root,
         controls(false),
@@ -71,10 +82,9 @@ export async function debugLogView(): Promise<HTMLElement> {
           on: { click: () => void exportLog(source) },
         }),
         el('button', {
-          class: 'btn btn--plain',
+          class: 'btn btn--plain btn--danger-plain',
           type: 'button',
           disabled,
-          style: 'color:var(--danger)',
           text: 'Rensa',
           on: {
             click: async () => {

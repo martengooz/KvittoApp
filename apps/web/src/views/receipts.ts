@@ -5,12 +5,13 @@
  * reload and can be bookmarked or shared between the app's own screens.
  */
 
-import { formatDate, formatMoney, formatMonth, type Category, type Receipt } from '@kvitto/shared';
+import { formatAmount, formatDate, formatMoney, formatMonth, type Category, type Receipt } from '@kvitto/shared';
 
-import { actionSheet, chip, emptyState, searchField } from '../components/ui.js';
-import { debounce, el, replaceChildren } from '../core/dom.js';
-import { bus } from '../core/events.js';
+import { actionSheet } from '../components/dialog.js';
+import { chip, emptyState, searchField } from '../components/ui.js';
+import { debounce, el } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { liveView } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
 import { blobUrl } from '../db/blobs.js';
@@ -31,16 +32,12 @@ const SORT_LABELS: Record<ReceiptSortKey, string> = {
   items: 'Antal varor',
 };
 
-export async function receiptsView(context: RouteContext): Promise<HTMLElement> {
-  const root = el('div', {});
+export function receiptsView(context: RouteContext): Promise<HTMLElement> {
   const filter = filterFromParams(context.params);
-
-  const unsubscribe = bus.on('data:changed', () => void refresh());
-  router.onTeardown(unsubscribe);
-
-  const listHost = el('div', { class: 'receipt-list' });
-  const summaryHost = el('div', {});
-  const filterPanel = el('div', { class: 'receipt-filter-panel', hidden: true });
+  // The filter panel's open/closed state is UI, not data — kept outside the
+  // reload/render cycle so a `data:changed` refresh doesn't collapse it.
+  let filterOpen = false;
+  let refreshView: () => Promise<void> = async () => {};
 
   function updateUrl(): void {
     const params = paramsFromFilter(filter);
@@ -51,74 +48,68 @@ export async function receiptsView(context: RouteContext): Promise<HTMLElement> 
   const applySearch = debounce((value: string) => {
     filter.query = value || undefined;
     updateUrl();
-    void refresh();
+    void refreshView();
   }, 220);
 
-  async function refresh(): Promise<void> {
-    const [receipts, allReceipts, categories] = await Promise.all([
-      searchReceipts(filter),
-      liveReceipts(),
-      categoriesById(),
-    ]);
-
-    replaceChildren(summaryHost, renderSummary(allReceipts, categories));
-
-    replaceChildren(listHost, await renderList(receipts));
+  function onFilterChange(): void {
+    updateUrl();
+    void refreshView();
   }
 
-  const onFilterChange = (): void => {
-    updateUrl();
-    void refresh();
-  };
+  return liveView({
+    load: async () => {
+      const [receipts, allReceipts, categories] = await Promise.all([
+        searchReceipts(filter),
+        liveReceipts(),
+        categoriesById(),
+      ]);
+      return { receipts, allReceipts, categories };
+    },
+    render: async ({ receipts, allReceipts, categories }, refresh) => {
+      refreshView = refresh;
 
-  replaceChildren(
-    root,
-    summaryHost,
-    el(
-      'div',
-      { class: 'receipt-tools' },
-      el(
-        'div',
-        { class: 'receipt-search-row' },
-        searchField({
-          value: filter.query ?? '',
-          placeholder: 'Sök butik eller vara',
-          label: 'Sök bland kvitton',
-          onInput: applySearch,
-        }),
+      return [
+        renderSummary(allReceipts, categories),
         el(
-          'button',
-          {
-            class: 'filter-button',
-            type: 'button',
-            'aria-label': 'Visa filter',
-            'aria-expanded': 'false',
-            on: {
-              click: (event) => {
-                filterPanel.hidden = !filterPanel.hidden;
-                (event.currentTarget as HTMLButtonElement).setAttribute(
-                  'aria-expanded',
-                  String(!filterPanel.hidden),
-                );
+          'div',
+          { class: 'receipt-tools' },
+          el(
+            'div',
+            { class: 'receipt-search-row' },
+            searchField({
+              value: filter.query ?? '',
+              placeholder: 'Sök butik eller vara',
+              label: 'Sök bland kvitton',
+              onInput: applySearch,
+            }),
+            el(
+              'button',
+              {
+                class: 'filter-button',
+                type: 'button',
+                'aria-label': 'Visa filter',
+                'aria-expanded': String(filterOpen),
+                on: {
+                  click: () => {
+                    filterOpen = !filterOpen;
+                    void refreshView();
+                  },
+                },
               },
-            },
-          },
-          icon('filter', { size: 20 }),
+              icon('filter', { size: 20 }),
+            ),
+          ),
+          el(
+            'div',
+            { class: 'receipt-filter-panel', hidden: !filterOpen },
+            renderQuickFilters(filter, onFilterChange),
+            el('div', { class: 'pad' }, renderSortRow(filter, onFilterChange)),
+          ),
         ),
-      ),
-      filterPanel,
-    ),
-    listHost,
-  );
-
-  replaceChildren(
-    filterPanel,
-    renderQuickFilters(filter, onFilterChange),
-    el('div', { class: 'pad' }, renderSortRow(filter, onFilterChange)),
-  );
-
-  await refresh();
-  return root;
+        await renderList(receipts),
+      ];
+    },
+  });
 }
 
 function renderSummary(receipts: Receipt[], categories: Map<string, Category>): HTMLElement {
@@ -175,7 +166,7 @@ function renderSummary(receipts: Receipt[], categories: Map<string, Category>): 
       el(
         'div',
         { class: 'receipt-donut', style: `background:conic-gradient(${stops.join(',')})` },
-        el('span', { text: formatMoney(total).replace(/\s*kr$/, '') }),
+        el('span', { text: formatAmount(total) }),
       ),
       el(
         'div',
@@ -186,7 +177,7 @@ function renderSummary(receipts: Receipt[], categories: Map<string, Category>): 
             { class: 'receipt-legend__row' },
             el('span', { class: `receipt-legend__dot receipt-legend__dot--${Math.min(index + 2, 5)}` }),
             el('span', { class: 'truncate', text: entry.name }),
-            el('span', { class: 'receipt-legend__amount', text: formatMoney(entry.amount).replace(/\s*kr$/, '') }),
+            el('span', { class: 'receipt-legend__amount', text: formatAmount(entry.amount) }),
           ),
         ),
       ),
@@ -235,9 +226,8 @@ function renderSortRow(filter: ReceiptFilter, onChange: () => void): HTMLElement
     el(
       'button',
       {
-        class: 'btn btn--sm btn--plain',
+        class: 'btn btn--sm btn--plain btn--flush-start',
         type: 'button',
-        style: 'padding-left:0',
         on: {
           click: async () => {
             const chosen = await actionSheet({
@@ -260,9 +250,8 @@ function renderSortRow(filter: ReceiptFilter, onChange: () => void): HTMLElement
     el(
       'button',
       {
-        class: 'btn btn--sm btn--plain',
+        class: 'btn btn--sm btn--plain btn--flush-end',
         type: 'button',
-        style: 'padding-right:0',
         'aria-label': descending ? 'Sorterar fallande' : 'Sorterar stigande',
         on: {
           click: () => {
