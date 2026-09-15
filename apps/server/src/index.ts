@@ -16,14 +16,13 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 
-import { SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
-
 import { ensureDefaultAccount } from './db/accounts.ts';
 import { closeDatabase, getConnection } from './db/index.ts';
 import { effectiveAiSettings } from './db/server-settings.ts';
 import { registerDashboard } from './dashboard.ts';
 import { registerDebugLog } from './debug-log.ts';
 import { config, llmEnabled } from './env.ts';
+import { fail, IMAGE_TYPES, withSyncEnvelope } from './http/reply.ts';
 import { shutdown as shutdownLlm, status as llmStatus } from './llm/runtime.ts';
 import { startWorker, stopWorker } from './llm/worker.ts';
 import { registerAiRoutes } from './routes/ai.ts';
@@ -67,7 +66,7 @@ export async function buildServer() {
   registerDebugLog(app);
 
   // Raw image uploads: `PUT /blobs/:id` sends bytes, not JSON.
-  for (const type of ['image/jpeg', 'image/png', 'image/webp']) {
+  for (const type of IMAGE_TYPES) {
     app.addContentTypeParser(type, { parseAs: 'buffer' }, (_request, body, done) => {
       done(null, body);
     });
@@ -75,14 +74,12 @@ export async function buildServer() {
 
   app.get('/health', async () => {
     const ai = effectiveAiSettings(accountId);
-    return {
+    return withSyncEnvelope({
       ok: true,
-      protocolVersion: SYNC_PROTOCOL_VERSION,
       aiProxyEnabled: ai.enabled,
       llmEnabled: llmEnabled(),
       llmState: llmEnabled() ? llmStatus().state : 'off',
-      serverTime: Date.now(),
-    };
+    });
   });
 
   registerDashboard(app);
@@ -101,10 +98,12 @@ export async function buildServer() {
     if (status >= 500) request.log.error({ error }, 'request failed');
     // Never surface an internal error message to a client; it can carry paths
     // and configuration detail.
-    void reply.code(status).send({
-      error: status >= 500 ? 'internal_error' : (error.code ?? 'request_failed'),
-      message: status >= 500 ? 'Ett internt fel inträffade.' : error.message,
-    });
+    void fail(
+      reply,
+      status,
+      status >= 500 ? 'internal_error' : (error.code ?? 'request_failed'),
+      status >= 500 ? 'Ett internt fel inträffade.' : error.message,
+    );
   });
 
   return app;
@@ -133,7 +132,7 @@ function registerStatic(app: FastifyInstance, root: string): void {
 
   app.setNotFoundHandler((request, reply) => {
     if (request.method !== 'GET') {
-      return reply.code(404).send({ error: 'not_found', message: 'Okänd endpoint.' });
+      return fail(reply, 404, 'not_found', 'Okänd endpoint.');
     }
 
     const requested = decodeURIComponent(request.url.split('?')[0] ?? '/');
@@ -141,7 +140,7 @@ function registerStatic(app: FastifyInstance, root: string): void {
     // still escapes the root — a static handler is the classic traversal hole.
     const candidate = normalize(join(root, requested === '/' ? 'index.html' : requested));
     if (!candidate.startsWith(root)) {
-      return reply.code(403).send({ error: 'forbidden', message: 'Otillåten sökväg.' });
+      return fail(reply, 403, 'forbidden', 'Otillåten sökväg.');
     }
 
     try {
@@ -163,7 +162,7 @@ function registerStatic(app: FastifyInstance, root: string): void {
           .header('cache-control', 'no-cache')
           .send(readFileSync(join(root, 'index.html')));
       } catch {
-        return reply.code(404).send({ error: 'not_found', message: 'Hittades inte.' });
+        return fail(reply, 404, 'not_found', 'Hittades inte.');
       }
     }
   });

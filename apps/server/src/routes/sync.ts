@@ -8,6 +8,7 @@ import { device, requireDevice } from '../auth.ts';
 import { accountEpoch } from '../db/accounts.ts';
 import { applyPush, currentRev, pendingCounts, pull, stats } from '../db/sync.ts';
 import { config } from '../env.ts';
+import { fail, intQuery, withServerTime } from '../http/reply.ts';
 
 export function registerSyncRoutes(app: FastifyInstance): void {
   app.post<{ Body: PushRequest }>(
@@ -31,6 +32,8 @@ export function registerSyncRoutes(app: FastifyInstance): void {
       const { protocolVersion, changes } = request.body;
 
       if (protocolVersion !== undefined && protocolVersion !== SYNC_PROTOCOL_VERSION) {
+        // The mismatch reply carries its own `protocolVersion`, ahead of and
+        // independent from the sync envelope every other response gets.
         return reply.code(409).send({
           error: 'protocol_mismatch',
           message: `Servern talar protokollversion ${SYNC_PROTOCOL_VERSION}, klienten ${protocolVersion}.`,
@@ -40,18 +43,16 @@ export function registerSyncRoutes(app: FastifyInstance): void {
 
       const size = changeSetSize(changes);
       if (size === 0) {
-        return reply.send({
-          results: [],
-          cursor: currentRev(context.accountId),
-          epoch: accountEpoch(context.accountId),
-          serverTime: Date.now(),
-        });
+        return reply.send(
+          withServerTime({
+            results: [],
+            cursor: currentRev(context.accountId),
+            epoch: accountEpoch(context.accountId),
+          }),
+        );
       }
       if (size > 2000) {
-        return reply.code(413).send({
-          error: 'too_many_records',
-          message: 'Skicka högst 2000 poster per anrop.',
-        });
+        return fail(reply, 413, 'too_many_records', 'Skicka högst 2000 poster per anrop.');
       }
 
       const { results, cursor } = applyPush(context.accountId, context.deviceId, changes);
@@ -64,12 +65,7 @@ export function registerSyncRoutes(app: FastifyInstance): void {
         },
         'sync push',
       );
-      return reply.send({
-        results,
-        cursor,
-        epoch: accountEpoch(context.accountId),
-        serverTime: Date.now(),
-      });
+      return reply.send(withServerTime({ results, cursor, epoch: accountEpoch(context.accountId) }));
     },
   );
 
@@ -78,15 +74,11 @@ export function registerSyncRoutes(app: FastifyInstance): void {
     { preHandler: requireDevice },
     async (request, reply) => {
       const context = device(request);
-      const since = Math.max(0, Number.parseInt(request.query.since ?? '0', 10) || 0);
-      const requested = Number.parseInt(request.query.limit ?? '', 10);
-      const limit = Math.min(
-        config.pullPageSize,
-        Number.isFinite(requested) && requested > 0 ? requested : config.pullPageSize,
-      );
+      const since = intQuery(request.query, 'since', { min: 0, default: 0 });
+      const limit = intQuery(request.query, 'limit', { min: 1, max: config.pullPageSize, default: config.pullPageSize });
 
       const result = pull(context.accountId, since, limit);
-      return reply.send({ ...result, epoch: accountEpoch(context.accountId), serverTime: Date.now() });
+      return reply.send(withServerTime({ ...result, epoch: accountEpoch(context.accountId) }));
     },
   );
 
@@ -107,14 +99,13 @@ export function registerSyncRoutes(app: FastifyInstance): void {
       const epoch = accountEpoch(context.accountId);
 
       const raw = request.query.since;
-      const since = raw === undefined ? null : Math.max(0, Number.parseInt(raw, 10) || 0);
+      const since = raw === undefined ? null : intQuery(request.query, 'since', { min: 0, default: 0 });
 
-      const response: Record<string, unknown> = {
+      const response: Record<string, unknown> = withServerTime({
         cursor,
         epoch,
         hasChanges: since === null ? cursor > 0 : since < cursor,
-        serverTime: Date.now(),
-      };
+      });
 
       if (since !== null) {
         // A cursor above the server's counter cannot be explained by anything

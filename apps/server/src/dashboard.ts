@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os';
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
+import { isLoopback } from './auth.ts';
 import { config } from './env.ts';
 
 const aiSettingsModule = readFileSync(new URL(import.meta.resolve('@kvitto/shared/ai-settings-ui')), 'utf8');
@@ -34,7 +35,7 @@ function send(reply: FastifyReply, contentType: string, body: string): FastifyRe
 
 function pairingServerUrl(request: FastifyRequest): string {
   if (config.publicUrl) return config.publicUrl.replace(/\/+$/, '');
-  if (!isLoopback(request.hostname)) return `${request.protocol}://${request.host}`;
+  if (!isLoopback(request)) return `${request.protocol}://${request.host}`;
 
   const port = new URL(`${request.protocol}://${request.host}`).port;
   const address = Object.values(networkInterfaces())
@@ -43,11 +44,6 @@ function pairingServerUrl(request: FastifyRequest): string {
     ?.address;
   if (!address) return `${request.protocol}://${request.host}`;
   return `${request.protocol}://${address}${port ? `:${port}` : ''}`;
-}
-
-function isLoopback(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }
 
 const page = `<!doctype html>

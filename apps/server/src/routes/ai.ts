@@ -6,8 +6,7 @@ import { device, requireDevice } from '../auth.ts';
 import { runExtraction, ProxyError } from '../ai/proxy.ts';
 import { effectiveAiSettings } from '../db/server-settings.ts';
 import { config } from '../env.ts';
-
-const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+import { fail, isImageType, unsupportedMediaType } from '../http/reply.ts';
 
 export function registerAiRoutes(app: FastifyInstance): void {
   app.post(
@@ -21,10 +20,7 @@ export function registerAiRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const ai = effectiveAiSettings(device(request).accountId);
       if (!ai.enabled) {
-        return reply.code(501).send({
-          error: 'ai_disabled',
-          message: 'Servern har ingen AI-proxy konfigurerad.',
-        });
+        return fail(reply, 501, 'ai_disabled', 'Servern har ingen AI-proxy konfigurerad.');
       }
 
       const parts = request.parts();
@@ -42,11 +38,8 @@ export function registerAiRoutes(app: FastifyInstance): void {
           }
           image = await part.toBuffer();
           const type = part.mimetype.split(';')[0]?.trim() ?? '';
-          if (!ALLOWED_TYPES.has(type)) {
-            return reply.code(415).send({
-              error: 'unsupported_media_type',
-              message: `Endast ${[...ALLOWED_TYPES].join(', ')} stöds.`,
-            });
+          if (!isImageType(type)) {
+            return unsupportedMediaType(reply);
           }
           mimeType = type;
         } else if (part.fieldname === 'model') {
@@ -57,10 +50,10 @@ export function registerAiRoutes(app: FastifyInstance): void {
       }
 
       if (!image || image.length === 0) {
-        return reply.code(400).send({ error: 'missing_image', message: 'Ingen bild bifogades.' });
+        return fail(reply, 400, 'missing_image', 'Ingen bild bifogades.');
       }
       if (image.length > config.maxBlobBytes) {
-        return reply.code(413).send({ error: 'image_too_large', message: 'Bilden är för stor.' });
+        return fail(reply, 413, 'image_too_large', 'Bilden är för stor.');
       }
 
       // A device must not be able to bill the operator for an arbitrary model.
@@ -75,10 +68,10 @@ export function registerAiRoutes(app: FastifyInstance): void {
         return reply.send(result);
       } catch (error) {
         if (error instanceof ProxyError) {
-          return reply.code(error.status).send({ error: 'ai_failed', message: error.message });
+          return fail(reply, error.status, 'ai_failed', error.message);
         }
         request.log.error({ error }, 'AI proxy failed');
-        return reply.code(502).send({ error: 'ai_failed', message: 'AI-tolkningen misslyckades.' });
+        return fail(reply, 502, 'ai_failed', 'AI-tolkningen misslyckades.');
       }
     },
   );

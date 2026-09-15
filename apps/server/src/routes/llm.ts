@@ -6,11 +6,12 @@
  * to get on with it.
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { device, requireDevice } from '../auth.ts';
 import { readRecord } from '../db/sync.ts';
 import { config } from '../env.ts';
+import { fail, withServerTime } from '../http/reply.ts';
 import * as jobs from '../llm/jobs.ts';
 import { ensureReady, fetchModel, installedModels, status } from '../llm/runtime.ts';
 import { lastPass, runPass } from '../llm/worker.ts';
@@ -18,7 +19,7 @@ import { lastPass, runPass } from '../llm/worker.ts';
 export function registerLlmRoutes(app: FastifyInstance): void {
   app.get('/llm/status', { preHandler: requireDevice }, async (request) => {
     const context = device(request);
-    return {
+    return withServerTime({
       enabled: config.llm.enabled,
       runtime: status(),
       models: config.llm.enabled ? await installedModels() : [],
@@ -30,13 +31,12 @@ export function registerLlmRoutes(app: FastifyInstance): void {
         nextAttemptAt: job.nextAttemptAt,
         error: job.lastError,
       })),
-      serverTime: Date.now(),
-    };
+    });
   });
 
   /** Brings the runtime up without waiting for the next scheduled pass. */
   app.post('/llm/start', { preHandler: requireDevice }, async (_request, reply) => {
-    if (!config.llm.enabled) return reply.code(501).send(disabled());
+    if (!config.llm.enabled) return llmDisabled(reply);
     const ready = await ensureReady();
     return reply.send({ ready, runtime: status() });
   });
@@ -49,10 +49,10 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     '/llm/pull',
     { preHandler: requireDevice, config: { rateLimit: { max: 3, timeWindow: '10 minutes' } } },
     async (_request, reply) => {
-      if (!config.llm.enabled) return reply.code(501).send(disabled());
+      if (!config.llm.enabled) return llmDisabled(reply);
       const current = status();
       if (current.state === 'pulling') {
-        return reply.code(409).send({ error: 'already_pulling', message: 'Nedladdningen pågår redan.' });
+        return fail(reply, 409, 'already_pulling', 'Nedladdningen pågår redan.');
       }
       void fetchModel();
       return reply.code(202).send({ started: true, model: config.llm.model });
@@ -64,7 +64,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     '/llm/scan',
     { preHandler: requireDevice, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      if (!config.llm.enabled) return reply.code(501).send(disabled());
+      if (!config.llm.enabled) return llmDisabled(reply);
       const context = device(request);
       const requested = Number(request.body?.size);
       const size = Number.isFinite(requested)
@@ -81,7 +81,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     '/llm/requeue',
     { preHandler: requireDevice },
     async (request, reply) => {
-      if (!config.llm.enabled) return reply.code(501).send(disabled());
+      if (!config.llm.enabled) return llmDisabled(reply);
       const context = device(request);
       const receiptId = request.body?.receiptId;
 
@@ -92,7 +92,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
 
       const receipt = readRecord(context.accountId, 'receipts', receiptId);
       if (!receipt) {
-        return reply.code(404).send({ error: 'not_found', message: 'Kvittot finns inte.' });
+        return fail(reply, 404, 'not_found', 'Kvittot finns inte.');
       }
       jobs.requeue(context.accountId, receipt);
       return reply.send({ requeued: 1 });
@@ -100,9 +100,6 @@ export function registerLlmRoutes(app: FastifyInstance): void {
   );
 }
 
-function disabled() {
-  return {
-    error: 'llm_disabled',
-    message: 'Den lokala modellen är avstängd. Sätt KVITTO_LLM_ENABLED=1.',
-  };
+function llmDisabled(reply: FastifyReply): FastifyReply {
+  return fail(reply, 501, 'llm_disabled', 'Den lokala modellen är avstängd. Sätt KVITTO_LLM_ENABLED=1.');
 }

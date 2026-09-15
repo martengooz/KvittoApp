@@ -9,9 +9,7 @@ import { device, requireDevice } from '../auth.ts';
 import { blobExists, isValidBlobId, readBlob, storeBlob } from '../blobs.ts';
 import { getDb, schema } from '../db/index.ts';
 import { config } from '../env.ts';
-
-/** Media types a receipt scan can legitimately be. */
-const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+import { fail, isImageType, unsupportedMediaType } from '../http/reply.ts';
 
 export function registerBlobRoutes(app: FastifyInstance): void {
   /**
@@ -54,30 +52,29 @@ export function registerBlobRoutes(app: FastifyInstance): void {
       const { id } = request.params;
 
       if (!isValidBlobId(id)) {
-        return reply.code(400).send({ error: 'invalid_id', message: 'Blob-id måste vara SHA-256 i hex.' });
+        return fail(reply, 400, 'invalid_id', 'Blob-id måste vara SHA-256 i hex.');
       }
 
       const contentType = (request.headers['content-type'] ?? '').split(';')[0]?.trim() ?? '';
-      if (!ALLOWED_TYPES.has(contentType)) {
-        return reply.code(415).send({
-          error: 'unsupported_media_type',
-          message: `Endast ${[...ALLOWED_TYPES].join(', ')} stöds.`,
-        });
+      if (!isImageType(contentType)) {
+        return unsupportedMediaType(reply);
       }
 
       const body = request.body;
       if (!Buffer.isBuffer(body)) {
-        return reply.code(400).send({ error: 'invalid_body', message: 'Förväntade binärdata.' });
+        return fail(reply, 400, 'invalid_body', 'Förväntade binärdata.');
       }
 
       const result = await storeBlob(id, body);
       if (!result.ok) {
-        return reply.code(409).send({
-          error: 'digest_mismatch',
-          message: result.mismatch
+        return fail(
+          reply,
+          409,
+          'digest_mismatch',
+          result.mismatch
             ? `Innehållet hashar till ${result.mismatch.actual}, inte ${result.mismatch.expected}.`
             : 'Kunde inte spara bilden.',
-        });
+        );
       }
 
       // Record ownership so a future cleanup pass knows which account a file
@@ -102,7 +99,7 @@ export function registerBlobRoutes(app: FastifyInstance): void {
     const context = device(request);
     const { id } = request.params;
     if (!isValidBlobId(id)) {
-      return reply.code(400).send({ error: 'invalid_id', message: 'Ogiltigt blob-id.' });
+      return fail(reply, 400, 'invalid_id', 'Blob-id måste vara SHA-256 i hex.');
     }
 
     const record = getDb()
@@ -114,10 +111,10 @@ export function registerBlobRoutes(app: FastifyInstance): void {
 
     // Files are content-addressed and therefore shared, but a device may only
     // fetch digests its own account uploaded.
-    if (!record) return reply.code(404).send({ error: 'not_found', message: 'Bilden finns inte.' });
+    if (!record) return fail(reply, 404, 'not_found', 'Bilden finns inte.');
 
     const data = await readBlob(id);
-    if (!data) return reply.code(404).send({ error: 'not_found', message: 'Bilden finns inte på disk.' });
+    if (!data) return fail(reply, 404, 'not_found', 'Bilden finns inte på disk.');
 
     return reply
       .header('content-type', record.mimeType)

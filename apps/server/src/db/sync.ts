@@ -34,6 +34,20 @@ function tableFor(kind: EntityKind) {
 }
 
 /**
+ * Writes one entity row, inserting it or overwriting the existing one —
+ * the shape both {@link applyPush} and {@link writeServerRecords} give a
+ * record before storing it, the two differing only in whose id goes in
+ * `lastDeviceId`.
+ */
+function upsertEntityRow(
+  kind: EntityKind,
+  row: { id: string; accountId: string; rev: number; updatedAt: number; deletedAt: number; payload: string; lastDeviceId: string },
+): void {
+  const table = tableFor(kind);
+  getDb().insert(table).values(row).onConflictDoUpdate({ target: table.id, set: row }).run();
+}
+
+/**
  * Allocates the next revision for an account.
  *
  * Called inside the push transaction so revisions are gap-free and strictly
@@ -120,7 +134,7 @@ export function applyPush(
         cursor = rev;
         const payload = serializePayload(kind, { ...incoming, rev, dirty: 0 } as AnyEntity);
 
-        const values = {
+        upsertEntityRow(kind, {
           id: incoming.id,
           accountId,
           rev,
@@ -128,12 +142,7 @@ export function applyPush(
           deletedAt: incoming.deletedAt,
           payload,
           lastDeviceId: deviceId,
-        };
-
-        db.insert(table)
-          .values(values)
-          .onConflictDoUpdate({ target: table.id, set: values })
-          .run();
+        });
 
         results.push({ kind, id: incoming.id, rev, outcome: 'applied' });
       }
@@ -249,16 +258,14 @@ export function writeServerRecords(
   records: { kind: EntityKind; record: AnyEntity }[],
 ): number {
   if (records.length === 0) return currentRev(accountId);
-  const db = getDb();
   let cursor = currentRev(accountId);
 
   getConnection().transaction(() => {
     for (const { kind, record } of records) {
-      const table = tableFor(kind);
       const rev = nextRev(accountId);
       cursor = rev;
 
-      const values = {
+      upsertEntityRow(kind, {
         id: record.id,
         accountId,
         rev,
@@ -268,12 +275,7 @@ export function writeServerRecords(
         // Named rather than left null so a device syncing its own change back
         // can see the write did not come from another phone.
         lastDeviceId: SERVER_DEVICE_ID,
-      };
-
-      db.insert(table)
-        .values(values)
-        .onConflictDoUpdate({ target: table.id, set: values })
-        .run();
+      });
     }
   })();
 
@@ -296,22 +298,21 @@ function parsePayload(kind: EntityKind, payload: string): AnyEntity {
 /** Live (non-tombstoned) line items belonging to a receipt. */
 export function countLiveItems(accountId: string, receiptId: string): number {
   const table = tableFor('items');
-  const rows = getDb()
-    .select({ payload: table.payload })
+  // `receiptId` lives inside the JSON payload, not its own column, but SQLite's
+  // `json_extract` still lets the predicate run in the query rather than
+  // pulling every item row for the account into JS to filter one at a time.
+  const row = getDb()
+    .select({ count: sql<number>`count(*)` })
     .from(table)
-    .where(and(eq(table.accountId, accountId), eq(table.deletedAt, 0)))
-    .all() as { payload: string }[];
-
-  let count = 0;
-  for (const row of rows) {
-    try {
-      const item = JSON.parse(row.payload) as { receiptId?: string };
-      if (item.receiptId === receiptId) count += 1;
-    } catch {
-      // A payload that will not parse is not a countable item.
-    }
-  }
-  return count;
+    .where(
+      and(
+        eq(table.accountId, accountId),
+        eq(table.deletedAt, 0),
+        sql`json_extract(${table.payload}, '$.receiptId') = ${receiptId}`,
+      ),
+    )
+    .all()[0];
+  return row?.count ?? 0;
 }
 
 /** The account's non-deleted categories. */
