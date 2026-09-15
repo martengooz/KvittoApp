@@ -4,9 +4,22 @@
  * These exist so the views describe *what* they are showing (a grouped list, a
  * switch row, a segmented control) rather than repeating the markup each
  * pattern needs. Everything renders plain DOM through `el()`.
+ *
+ * The grouped-list shell and the plain row shape are the same markup the AI
+ * settings panel builds for the server dashboard, so that part lives in
+ * `packages/shared/src/ui-rows.ts` and this file layers the app-specific
+ * bits (icons, haptics, the destructive/tone variants) on top of it.
  */
 
-import { parseAmount } from '@kvitto/shared';
+import {
+  parseAmount,
+  listGroup as sharedListGroup,
+  row as sharedRow,
+  spinner as sharedSpinner,
+  wireBusyAction,
+  type ListGroupOptions,
+  type RowOptions as SharedRowOptions,
+} from '@kvitto/shared';
 
 import { confirmDialog } from './dialog.js';
 import { el, replaceChildren, type Child } from '../core/dom.js';
@@ -18,21 +31,8 @@ import { toast } from '../core/toast.js';
  * An inset grouped list, the iOS Settings pattern: rounded card, optional
  * uppercase header above and explanatory footer below.
  */
-export function listGroup(
-  options: { title?: string; footer?: string | Child },
-  ...rows: Child[]
-): HTMLElement {
-  return el(
-    'section',
-    { class: 'list-group' },
-    options.title ? el('h2', { class: 'list-group__title', text: options.title }) : null,
-    el('div', { class: 'inset-list' }, ...rows),
-    options.footer
-      ? typeof options.footer === 'string'
-        ? el('p', { class: 'list-group__footer', text: options.footer })
-        : el('p', { class: 'list-group__footer' }, options.footer)
-      : null,
-  );
+export function listGroup(options: ListGroupOptions, ...rows: Child[]): HTMLElement {
+  return sharedListGroup(options, ...rows);
 }
 
 export interface RowOptions {
@@ -66,41 +66,25 @@ export function row(options: RowOptions): HTMLElement {
       )
     : null;
 
-  const label = el('span', {
-    class: 'row__label',
-    text: options.label,
-    style: options.destructive ? 'color:var(--danger)' : undefined,
-  });
+  const trailing: Child = [
+    options.trailing ?? null,
+    options.onClick ? icon('chevron-right', { size: 12, className: 'row__chevron', weight: 2.4 }) : null,
+  ];
 
-  const trailing: Child[] = [];
-  if (options.value !== undefined && options.value !== null) {
-    trailing.push(el('span', { class: 'row__value', text: options.value }));
-  }
-  if (options.trailing) trailing.push(options.trailing);
-  if (options.onClick) {
-    trailing.push(icon('chevron-right', { size: 12, className: 'row__chevron', weight: 2.4 }));
-  }
-
-  if (!options.onClick) {
-    return el('div', { class: 'row' }, leading, label, ...trailing);
-  }
-
-  return el(
-    'button',
-    {
-      class: 'row',
-      type: 'button',
-      on: {
-        click: () => {
+  const shared: SharedRowOptions = {
+    label: options.label,
+    value: options.value,
+    leading,
+    trailing,
+    destructive: options.destructive,
+    onClick: options.onClick
+      ? () => {
           haptic('selection');
           options.onClick?.();
-        },
-      },
-    },
-    leading,
-    label,
-    ...trailing,
-  );
+        }
+      : undefined,
+  };
+  return sharedRow(shared);
 }
 
 /** A row whose trailing control is a switch. */
@@ -309,20 +293,13 @@ export function actionRow(options: {
     ...idle(),
   );
 
-  button.addEventListener('click', (event) => {
-    if (!options.busyLabel) {
-      void options.onClick(event);
-      return;
-    }
-    const busyLabel = options.busyLabel;
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    replaceChildren(button, spinner({ size: 16, className: 'action-spinner' }), el('span', { text: busyLabel }));
-    void Promise.resolve(options.onClick(event)).finally(() => {
-      button.disabled = options.disabled ?? false;
-      button.removeAttribute('aria-busy');
-      replaceChildren(button, ...idle());
-    });
+  if (!options.busyLabel) {
+    button.addEventListener('click', (event) => void options.onClick(event));
+    return button;
+  }
+  wireBusyAction(button, options.busyLabel, (event) => Promise.resolve(options.onClick(event)), (btn) => {
+    btn.disabled = options.disabled ?? false;
+    replaceChildren(btn, ...idle());
   });
 
   return button;
@@ -417,11 +394,7 @@ export function moneyInput(
 
 /** A small spinner, for a busy button or an inline loading row. */
 export function spinner(options: { size?: number; className?: string } = {}): HTMLElement {
-  return el('div', {
-    class: ['spinner', options.className],
-    'aria-hidden': 'true',
-    style: options.size ? `width:${options.size}px;height:${options.size}px` : undefined,
-  });
+  return sharedSpinner(options);
 }
 
 /**

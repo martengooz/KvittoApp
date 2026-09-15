@@ -12,5 +12,7 @@ export * from './fuzzy.js';
 export * from './receipt-scan.js';
 export * from './merchant-name.js';
 export * from './merge.js';
+export * from './dom.js';
+export * from './ui-rows.js';
 export * from './ai-settings-ui.js';
 export * from './providers/index.js';
