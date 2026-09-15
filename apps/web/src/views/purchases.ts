@@ -16,10 +16,8 @@ import {
   type Tag,
 } from '@kvitto/shared';
 
-import { actionSheet } from '../components/dialog.js';
 import { actionRow, chip as chipControl, emptyState, searchField } from '../components/ui.js';
 import { debounce, el } from '../core/dom.js';
-import { icon } from '../core/icons.js';
 import { liveView } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
@@ -33,6 +31,7 @@ import {
   type ItemSortKey,
   type PurchaseRow,
 } from '../db/queries.js';
+import { listParam, numberParam, renderSortRow, syncFilterToUrl } from './filters.js';
 
 const SORT_LABELS: Record<ItemSortKey, string> = {
   date: 'Datum',
@@ -64,8 +63,7 @@ export function purchasesView(context: RouteContext): Promise<HTMLElement> {
   let refreshView: () => Promise<void> = async () => {};
 
   function updateUrl(): void {
-    const query = paramsFromFilter(filter).toString();
-    router.navigate(query ? `/purchases?${query}` : '/purchases', { replace: true });
+    syncFilterToUrl('/purchases', filter, paramsFromFilter);
   }
 
   function onFilterChange(): void {
@@ -130,50 +128,21 @@ function renderFilters(options: {
       label: 'Sök bland köpta varor',
       onInput: onSearch,
     }),
-    el(
-      'div',
-      { class: 'stack stack--between pad' },
-      el(
-        'button',
-        {
-          class: 'btn btn--sm btn--plain btn--flush-start',
-          type: 'button',
-          on: {
-            click: async () => {
-              const chosen = await actionSheet({
-                title: 'Sortera efter',
-                selected: (filter.sort ?? 'date') as ItemSortKey,
-                options: Object.entries(SORT_LABELS).map(([value, label]) => ({
-                  value: value as ItemSortKey,
-                  label,
-                })),
-              });
-              if (!chosen) return;
-              filter.sort = chosen;
-              onChange();
-            },
-          },
-        },
-        el('span', { text: `Sortera: ${SORT_LABELS[(filter.sort ?? 'date') as ItemSortKey]}` }),
-        icon('chevron-right', { size: 12, weight: 2.4, className: 'row__chevron' }),
-      ),
-      el(
-        'button',
-        {
-          class: 'btn btn--sm btn--plain btn--flush-end',
-          type: 'button',
-          'aria-label': 'Byt sorteringsordning',
-          on: {
-            click: () => {
-              filter.direction = (filter.direction ?? 'desc') === 'desc' ? 'asc' : 'desc';
-              onChange();
-            },
-          },
-        },
-        icon('arrow-up-arrow-down', { size: 16 }),
-        el('span', { text: (filter.direction ?? 'desc') === 'desc' ? 'Fallande' : 'Stigande' }),
-      ),
-    ),
+    renderSortRow({
+      sortKey: (filter.sort ?? 'date') as ItemSortKey,
+      direction: filter.direction ?? 'desc',
+      labels: SORT_LABELS,
+      directionAriaLabel: () => 'Byt sorteringsordning',
+      rowClass: 'pad',
+      onSort: (key) => {
+        filter.sort = key;
+        onChange();
+      },
+      onToggleDirection: () => {
+        filter.direction = (filter.direction ?? 'desc') === 'desc' ? 'asc' : 'desc';
+        onChange();
+      },
+    }),
     el(
       'div',
       { class: 'stack pad' },
@@ -405,26 +374,15 @@ function renderRow(row: PurchaseRow, categories: Map<string, Category>): HTMLEle
 // --- URL <-> filter -------------------------------------------------------
 
 function filterFromParams(params: URLSearchParams): ItemFilter {
-  const list = (key: string): string[] | undefined => {
-    const value = params.get(key);
-    return value ? value.split(',').filter(Boolean) : undefined;
-  };
-  const number = (key: string): number | undefined => {
-    const value = params.get(key);
-    if (value === null) return undefined;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  };
-
   return {
     query: params.get('q') ?? undefined,
     from: params.get('from') ?? undefined,
     to: params.get('to') ?? undefined,
-    categoryIds: list('cat'),
-    tagIds: list('tag'),
-    merchants: list('shop'),
-    minPrice: number('min'),
-    maxPrice: number('max'),
+    categoryIds: listParam(params, 'cat'),
+    tagIds: listParam(params, 'tag'),
+    merchants: listParam(params, 'shop'),
+    minPrice: numberParam(params, 'min'),
+    maxPrice: numberParam(params, 'max'),
     includeDiscounts: params.get('disc') === '1' ? true : params.get('disc') === '0' ? false : undefined,
     includeDeposits: params.get('pant') === '1' ? true : params.get('pant') === '0' ? false : undefined,
     sort: (params.get('sort') as ItemSortKey | null) ?? 'date',

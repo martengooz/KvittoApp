@@ -7,7 +7,6 @@
 
 import { formatAmount, formatDate, formatMoney, formatMonth, type Category, type Receipt } from '@kvitto/shared';
 
-import { actionSheet } from '../components/dialog.js';
 import { chip, emptyState, searchField } from '../components/ui.js';
 import { debounce, el } from '../core/dom.js';
 import { icon } from '../core/icons.js';
@@ -23,6 +22,7 @@ import {
   type ReceiptFilter,
   type ReceiptSortKey,
 } from '../db/queries.js';
+import { listParam, numberParam, renderSortRow, syncFilterToUrl } from './filters.js';
 
 const SORT_LABELS: Record<ReceiptSortKey, string> = {
   date: 'Datum',
@@ -40,9 +40,7 @@ export function receiptsView(context: RouteContext): Promise<HTMLElement> {
   let refreshView: () => Promise<void> = async () => {};
 
   function updateUrl(): void {
-    const params = paramsFromFilter(filter);
-    const query = params.toString();
-    router.navigate(query ? `/receipts?${query}` : '/receipts', { replace: true });
+    syncFilterToUrl('/receipts', filter, paramsFromFilter);
   }
 
   const applySearch = debounce((value: string) => {
@@ -103,7 +101,7 @@ export function receiptsView(context: RouteContext): Promise<HTMLElement> {
             'div',
             { class: 'receipt-filter-panel', hidden: !filterOpen },
             renderQuickFilters(filter, onFilterChange),
-            el('div', { class: 'pad' }, renderSortRow(filter, onFilterChange)),
+            el('div', { class: 'pad' }, renderReceiptSortRow(filter, onFilterChange)),
           ),
         ),
         await renderList(receipts),
@@ -216,54 +214,23 @@ function renderQuickFilters(filter: ReceiptFilter, onChange: () => void): HTMLEl
   );
 }
 
-function renderSortRow(filter: ReceiptFilter, onChange: () => void): HTMLElement {
-  const key = (filter.sort ?? 'date') as ReceiptSortKey;
+function renderReceiptSortRow(filter: ReceiptFilter, onChange: () => void): HTMLElement {
   const descending = (filter.direction ?? 'desc') === 'desc';
 
-  return el(
-    'div',
-    { class: 'stack stack--between' },
-    el(
-      'button',
-      {
-        class: 'btn btn--sm btn--plain btn--flush-start',
-        type: 'button',
-        on: {
-          click: async () => {
-            const chosen = await actionSheet({
-              title: 'Sortera efter',
-              selected: key,
-              options: Object.entries(SORT_LABELS).map(([value, label]) => ({
-                value: value as ReceiptSortKey,
-                label,
-              })),
-            });
-            if (!chosen) return;
-            filter.sort = chosen;
-            onChange();
-          },
-        },
-      },
-      el('span', { text: `Sortera: ${SORT_LABELS[key]}` }),
-      icon('chevron-right', { size: 12, weight: 2.4, className: 'row__chevron' }),
-    ),
-    el(
-      'button',
-      {
-        class: 'btn btn--sm btn--plain btn--flush-end',
-        type: 'button',
-        'aria-label': descending ? 'Sorterar fallande' : 'Sorterar stigande',
-        on: {
-          click: () => {
-            filter.direction = descending ? 'asc' : 'desc';
-            onChange();
-          },
-        },
-      },
-      icon('arrow-up-arrow-down', { size: 16 }),
-      el('span', { text: descending ? 'Fallande' : 'Stigande' }),
-    ),
-  );
+  return renderSortRow({
+    sortKey: (filter.sort ?? 'date') as ReceiptSortKey,
+    direction: filter.direction ?? 'desc',
+    labels: SORT_LABELS,
+    directionAriaLabel: (isDescending) => (isDescending ? 'Sorterar fallande' : 'Sorterar stigande'),
+    onSort: (key) => {
+      filter.sort = key;
+      onChange();
+    },
+    onToggleDirection: () => {
+      filter.direction = descending ? 'asc' : 'desc';
+      onChange();
+    },
+  });
 }
 
 async function renderList(receipts: Receipt[]): Promise<HTMLElement> {
@@ -346,26 +313,15 @@ async function renderCard(receipt: Receipt): Promise<HTMLElement> {
 // --- URL <-> filter -------------------------------------------------------
 
 function filterFromParams(params: URLSearchParams): ReceiptFilter {
-  const list = (key: string): string[] | undefined => {
-    const value = params.get(key);
-    return value ? value.split(',').filter(Boolean) : undefined;
-  };
-  const number = (key: string): number | undefined => {
-    const value = params.get(key);
-    if (value === null) return undefined;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  };
-
   return {
     query: params.get('q') ?? undefined,
     from: params.get('from') ?? undefined,
     to: params.get('to') ?? undefined,
-    categoryIds: list('cat'),
-    tagIds: list('tag'),
-    statuses: list('status') as ReceiptFilter['statuses'],
-    minTotal: number('min'),
-    maxTotal: number('max'),
+    categoryIds: listParam(params, 'cat'),
+    tagIds: listParam(params, 'tag'),
+    statuses: listParam(params, 'status') as ReceiptFilter['statuses'],
+    minTotal: numberParam(params, 'min'),
+    maxTotal: numberParam(params, 'max'),
     needsReview: params.get('review') === '1' ? true : undefined,
     sort: (params.get('sort') as ReceiptSortKey | null) ?? 'date',
     direction: params.get('dir') === 'asc' ? 'asc' : 'desc',

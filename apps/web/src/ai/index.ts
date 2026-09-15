@@ -9,7 +9,7 @@ import { bus } from '../core/events.js';
 import { getSettings, isAiConfigured, type AiProvider } from '../core/settings.js';
 import { db } from '../db/db.js';
 import { getBlob } from '../db/blobs.js';
-import { resolveCompany } from '../db/companies.js';
+import { resolveCompany } from '../company/lookup.js';
 import { applyExtraction, updateReceipt } from '../db/repo.js';
 import { getDeviceToken } from '../sync/identity.js';
 

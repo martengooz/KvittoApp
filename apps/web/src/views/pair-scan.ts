@@ -8,9 +8,9 @@ import { el, nextFrame } from '../core/dom.js';
 import { router } from '../core/router.js';
 import { updateSettings } from '../core/settings.js';
 import { toast } from '../core/toast.js';
-import { pairDevice, SyncError } from '../sync/client.js';
-import { resetSyncBackoff, sync } from '../sync/engine.js';
-import { setDeviceToken } from '../sync/identity.js';
+import { SyncError } from '../sync/client.js';
+import { resetSyncBackoff } from '../sync/engine.js';
+import { pairAndSync } from '../sync/pairing.js';
 
 const MAX_PAIR_ATTEMPTS = 3;
 
@@ -70,11 +70,8 @@ export async function pairScanView(): Promise<HTMLElement> {
     try {
       await updateSettings({ sync: { serverUrl: payload.serverUrl } });
       resetSyncBackoff();
-      const result = await pairDevice(payload.serverUrl, payload.code);
-      await setDeviceToken(result.token, result.accountId);
+      await pairAndSync(payload.serverUrl, payload.code);
       appendClientDebug('info', 'Device paired from QR code');
-      toast('Enheten är parkopplad.', { kind: 'success' });
-      void sync();
       router.navigate('/settings', { replace: true });
     } catch (error) {
       const canRetry = error instanceof SyncError && error.retryable && pairAttempts < MAX_PAIR_ATTEMPTS;
