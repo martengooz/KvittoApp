@@ -13,3 +13,4 @@ export * from './receipt-scan.js';
 export * from './merchant-name.js';
 export * from './merge.js';
 export * from './ai-settings-ui.js';
+export * from './providers/index.js';

@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { device, requireDevice } from '../auth.ts';
 import { runExtraction, ProxyError } from '../ai/proxy.ts';
-import { effectiveAiSettings } from '../db/server-settings.ts';
+import { AI_EFFORTS, effectiveAiSettings, type AiEffort } from '../db/server-settings.ts';
 import { config } from '../env.ts';
 import { fail, isImageType, unsupportedMediaType } from '../http/reply.ts';
 
@@ -28,6 +28,8 @@ export function registerAiRoutes(app: FastifyInstance): void {
       let mimeType = 'image/jpeg';
       let model: string | undefined;
       let extraInstructions: string | undefined;
+      let effort: AiEffort | undefined;
+      let maxOutputTokens: number | undefined;
 
       for await (const part of parts) {
         if (part.type === 'file') {
@@ -46,6 +48,12 @@ export function registerAiRoutes(app: FastifyInstance): void {
           model = String(part.value).trim();
         } else if (part.fieldname === 'extraInstructions') {
           extraInstructions = String(part.value).slice(0, 2000);
+        } else if (part.fieldname === 'effort') {
+          const candidate = String(part.value).trim();
+          if (AI_EFFORTS.includes(candidate as AiEffort)) effort = candidate as AiEffort;
+        } else if (part.fieldname === 'maxOutputTokens') {
+          const parsed = Number.parseInt(String(part.value), 10);
+          if (Number.isFinite(parsed) && parsed > 0) maxOutputTokens = parsed;
         }
       }
 
@@ -64,7 +72,7 @@ export function registerAiRoutes(app: FastifyInstance): void {
       }
 
       try {
-        const result = await runExtraction(ai, image, mimeType, { model, extraInstructions });
+        const result = await runExtraction(ai, image, mimeType, { model, extraInstructions, effort, maxOutputTokens });
         return reply.send(result);
       } catch (error) {
         if (error instanceof ProxyError) {
