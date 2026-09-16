@@ -145,6 +145,7 @@ try {
 
   if (PIPELINE) await runPipelineSweep(page, fixtures);
   await runScanFlow(page, fixtures);
+  await runSwipeFlow(page);
 
   if (errors.length > 0) fail(`page reported errors:\n${errors.join('\n')}`);
   log('OK');
@@ -289,4 +290,64 @@ async function runScanFlow(page, fixtures) {
   if (cards !== expected) fail(`expected ${expected} receipts in the list, found ${cards}`);
   log(`receipts in the list: ${cards}`);
   await page.screenshot({ path: join(OUT, 'screen-list.png') });
+}
+
+/**
+ * Swipe-to-delete, on the list the scan flow has just filled.
+ *
+ * Driven with real pointer events rather than by calling the handlers, because
+ * what is worth checking here is what the browser decides: that a sideways drag
+ * is not taken for a scroll, that the click it leaves behind never reaches the
+ * card underneath, and that the delete it fires can be taken back.
+ */
+async function runSwipeFlow(page) {
+  await page.goto(`${BASE}/#/receipts`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.swipe-row');
+  const cards = () => page.locator('.receipt-card').count();
+  const before = await cards();
+  if (before < 2) fail(`the swipe checks need a list to work on, found ${before} receipts`);
+
+  // An upright drag belongs to the list, which has to keep scrolling.
+  await swipe(page, -14, -90);
+  if ((await page.locator('.swipe-row--open').count()) !== 0) fail('an upright drag opened a row');
+
+  await swipe(page, -80);
+  const opened = await page.locator('.swipe-row--open').count();
+  if (opened !== 1) fail(`a swipe left ${opened} rows open, expected exactly 1`);
+  if (!page.url().includes('#/receipts')) fail(`the swipe opened the receipt: ${page.url()}`);
+  log('swipe uncovers the delete, and does not follow the card it was made on');
+
+  await page.click('.swipe-row__action');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before - 1);
+  if (!(await page.isVisible('.toast__action'))) fail('the swipe delete offered no undo');
+  log('the uncovered action deletes, and offers an undo');
+
+  await page.click('.toast:last-child .toast__action');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before);
+  log('undo brings the receipt back');
+
+  // Carried across the row, the delete fires on release without stopping open.
+  const box = await page.locator('.swipe-row').first().boundingBox();
+  await swipe(page, -box.width);
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before - 1);
+  log('a full swipe deletes on release');
+
+  await page.click('.toast:last-child .toast__action');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before);
+}
+
+/** Drags the first row of the list, in steps, the way a finger moves. */
+async function swipe(page, dx, dy = 0) {
+  const box = await page.locator('.swipe-row').first().boundingBox();
+  const fromX = box.x + box.width - 30;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(fromX, y);
+  await page.mouse.down();
+  for (let step = 1; step <= 10; step += 1) {
+    await page.mouse.move(fromX + (dx * step) / 10, y + (dy * step) / 10);
+    await page.waitForTimeout(12);
+  }
+  await page.mouse.up();
+  // Long enough for the row to settle, which is when the outcome is readable.
+  await page.waitForTimeout(400);
 }

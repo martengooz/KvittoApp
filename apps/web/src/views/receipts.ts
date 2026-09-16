@@ -7,12 +7,14 @@
 
 import { formatAmount, formatDate, formatMoney, formatMonth, type Category, type Receipt } from '@kvitto/shared';
 
+import { swipeRow } from '../components/swipe-actions.js';
 import { chip, emptyState, searchField } from '../components/ui.js';
 import { debounce, el } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { liveView } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
+import { toast } from '../core/toast.js';
 import { blobUrl } from '../db/blobs.js';
 import {
   categoriesById,
@@ -22,6 +24,7 @@ import {
   type ReceiptFilter,
   type ReceiptSortKey,
 } from '../db/queries.js';
+import { deleteReceipt, restoreReceipt } from '../db/repo.js';
 import { listParam, numberParam, renderSortRow, syncFilterToUrl } from './filters.js';
 
 const SORT_LABELS: Record<ReceiptSortKey, string> = {
@@ -275,8 +278,9 @@ async function renderList(receipts: Receipt[]): Promise<HTMLElement> {
 async function renderCard(receipt: Receipt): Promise<HTMLElement> {
   const thumb = await blobUrl(receipt.thumbId ?? receipt.imageId);
   const needsReview = receiptNeedsReview(receipt);
+  const merchant = receipt.merchant.name ?? 'Okänd butik';
 
-  return el(
+  const card = el(
     'button',
     {
       class: ['receipt-card', needsReview ? 'receipt-card--review' : ''],
@@ -297,7 +301,7 @@ async function renderCard(receipt: Receipt): Promise<HTMLElement> {
       { class: 'receipt-card__body' },
       el('span', {
         class: 'receipt-card__title truncate',
-        text: receipt.merchant.name ?? 'Okänd butik',
+        text: merchant,
       }),
       el('span', {
         class: ['receipt-card__meta', needsReview ? 'receipt-card__meta--review' : ''],
@@ -308,6 +312,27 @@ async function renderCard(receipt: Receipt): Promise<HTMLElement> {
     ),
     el('span', { class: 'receipt-card__amount', text: formatMoney(receipt.total, receipt.currency) }),
   );
+
+  return swipeRow({
+    content: card,
+    label: `Ta bort kvittot från ${merchant}`,
+    onAction: () => removeReceipt(receipt, merchant),
+  });
+}
+
+/**
+ * The swipe's delete: no alert in front of it, an "Ångra" behind it.
+ *
+ * The receipt is tombstoned rather than erased, so undoing it is a matter of
+ * clearing the tombstone again — which is also why the offer can outlive the
+ * list re-rendering without the card in it.
+ */
+async function removeReceipt(receipt: Receipt, merchant: string): Promise<void> {
+  await deleteReceipt(receipt.id);
+  toast(`${merchant} togs bort.`, {
+    durationMs: 6000,
+    action: { label: 'Ångra', onClick: () => void restoreReceipt(receipt.id) },
+  });
 }
 
 // --- URL <-> filter -------------------------------------------------------

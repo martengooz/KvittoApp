@@ -209,6 +209,14 @@ one-handed in a shop:
   translucent tab bar — the patterns iOS Settings and Mail use.
 - **Action sheets** rather than dropdowns for choosing between several options,
   and UIAlertController-shaped alerts for confirmations.
+- **Swipe to delete**, the table-view gesture: a receipt in the list, or a line
+  item in the editor, follows the finger left to uncover the delete, and a swipe
+  carried across the row fires it outright. An alert in front of a gesture that
+  cheap would defeat it, so the delete happens on the spot and the toast it
+  leaves behind offers "Ångra" — deletes are tombstones, so undoing one is a
+  matter of clearing the tombstone again. The gesture is an accelerator and
+  never the only way in: the trash button in the editor and "Ta bort kvittot" on
+  the receipt itself are what a keyboard and VoiceOver use.
 - **Icons** drawn to SF Symbols' conventions — 24-unit grid, rounded caps,
   matching stroke weight. Original paths, since SF Symbols itself cannot be
   redistributed with a web app.

@@ -24,7 +24,16 @@ input.detail-merchant {
   position: relative;
 }
 
-.item-editor + .item-editor::before {
+/* An item editor has no background of its own — it sits on the group's. Wrapped
+   for swiping it needs one, or the swipe backdrop shows through the row. */
+.inset-list .swipe-row__content {
+  background: var(--bg-grouped-secondary);
+}
+
+/* Wrapped in a swipe container, the editors are each other's cousins rather
+   than each other's siblings, so the hairline has to be matched there too. */
+.item-editor + .item-editor::before,
+.swipe-row + .swipe-row .item-editor::before {
   content: '';
   position: absolute;
   top: 0;
