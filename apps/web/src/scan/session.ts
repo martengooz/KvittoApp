@@ -22,10 +22,22 @@ import { enrichFromImage } from '../ocr/enrich.js';
 import { ocrClient } from '../ocr/client.js';
 import { describeImportOutcome, importImages, saveScan, type ImportProgress } from './import.js';
 
-export type Stage = 'idle' | 'camera' | 'processing' | 'review' | 'importing';
+export type Stage = 'capture' | 'processing' | 'review' | 'importing';
+
+/**
+ * What the live preview is doing.
+ *
+ * `unavailable` covers both halves of one outcome — no `getUserMedia` at all,
+ * and a `getUserMedia` that was refused — because the screen does the same
+ * thing about either: the shutter hands over to the native file picker, which
+ * every mobile browser answers with a camera of its own.
+ */
+export type CameraState = 'starting' | 'live' | 'stopped' | 'unavailable';
 
 export interface ScanState {
   stage: Stage;
+  /** Whether the viewfinder is showing a live picture, and why not when it is not. */
+  camera: CameraState;
   /** The untouched capture. */
   source: Blob | null;
   sourceUrl: string | null;
@@ -42,12 +54,19 @@ export interface ScanState {
 
 export interface ScanSession {
   readonly state: ScanState;
-  /** The live camera stream, for `renderCamera` to bind to a `<video>`. */
+  /** The live camera stream, for the capture screen to bind to its `<video>`. */
   readonly stream: MediaStream | null;
+  /**
+   * Starts the live preview; one already running or already coming up is left
+   * as it is.
+   *
+   * The capture screen calls this as it mounts, so that the permission prompt
+   * lands when the user opened the camera rather than in the way of the picture
+   * they meant to take. Nothing waits for the answer: a refusal lands in
+   * `unavailable`, where the shutter falls back to the file picker.
+   */
   startCamera(): Promise<void>;
   stopCamera(): void;
-  /** Stops the camera and returns to the idle screen — the camera view's "Avbryt". */
-  cancelCamera(): void;
   openFilePicker(source: 'camera' | 'library'): void;
   captureFrame(video: HTMLVideoElement): Promise<void>;
   runImport(files: File[]): Promise<void>;
@@ -56,7 +75,7 @@ export interface ScanSession {
   rotate(): Promise<void>;
   setCorners(corners: Quad | null): void;
   setShowOriginal(value: boolean): void;
-  /** Discards the current capture and returns to idle — the review screen's "Ta om". */
+  /** Discards the capture and returns to the viewfinder — the review screen's "Ta om". */
   retake(): void;
   save(andParse: boolean): Promise<void>;
 }
@@ -71,7 +90,8 @@ export interface ScanSession {
  */
 export function createScanSession(onChange: () => void): ScanSession {
   const state: ScanState = {
-    stage: 'idle',
+    stage: 'capture',
+    camera: 'stopped',
     source: null,
     sourceUrl: null,
     sourceWidth: 0,
@@ -86,6 +106,16 @@ export function createScanSession(onChange: () => void): ScanSession {
 
   let stream: MediaStream | null = null;
   let disposed = false;
+  /**
+   * Which attempt at starting the camera is the current one.
+   *
+   * `getUserMedia` can sit on a permission prompt for as long as the user likes,
+   * and by the time it answers the screen may have stopped the camera or asked
+   * again. Stamping each attempt — and bumping the stamp whenever the camera is
+   * stopped — is how a stream nobody is waiting for any more gets closed rather
+   * than adopted.
+   */
+  let cameraRequest = 0;
 
   function notify(): void {
     if (!disposed) onChange();
@@ -98,9 +128,17 @@ export function createScanSession(onChange: () => void): ScanSession {
     state.resultUrl = null;
   }
 
+  function setCamera(next: CameraState): void {
+    if (state.camera === next) return;
+    state.camera = next;
+    notify();
+  }
+
   function stopCamera(): void {
+    cameraRequest += 1;
     stream?.getTracks().forEach((track) => track.stop());
     stream = null;
+    if (state.camera === 'live' || state.camera === 'starting') setCamera('stopped');
   }
 
   router.onTeardown(() => {
@@ -112,7 +150,7 @@ export function createScanSession(onChange: () => void): ScanSession {
   // Downloading OpenCV takes a moment; start it now so it overlaps with the
   // user lining up the shot rather than adding to the wait after the shutter.
   void cvClient.warmup().then(() => {
-    if (state.stage === 'idle') notify();
+    if (state.stage === 'capture') notify();
     // The OCR runtime is a separate download. Start it only once OpenCV is in:
     // the two compete for the same connection, and a scan cannot begin without
     // OpenCV whereas it merely finishes later without Tesseract.
@@ -122,12 +160,16 @@ export function createScanSession(onChange: () => void): ScanSession {
   // --- capture --------------------------------------------------------------
 
   async function startCamera(): Promise<void> {
+    if (state.camera === 'starting' || state.camera === 'live') return;
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
-      openFilePicker('camera');
+      setCamera('unavailable');
       return;
     }
+
+    setCamera('starting');
+    const request = (cameraRequest += 1);
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
+      const opened = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
           // Ask for a high-resolution frame: small print needs the pixels, and
@@ -137,19 +179,48 @@ export function createScanSession(onChange: () => void): ScanSession {
         },
         audio: false,
       });
-      state.stage = 'camera';
-      notify();
+
+      // The prompt can outlast the screen, or the camera being stopped while it
+      // was still up. Either way the stream is nobody's now.
+      if (disposed || request !== cameraRequest) {
+        opened.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      stream = opened;
+      // A track ends by itself when another app takes the camera or iOS
+      // reclaims it from a backgrounded tab. Say so, rather than leaving a
+      // frozen frame that still looks live. (`track.stop()`, which is how this
+      // screen ends one, deliberately does not fire it.)
+      for (const track of opened.getTracks()) {
+        track.addEventListener('ended', () => {
+          if (stream !== opened) return;
+          stream = null;
+          setCamera('stopped');
+        });
+      }
+      setCamera('live');
     } catch (error) {
-      // A denied permission is a decision, not a failure — fall back quietly.
-      console.warn('Camera unavailable, using the file picker instead', error);
-      openFilePicker('camera');
+      // Not this screen's answer to report any more.
+      if (request !== cameraRequest) return;
+      // A refusal is a decision, not a failure: the shutter still takes a
+      // photograph, it just goes through the native picker to get one.
+      console.warn('Camera unavailable, the shutter will use the file picker', error);
+      setCamera('unavailable');
     }
   }
 
-  function cancelCamera(): void {
-    stopCamera();
-    state.stage = 'idle';
+  /**
+   * Back to the capture screen with the preview running again.
+   *
+   * Only a preview this screen stopped itself is restarted. A camera that was
+   * refused stays refused rather than asking again every time a capture is
+   * discarded.
+   */
+  function resumeCapture(): void {
+    state.stage = 'capture';
     notify();
+    if (state.camera === 'stopped') void startCamera();
   }
 
   /**
@@ -214,6 +285,8 @@ export function createScanSession(onChange: () => void): ScanSession {
    * and the extraction carry on from there.
    */
   async function runImport(files: File[]): Promise<void> {
+    // Nothing to preview while the batch runs, and it can take a while.
+    stopCamera();
     state.stage = 'importing';
     state.importing = { total: files.length, index: 1, name: files[0]?.name ?? '', imported: 0 };
     notify();
@@ -232,9 +305,8 @@ export function createScanSession(onChange: () => void): ScanSession {
 
     if (outcome.receiptIds.length === 0) {
       if (!disposed) {
-        state.stage = 'idle';
         state.importing = null;
-        notify();
+        resumeCapture();
       }
       return;
     }
@@ -249,6 +321,9 @@ export function createScanSession(onChange: () => void): ScanSession {
   // --- processing -------------------------------------------------------------
 
   async function handleCapture(source: Blob): Promise<void> {
+    // The frame is taken; the preview has nothing left to show behind the
+    // review screen. `captureFrame` has already done this for its own path.
+    stopCamera();
     releaseUrls();
     state.source = source;
     state.corners = null;
@@ -268,8 +343,7 @@ export function createScanSession(onChange: () => void): ScanSession {
     } catch (error) {
       console.error('Capture failed', error);
       toast(error instanceof Error ? error.message : 'Bilden kunde inte läsas.', { kind: 'error' });
-      state.stage = 'idle';
-      notify();
+      resumeCapture();
     }
   }
 
@@ -330,8 +404,7 @@ export function createScanSession(onChange: () => void): ScanSession {
     releaseUrls();
     state.source = null;
     state.result = null;
-    state.stage = 'idle';
-    notify();
+    resumeCapture();
   }
 
   // --- saving -------------------------------------------------------------
@@ -391,7 +464,6 @@ export function createScanSession(onChange: () => void): ScanSession {
     },
     startCamera,
     stopCamera,
-    cancelCamera,
     openFilePicker,
     captureFrame,
     runImport,

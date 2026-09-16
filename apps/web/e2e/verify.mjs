@@ -145,6 +145,7 @@ try {
 
   if (PIPELINE) await runPipelineSweep(page, fixtures);
   await runScanFlow(page, fixtures);
+  await runCameraFlow();
   await runSwipeFlow(page);
 
   if (errors.length > 0) fail(`page reported errors:\n${errors.join('\n')}`);
@@ -350,4 +351,79 @@ async function swipe(page, dx, dy = 0) {
   await page.mouse.up();
   // Long enough for the row to settle, which is when the outcome is readable.
   await page.waitForTimeout(400);
+}
+
+/**
+ * The capture screen in a browser that has a camera.
+ *
+ * The main browser deliberately has none — that absence is what exercises the
+ * file-picker fallback above — so this opens a second one with Chromium's fake
+ * device. What it checks is the part nothing else can see: that the live
+ * preview takes exactly the box the placeholder had, so the shutter neither
+ * moves nor leaves the screen the moment the stream arrives, and that one press
+ * of it takes the photograph rather than merely opening a camera.
+ */
+async function runCameraFlow() {
+  const withCamera = await chromium.launch({
+    executablePath: chromiumPath(),
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+    ],
+  });
+
+  try {
+    const context = await withCamera.newContext({
+      viewport: { width: 414, height: 896 },
+      locale: 'sv-SE',
+      serviceWorkers: 'block',
+      permissions: ['camera'],
+    });
+    const cameraPage = await context.newPage();
+    cameraPage.on('pageerror', (error) => errors.push(`pageerror (camera): ${error.message}`));
+
+    await cameraPage.goto(`${BASE}/#/scan`, { waitUntil: 'domcontentloaded' });
+    await cameraPage.waitForSelector('.scan-viewfinder', { timeout: 30_000 });
+    const placeholder = await captureGeometry(cameraPage);
+
+    await cameraPage.waitForSelector('.scan-viewfinder--live', { timeout: 30_000 });
+    const live = await captureGeometry(cameraPage);
+    await cameraPage.screenshot({ path: join(OUT, 'screen-camera.png') });
+
+    if (JSON.stringify(placeholder) !== JSON.stringify(live)) {
+      fail(
+        `the live preview resized the screen: ${JSON.stringify(placeholder)} -> ${JSON.stringify(live)}`,
+      );
+    }
+    if (live.scrollHeight > live.viewportHeight + 1) {
+      fail(`the capture screen overflows: ${live.scrollHeight} > ${live.viewportHeight}`);
+    }
+    log('camera: the preview takes the placeholder\'s box, and the screen still fits');
+
+    // Live, the shutter is the shutter — not a button that opens a camera.
+    await cameraPage.click('.scan-shutter');
+    await cameraPage.waitForSelector('.scan-review', { timeout: 90_000 });
+    log('camera: one shutter press goes straight to the review screen');
+  } finally {
+    await withCamera.close();
+  }
+}
+
+/** The capture screen's measurements, as the layout has to keep them. */
+function captureGeometry(page) {
+  return page.evaluate(() => {
+    const box = (selector) => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)];
+    };
+    return {
+      viewfinder: box('.scan-viewfinder'),
+      shutter: box('.scan-shutter'),
+      tools: box('.scan-capture__tools'),
+      scrollHeight: document.scrollingElement.scrollHeight,
+      viewportHeight: window.innerHeight,
+    };
+  });
 }

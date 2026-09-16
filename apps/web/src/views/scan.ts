@@ -3,10 +3,14 @@
  *
  * The state machine — camera lifecycle, the CV pipeline, saving — lives in
  * `scan/session.ts`; this file only renders whatever stage the session is in
- * and calls back into it. `renderIdle` and `renderCamera` share almost all
- * their markup, so `renderCaptureChrome` builds it once and each supplies the
- * handful of bits that differ (the viewfinder itself, the shutter's action,
- * the tool row's wording).
+ * and calls back into it.
+ *
+ * Capture is one screen, not two. The camera comes up with the screen and the
+ * viewfinder is the same box before and after the picture arrives in it, so the
+ * shutter is where the eye left it and the first press takes a photograph. The
+ * `<video>` outlives each render for the same reason: rebuilding it would
+ * reattach the stream and blink the preview every time anything else on the
+ * screen changed.
  *
  * Picking existing photos is a separate path with no `capture` attribute, for
  * the reason spelled out in `scan/session.ts`'s `openFilePicker` — and a
@@ -19,32 +23,57 @@ import { formatBytes } from '@kvitto/shared';
 
 import { createCropEditor, type CropEditor } from '../components/crop-editor.js';
 import { banner, loadingState } from '../components/ui.js';
-import { el, replaceChildren, type Child } from '../core/dom.js';
+import { el, replaceChildren } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { haptic } from '../core/platform.js';
 import { router } from '../core/router.js';
 import { toast } from '../core/toast.js';
 import type { PipelineResult } from '../cv/types.js';
 import { shouldParse } from '../scan/import.js';
-import { createScanSession } from '../scan/session.js';
+import { createScanSession, type CameraState } from '../scan/session.js';
+
+/** What the viewfinder says it is doing, for each thing it can be doing. */
+const HINTS: Record<CameraState, string> = {
+  starting: 'Startar kameran…',
+  live: 'Håll kvar — beskär automatiskt',
+  stopped: 'Tryck för att starta kameran',
+  unavailable: 'Ingen kamera — tryck för att välja en bild',
+};
+
+const SHUTTER_LABELS: Record<CameraState, string> = {
+  starting: 'Startar kameran',
+  live: 'Ta bild',
+  stopped: 'Starta kameran',
+  unavailable: 'Välj bild',
+};
 
 export function scanView(): HTMLElement {
   const root = el('div', { class: 'scan' });
   let cropEditor: CropEditor | null = null;
 
+  // Built once and re-used by every capture render: moving the same element
+  // keeps the stream attached and the picture playing.
+  const video = el('video', {
+    class: 'scan-viewfinder__video',
+    autoplay: true,
+    playsInline: true,
+    muted: true,
+  });
+
   const session = createScanSession(render);
   router.onTeardown(() => cropEditor?.destroy());
+
+  // Asked for here rather than inside the session, which would call back into
+  // this view through `render` before `session` itself exists.
+  void session.startCamera();
 
   function render(): void {
     cropEditor?.destroy();
     cropEditor = null;
 
     switch (session.state.stage) {
-      case 'idle':
-        replaceChildren(root, renderIdle());
-        break;
-      case 'camera':
-        replaceChildren(root, renderCamera());
+      case 'capture':
+        replaceChildren(root, renderCapture());
         break;
       case 'processing':
         replaceChildren(root, renderProcessing());
@@ -58,43 +87,74 @@ export function scanView(): HTMLElement {
     }
   }
 
-  // --- idle / camera --------------------------------------------------------
+  // --- capture --------------------------------------------------------------
 
   /**
-   * The chrome `renderIdle` and `renderCamera` share: header with a cancel
-   * button, the viewfinder area (theirs alone — a static frame vs. a live
-   * `<video>`), the shutter, and the Galleri/Flera sidor/Blixt tool row.
+   * The shutter does whatever the camera makes possible.
+   *
+   * Live, it takes the picture — which is the whole point of starting the
+   * camera with the screen. Refused or unsupported, it hands over to the native
+   * picker, so the button is never the one thing on the screen that does
+   * nothing.
    */
-  function renderCaptureChrome(options: {
-    live: boolean;
-    onCancel: () => void;
-    viewport: Child;
-    shutter: { ariaLabel: string; onClick: () => void };
-    gallery: { onClick: () => void };
-    multiPage: { title?: string; message: string };
-    flash: { title?: string; message: string };
-    offlineNote: string;
-  }): HTMLElement {
+  function onShutter(): void {
+    switch (session.state.camera) {
+      case 'live':
+        void session.captureFrame(video);
+        break;
+      case 'stopped':
+        void session.startCamera();
+        break;
+      case 'unavailable':
+        session.openFilePicker('camera');
+        break;
+      case 'starting':
+        break;
+    }
+  }
+
+  function renderCapture(): HTMLElement {
+    const camera = session.state.camera;
+    const live = camera === 'live';
+
+    // Assigned rather than re-created, and cleared when there is nothing to
+    // show, so the placeholder is never a still of the last frame.
+    if (video.srcObject !== session.stream) video.srcObject = session.stream;
+    if (live) void video.play().catch(() => undefined);
+
     return el(
       'section',
-      { class: ['scan-capture', options.live ? 'scan-capture--live' : ''] },
+      { class: 'scan-capture' },
       el(
         'header',
         { class: 'scan-capture__header' },
         el('h2', { text: 'Skanna kvitto' }),
-        el('button', { type: 'button', text: 'Avbryt', on: { click: options.onCancel } }),
+        el('button', {
+          type: 'button',
+          text: 'Avbryt',
+          on: { click: () => router.navigate('/receipts') },
+        }),
       ),
-      options.viewport,
+      el(
+        'div',
+        { class: ['scan-viewfinder', live ? 'scan-viewfinder--live' : ''] },
+        video,
+        el('div', { class: 'scan-viewfinder__paper' }),
+        el('span', { class: 'scan-viewfinder__hint', text: HINTS[camera] }),
+      ),
       el(
         'button',
         {
           class: 'scan-shutter',
           type: 'button',
-          'aria-label': options.shutter.ariaLabel,
+          'aria-label': SHUTTER_LABELS[camera],
+          // Only while the camera is coming up, which is the one moment there
+          // is nothing for it to do.
+          disabled: camera === 'starting',
           on: {
             click: () => {
               haptic('impact');
-              options.shutter.onClick();
+              onShutter();
             },
           },
         },
@@ -107,77 +167,28 @@ export function scanView(): HTMLElement {
           type: 'button',
           text: 'Galleri',
           title: 'Välj en eller flera bilder — varje bild blir ett kvitto',
-          on: { click: options.gallery.onClick },
+          on: { click: () => session.openFilePicker('library') },
         }),
         el('button', {
           type: 'button',
           text: 'Flera sidor',
-          title: options.multiPage.title,
+          title: 'Flersidiga kvitton stöds inte ännu',
           'aria-disabled': 'true',
-          on: { click: () => toast(options.multiPage.message, { kind: 'info' }) },
+          on: { click: () => toast('Flersidiga kvitton stöds inte ännu.', { kind: 'info' }) },
         }),
         el('button', {
           type: 'button',
           text: 'Blixt',
-          title: options.flash.title,
+          title: 'Blixt stöds inte av den här kameravyn ännu',
           'aria-disabled': 'true',
-          on: { click: () => toast(options.flash.message, { kind: 'info' }) },
+          on: { click: () => toast('Blixt stöds inte av den här kameravyn ännu.', { kind: 'info' }) },
         }),
       ),
-      el('p', { class: 'scan-capture__offline', text: options.offlineNote }),
+      el('p', {
+        class: 'scan-capture__offline',
+        text: 'Fungerar offline. Bilden stannar på telefonen. Flera bilder från galleriet blir ett kvitto var.',
+      }),
     );
-  }
-
-  function renderIdle(): HTMLElement {
-    return renderCaptureChrome({
-      live: false,
-      onCancel: () => router.navigate('/receipts'),
-      viewport: el(
-        'div',
-        { class: 'scan-viewfinder' },
-        el('div', { class: 'scan-viewfinder__paper' }),
-        el('span', { class: 'scan-viewfinder__hint', text: 'Håll kvar — beskär automatiskt' }),
-      ),
-      shutter: { ariaLabel: 'Öppna kameran', onClick: () => void session.startCamera() },
-      gallery: { onClick: () => session.openFilePicker('library') },
-      multiPage: {
-        title: 'Flersidiga kvitton stöds inte ännu',
-        message: 'Flersidiga kvitton stöds inte ännu.',
-      },
-      flash: {
-        title: 'Blixt kan väljas när kameran är öppen',
-        message: 'Blixt kan väljas när kameran är öppen.',
-      },
-      offlineNote:
-        'Fungerar offline. Bilden stannar på telefonen. Flera bilder från galleriet blir ett kvitto var.',
-    });
-  }
-
-  function renderCamera(): HTMLElement {
-    const video = el('video', { autoplay: true, playsInline: true, muted: true });
-    if (session.stream) video.srcObject = session.stream;
-
-    return renderCaptureChrome({
-      live: true,
-      onCancel: () => session.cancelCamera(),
-      viewport: el(
-        'div',
-        { class: 'camera-stage' },
-        video,
-        el('div', { class: 'camera-frame' }),
-        el('p', { class: 'camera-hint', text: 'Håll kvar — beskär automatiskt' }),
-      ),
-      shutter: { ariaLabel: 'Ta bild', onClick: () => void session.captureFrame(video) },
-      gallery: {
-        onClick: () => {
-          session.stopCamera();
-          session.openFilePicker('library');
-        },
-      },
-      multiPage: { message: 'Flersidiga kvitton stöds inte ännu.' },
-      flash: { message: 'Blixt stöds inte av den här kameravyn ännu.' },
-      offlineNote: 'Fungerar offline. Bilden stannar på telefonen.',
-    });
   }
 
   // --- processing / importing ------------------------------------------------
@@ -222,7 +233,7 @@ export function scanView(): HTMLElement {
 
   function renderReview(): HTMLElement {
     const result = session.state.result;
-    if (!result) return renderIdle();
+    if (!result) return renderCapture();
 
     const lowConfidence = result.detectionConfidence < 0.45;
     const preview = session.state.showOriginal ? buildCropEditor() : buildProcessedPreview(result);

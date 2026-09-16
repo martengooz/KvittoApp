@@ -6,32 +6,6 @@
   padding: 0;
 }
 
-.camera-stage {
-  position: relative;
-  width: min(100%, 520px);
-  min-height: 340px;
-  margin-inline: auto;
-  border-radius: 24px;
-  overflow: hidden;
-  background: var(--k-dark-panel);
-}
-
-.camera-stage video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.camera-frame {
-  position: absolute;
-  inset: 16% 21%;
-  border: 3px solid var(--k-ramp-3);
-  border-radius: 14px;
-  box-shadow: 0 0 0 999px rgb(39 22 25 / 28%);
-  pointer-events: none;
-}
-
 /* The iOS camera shutter: white disc inside a ring. */
 .shutter {
   width: 68px;
@@ -55,24 +29,6 @@
 
 .shutter:active::after {
   transform: scale(0.88);
-}
-
-.camera-hint {
-  position: absolute;
-  right: auto;
-  bottom: 16px;
-  left: 50%;
-  top: auto;
-  margin: 0;
-  padding: 7px 13px;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: rgb(255 255 255 / 14%);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  text-align: center;
-  white-space: nowrap;
 }
 
 /* --- crop editor --------------------------------------------------------- */
@@ -184,6 +140,13 @@
   font-weight: 600;
 }
 
+/*
+ * The viewfinder, whether or not there is a camera behind it.
+ *
+ * One box for both: the placeholder and the live picture are the same size, in
+ * the same place, so the screen does not reflow around the preview arriving and
+ * the shutter never moves out from under the thumb.
+ */
 .scan-viewfinder {
   position: relative;
   display: grid;
@@ -196,23 +159,51 @@
   background: var(--k-dark-panel);
 }
 
+/*
+ * Out of flow on purpose. A `<video>` in the flow contributes its own aspect
+ * ratio to the layout, and a portrait camera frame is far taller than the space
+ * the row was given: the screen grows around it the moment the stream arrives
+ * and everything under the viewfinder — shutter included — is pushed past the
+ * bottom of the screen. Positioned, it fills the box it is given and no more.
+ */
+.scan-viewfinder__video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The guide the receipt is lined up inside: a lit panel while there is nothing
+   to see, the cut-out over the picture once there is. */
 .scan-viewfinder__paper {
+  position: relative;
   width: 58%;
   height: 72%;
   border: 3px solid var(--k-ramp-3);
   border-radius: 14px;
   background: rgb(255 255 255 / 18%);
   box-shadow: inset 0 -5px 0 rgb(0 0 0 / 20%);
+  pointer-events: none;
+}
+
+.scan-viewfinder--live .scan-viewfinder__paper {
+  background: none;
+  /* Dims everything outside the frame, rather than filling what is inside it. */
+  box-shadow: 0 0 0 999px rgb(39 22 25 / 28%);
 }
 
 .scan-viewfinder__hint {
   position: absolute;
   bottom: 16px;
+  max-width: calc(100% - 32px);
   padding: 7px 13px;
   border-radius: 999px;
   background: rgb(255 255 255 / 14%);
   font-size: 12px;
   font-weight: 600;
+  text-align: center;
 }
 
 .scan-shutter {
@@ -227,6 +218,12 @@
   background: var(--k-accent);
   color: var(--k-on-accent);
   background-clip: padding-box;
+}
+
+/* Nothing to press while the camera is coming up — a moment, and only on the
+   first visit, where it is also waiting for a permission prompt. */
+.scan-shutter:disabled {
+  opacity: 0.55;
 }
 
 .scan-capture__tools {

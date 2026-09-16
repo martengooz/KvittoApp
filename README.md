@@ -291,10 +291,13 @@ set `CHROMIUM_PATH` to an existing Chrome binary.
 ## Notes and limitations
 
 - **Camera access needs a secure context.** `localhost` counts; testing on a
-  phone over the LAN does not, so use `vite --https` or a tunnel. Where
-  `getUserMedia` is unavailable or denied, the app silently falls back to a
-  file input with `capture="environment"`, which opens the native camera on
-  every mobile browser — the scan button always does something.
+  phone over the LAN does not, so use `vite --https` or a tunnel. The scan
+  screen asks for the camera as it opens, so a permission prompt costs the
+  opening of the screen rather than the first photograph, and the viewfinder is
+  the same box before and after the picture arrives in it. Where `getUserMedia`
+  is unavailable or denied, the shutter falls back to a file input with
+  `capture="environment"`, which opens the native camera on every mobile
+  browser — the scan button always does something.
 - **Detection is good, not perfect.** On the hand-held, crumpled receipts in
   `fixtures/` it finds the paper in all nine, but a receipt curled in the hand
   is genuinely not a quadrilateral. The review screen flags low confidence and
