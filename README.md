@@ -123,6 +123,36 @@ pairing codes, tokens, and API keys are masked.
 
 ## How it works
 
+### The shutter that presses itself
+
+The scan screen asks for the camera as it opens and then watches the preview:
+several times a second it hands a 420 px copy of the current frame to the same
+document detector the pipeline uses, traces what it finds on the picture, and
+takes the photograph once the same outline has sat still for three readings
+running — about a second of holding a receipt up. The button is always there,
+and one press of it takes the picture immediately; the watching is an offer, not
+a requirement, and it can be turned off in Settings.
+
+The hard part is not finding an outline but refusing one. The detector always
+answers, and its own confidence score turns out to be useless as a filter: it is
+built from how much of the frame the outline covers and how rectangular it is,
+so a camera pointed at a **blank wall scores a perfect 1.0** — higher than any
+of the nine hand-held fixture photographs, which score 0.57 to 0.99. So a
+reading has to clear three hurdles instead:
+
+- **Which strategy found it.** The paper mask knows what a receipt is and found
+  all nine fixtures; the last-resort threshold pass is what claimed the desk,
+  the hand and the noise in the controls, and its answers are not acted on.
+- **Ink inside the outline.** Paper that has been printed on has a few per cent
+  of pixels materially darker than the paper itself — the fixtures measure 0.09
+  to 0.50 and every blank control measures 0.000. This is the only hurdle that
+  separates a receipt filling the frame from a wall filling the frame.
+- **Stillness.** The same outline in the same place, reading after reading: a
+  receipt being held up to be photographed rather than one swinging past.
+
+A search that finds nothing for seven seconds slows its own cadence and says so,
+rather than leaving the user waiting on a shutter that is never going to fire.
+
 ### The image pipeline
 
 This is where most of the quality comes from, and it runs entirely on-device in
@@ -298,6 +328,11 @@ set `CHROMIUM_PATH` to an existing Chrome binary.
   is unavailable or denied, the shutter falls back to a file input with
   `capture="environment"`, which opens the native camera on every mobile
   browser — the scan button always does something.
+- **The automatic shutter needs the detector.** It watches only once OpenCV has
+  loaded, and it is off entirely where the runtime cannot be fetched — the
+  button is the whole feature there. It is also the one thing on the screen that
+  costs battery while nothing is happening, which is why a fruitless search
+  slows down and why it can be switched off.
 - **Detection is good, not perfect.** On the hand-held, crumpled receipts in
   `fixtures/` it finds the paper in all nine, but a receipt curled in the hand
   is genuinely not a quadrilateral. The review screen flags low confidence and

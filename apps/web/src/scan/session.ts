@@ -12,6 +12,7 @@
 import type { ReceiptSource } from '@kvitto/shared';
 
 import { el, nextFrame } from '../core/dom.js';
+import { haptic } from '../core/platform.js';
 import { router } from '../core/router.js';
 import { getSettings } from '../core/settings.js';
 import { toast } from '../core/toast.js';
@@ -20,6 +21,15 @@ import type { PipelineResult, Quad } from '../cv/types.js';
 import { parseReceipt } from '../ai/index.js';
 import { enrichFromImage } from '../ocr/enrich.js';
 import { ocrClient } from '../ocr/client.js';
+import {
+  advance,
+  coverageOf,
+  IDLE_WATCH,
+  inkRatio,
+  PROBE_SIZE,
+  type FrameReading,
+  type WatchState,
+} from './auto-capture.js';
 import { describeImportOutcome, importImages, saveScan, type ImportProgress } from './import.js';
 
 export type Stage = 'capture' | 'processing' | 'review' | 'importing';
@@ -34,10 +44,23 @@ export type Stage = 'capture' | 'processing' | 'review' | 'importing';
  */
 export type CameraState = 'starting' | 'live' | 'stopped' | 'unavailable';
 
+/**
+ * What the shutter is waiting for, when it is waiting by itself.
+ *
+ * `off` is both halves of "nobody is watching": the setting is off, or the
+ * detector never loaded. `stalled` is a search that has gone on long enough to
+ * stop promising — a receipt this camera cannot make out, and a user who should
+ * be told to press the button. Either way the screen says so rather than
+ * promising a picture that is never going to be taken.
+ */
+export type AutoCaptureStatus = 'off' | 'searching' | 'stalled' | 'holding' | 'capturing';
+
 export interface ScanState {
   stage: Stage;
   /** Whether the viewfinder is showing a live picture, and why not when it is not. */
   camera: CameraState;
+  /** What the automatic shutter is doing. */
+  auto: AutoCaptureStatus;
   /** The untouched capture. */
   source: Blob | null;
   sourceUrl: string | null;
@@ -68,7 +91,8 @@ export interface ScanSession {
   startCamera(): Promise<void>;
   stopCamera(): void;
   openFilePicker(source: 'camera' | 'library'): void;
-  captureFrame(video: HTMLVideoElement): Promise<void>;
+  /** Takes the picture from the live preview — the shutter, pressed or automatic. */
+  captureFrame(): Promise<void>;
   runImport(files: File[]): Promise<void>;
   /** Re-runs the CV pipeline from the original capture — after a rotation or a manual crop. */
   reprocess(): Promise<void>;
@@ -81,17 +105,69 @@ export interface ScanSession {
 }
 
 /**
- * Builds a scan session and wires its own teardown into the current route.
+ * How long after one reading of the preview before the next is taken.
  *
- * `onChange` is called whenever state has changed in a way the screen should
- * re-render for — the same moments the old single-closure view called
- * `render()`. It is a no-op once the session is disposed, so nothing here
- * needs to re-check that by hand the way the view used to.
+ * Measured from the end of the last reading rather than on a fixed interval, so
+ * a phone that needs 150 ms to look at a frame simply looks less often instead
+ * of queueing work it cannot keep up with. The detector costs ~30 ms per 420 px
+ * frame on a laptop, and three readings at this spacing is the roughly one
+ * second of holding still that the screen asks for.
  */
-export function createScanSession(onChange: () => void): ScanSession {
+const PROBE_INTERVAL_MS = 180;
+
+/**
+ * Quiet time after the preview starts before the shutter may fire by itself.
+ *
+ * A camera coming up already pointed at the last receipt would otherwise take a
+ * picture out of a frame the user has not looked at yet.
+ */
+const ARM_DELAY_MS = 900;
+
+/**
+ * The multiplier applied to that spacing once a search has given up.
+ *
+ * A screen left open on a table would otherwise keep a detector running flat
+ * out at nothing. Still watching — a receipt held up is picked up within a
+ * second — for a third of the work.
+ */
+const STALLED_SLOWDOWN = 3;
+
+/**
+ * How long a fruitless search goes on before the screen stops promising.
+ *
+ * Long enough not to give up on someone still lining the shot up, short enough
+ * that a receipt the detector simply cannot make out — glossy, crumpled, dark —
+ * hands the user back to the button rather than leaving them waiting on it.
+ */
+const GIVE_UP_MS = 7000;
+
+export interface ScanSessionOptions {
+  /**
+   * Called whenever state has changed in a way the screen should re-render for.
+   * A no-op once the session is disposed, so nothing here needs to re-check
+   * that by hand the way the view used to.
+   */
+  onChange: () => void;
+  /**
+   * Called with every look the watcher takes at the preview, several times a
+   * second — far too often to re-render for. The screen moves its outline in
+   * place from this and leaves the rest of the DOM alone; `onChange` still
+   * fires for the state changes worth a render.
+   */
+  onReading?: (reading: FrameReading | null) => void;
+  /** The preview. The watcher reads frames from it and the shutter captures from it. */
+  video: HTMLVideoElement;
+}
+
+/**
+ * Builds a scan session and wires its own teardown into the current route.
+ */
+export function createScanSession(options: ScanSessionOptions): ScanSession {
+  const { onChange, video } = options;
   const state: ScanState = {
     stage: 'capture',
     camera: 'stopped',
+    auto: 'off',
     source: null,
     sourceUrl: null,
     sourceWidth: 0,
@@ -117,6 +193,15 @@ export function createScanSession(onChange: () => void): ScanSession {
    */
   let cameraRequest = 0;
 
+  let watch: WatchState = IDLE_WATCH;
+  let watchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When the preview started, for {@link ARM_DELAY_MS}. */
+  let armedAt = 0;
+  /** When the current fruitless stretch began, for {@link GIVE_UP_MS}. */
+  let searchingSince = 0;
+  /** Reused between readings: one canvas, however long the screen stays open. */
+  let probe: HTMLCanvasElement | null = null;
+
   function notify(): void {
     if (!disposed) onChange();
   }
@@ -131,6 +216,9 @@ export function createScanSession(onChange: () => void): ScanSession {
   function setCamera(next: CameraState): void {
     if (state.camera === next) return;
     state.camera = next;
+    // The watcher exists exactly as long as there is a picture to watch.
+    if (next === 'live') startWatching();
+    else stopWatching();
     notify();
   }
 
@@ -144,12 +232,16 @@ export function createScanSession(onChange: () => void): ScanSession {
   router.onTeardown(() => {
     disposed = true;
     stopCamera();
+    stopWatching();
     releaseUrls();
   });
 
   // Downloading OpenCV takes a moment; start it now so it overlaps with the
   // user lining up the shot rather than adding to the wait after the shutter.
   void cvClient.warmup().then(() => {
+    // The runtime routinely lands after the camera has: without this the first
+    // visit of a session would watch nothing, having been ready a moment late.
+    startWatching();
     if (state.stage === 'capture') notify();
     // The OCR runtime is a separate download. Start it only once OpenCV is in:
     // the two compete for the same connection, and a scan cannot begin without
@@ -210,6 +302,142 @@ export function createScanSession(onChange: () => void): ScanSession {
     }
   }
 
+  // --- the automatic shutter -------------------------------------------------
+
+  function setAuto(status: AutoCaptureStatus): void {
+    if (state.auto === status) return;
+    // Both ends of a hold are worth a tap: one to say the receipt has been
+    // found, one to say the picture is being taken.
+    if (status === 'holding') haptic('selection');
+    if (status === 'searching') searchingSince = Date.now();
+    state.auto = status;
+    notify();
+  }
+
+  /** Whether the shutter is allowed to fire by itself at all. */
+  function autoCaptureEnabled(): boolean {
+    return getSettings().image.autoCapture && cvClient.status.ready;
+  }
+
+  function startWatching(): void {
+    if (watchTimer !== null || state.camera !== 'live' || !autoCaptureEnabled()) return;
+    watch = IDLE_WATCH;
+    armedAt = Date.now();
+    setAuto('searching');
+    scheduleReading(nextDelay());
+  }
+
+  function stopWatching(): void {
+    if (watchTimer !== null) clearTimeout(watchTimer);
+    watchTimer = null;
+    watch = IDLE_WATCH;
+    options.onReading?.(null);
+    setAuto('off');
+  }
+
+  /** How long to wait before looking again, given what the last look found. */
+  function nextDelay(): number {
+    return state.auto === 'stalled' ? PROBE_INTERVAL_MS * STALLED_SLOWDOWN : PROBE_INTERVAL_MS;
+  }
+
+  function scheduleReading(delay: number): void {
+    if (watchTimer !== null) clearTimeout(watchTimer);
+    watchTimer = setTimeout(() => {
+      watchTimer = null;
+      void takeReading().catch((error: unknown) => {
+        // One bad frame must not end the watch: a loop that stops silently
+        // looks exactly like a feature that was never there.
+        console.warn('Auto-capture could not read the preview', error);
+        scheduleReading(nextDelay());
+      });
+    }, delay);
+  }
+
+  /**
+   * One look at the preview: a small copy of the current frame to the detector,
+   * its answer to {@link advance}, and the shutter if that is what it says.
+   */
+  async function takeReading(): Promise<void> {
+    if (disposed || state.stage !== 'capture' || state.camera !== 'live') return;
+    // A hidden tab has nothing worth looking at, and its timers are throttled
+    // to the point where "still" would mean nothing anyway.
+    if (document.hidden || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      scheduleReading(nextDelay());
+      return;
+    }
+
+    const reading = await readFrame();
+    if (disposed || state.stage !== 'capture' || state.camera !== 'live') return;
+    if (!reading) {
+      scheduleReading(nextDelay());
+      return;
+    }
+
+    options.onReading?.(reading);
+    const verdict = advance(watch, reading);
+    watch = verdict.state;
+    // A receipt that is being found, even one that will not sit still, is not a
+    // fruitless search: the outline on screen is already saying as much.
+    if (watch.steady > 0) searchingSince = Date.now();
+    setAuto(statusFor(watch));
+
+    if (!verdict.capture || Date.now() - armedAt < ARM_DELAY_MS) {
+      scheduleReading(nextDelay());
+      return;
+    }
+
+    setAuto('capturing');
+    haptic('impact');
+    await captureFrame();
+  }
+
+  /**
+   * The watch state, as the screen should describe it.
+   *
+   * A search that has found *nothing* for {@link GIVE_UP_MS} stops saying "point
+   * at the receipt" and starts saying "press the button" — and stays there
+   * until something is actually found, rather than working its way back round
+   * to giving up every few seconds. A receipt the watcher can see but cannot
+   * catch still is not that: it keeps searching, however long it takes.
+   */
+  function statusFor(watch: WatchState): AutoCaptureStatus {
+    if (watch.status === 'holding') return 'holding';
+    if (watch.steady > 0) return 'searching';
+    if (state.auto === 'stalled') return 'stalled';
+    return Date.now() - searchingSince >= GIVE_UP_MS ? 'stalled' : 'searching';
+  }
+
+  /** Measures the current frame: what the detector found, and what is inside it. */
+  async function readFrame(): Promise<FrameReading | null> {
+    const scale = PROBE_SIZE / Math.max(video.videoWidth, video.videoHeight);
+    const width = Math.max(1, Math.round(video.videoWidth * scale));
+    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    if (width < 2 || height < 2) return null;
+
+    probe ??= document.createElement('canvas');
+    probe.width = width;
+    probe.height = height;
+    const context = probe.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+
+    context.drawImage(video, 0, 0, width, height);
+    // Read the pixels before the bitmap goes to the worker: the ink test needs
+    // the frame itself, which only this side of the message has.
+    const pixels = context.getImageData(0, 0, width, height).data;
+    const found = await cvClient.detect(await createImageBitmap(probe));
+    if (!found) return null;
+
+    const corners = found.corners;
+    return {
+      corners,
+      detection: found.detection,
+      coverage: corners ? coverageOf(corners, width, height) : 0,
+      ink: corners ? inkRatio(pixels, width, height, corners) : 0,
+      frameWidth: width,
+      frameHeight: height,
+    };
+  }
+
   /**
    * Back to the capture screen with the preview running again.
    *
@@ -254,7 +482,7 @@ export function createScanSession(onChange: () => void): ScanSession {
     input.click();
   }
 
-  async function captureFrame(video: HTMLVideoElement): Promise<void> {
+  async function captureFrame(): Promise<void> {
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;

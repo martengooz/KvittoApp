@@ -23,21 +23,30 @@ import { formatBytes } from '@kvitto/shared';
 
 import { createCropEditor, type CropEditor } from '../components/crop-editor.js';
 import { banner, loadingState } from '../components/ui.js';
-import { el, replaceChildren } from '../core/dom.js';
+import { el, replaceChildren, svg } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { haptic } from '../core/platform.js';
 import { router } from '../core/router.js';
 import { toast } from '../core/toast.js';
 import type { PipelineResult } from '../cv/types.js';
+import { looksLikeReceipt, type FrameReading } from '../scan/auto-capture.js';
 import { shouldParse } from '../scan/import.js';
-import { createScanSession, type CameraState } from '../scan/session.js';
+import { createScanSession, type AutoCaptureStatus, type CameraState } from '../scan/session.js';
 
 /** What the viewfinder says it is doing, for each thing it can be doing. */
-const HINTS: Record<CameraState, string> = {
+const CAMERA_HINTS: Record<Exclude<CameraState, 'live'>, string> = {
   starting: 'Startar kameran…',
-  live: 'Håll kvar — beskär automatiskt',
   stopped: 'Tryck för att starta kameran',
   unavailable: 'Ingen kamera — tryck för att välja en bild',
+};
+
+/** And, once there is a picture, what the shutter is waiting for. */
+const AUTO_HINTS: Record<AutoCaptureStatus, string> = {
+  off: 'Tryck för att ta bilden',
+  searching: 'Rikta mot kvittot',
+  stalled: 'Hittar inget kvitto — tryck på knappen',
+  holding: 'Håll kvar…',
+  capturing: 'Tar bilden…',
 };
 
 const SHUTTER_LABELS: Record<CameraState, string> = {
@@ -60,7 +69,24 @@ export function scanView(): HTMLElement {
     muted: true,
   });
 
-  const session = createScanSession(render);
+  // The outline the watcher is looking at, drawn over the preview. Also built
+  // once: it is repainted several times a second, which is no reason to rebuild
+  // the screen around it.
+  const outlinePath = svg('polygon', { class: 'scan-outline__shape', points: '' });
+  const outline = svg(
+    'svg',
+    { class: 'scan-outline', preserveAspectRatio: 'none', 'aria-hidden': 'true' },
+    outlinePath,
+  );
+
+  // Persistent for a different reason than the two above: a live region only
+  // announces changes to text that was already there, and a span rebuilt with
+  // the rest of the screen is new text every time. This one is updated in
+  // place, so "Tar bilden…" is actually read out — which matters most to the
+  // user who cannot see that the shutter went off by itself.
+  const hint = el('span', { class: 'scan-viewfinder__hint', role: 'status', 'aria-live': 'polite' });
+
+  const session = createScanSession({ onChange: render, onReading: drawOutline, video });
   router.onTeardown(() => cropEditor?.destroy());
 
   // Asked for here rather than inside the session, which would call back into
@@ -100,7 +126,7 @@ export function scanView(): HTMLElement {
   function onShutter(): void {
     switch (session.state.camera) {
       case 'live':
-        void session.captureFrame(video);
+        void session.captureFrame();
         break;
       case 'stopped':
         void session.startCamera();
@@ -113,9 +139,44 @@ export function scanView(): HTMLElement {
     }
   }
 
+  /**
+   * Traces the detected receipt on the preview.
+   *
+   * The detector measures a small copy of the camera's frame, and the preview
+   * shows that frame cropped to fill the viewfinder (`object-fit: cover`), so
+   * the outline has to go through the same crop to land on the paper it was
+   * found on.
+   */
+  function drawOutline(reading: FrameReading | null): void {
+    const box = outline.getBoundingClientRect();
+    // Only what the watcher would act on: the detector answers for a desk and a
+    // wall too, and tracing those would promise a picture that is not coming.
+    if (!reading?.corners || !looksLikeReceipt(reading) || box.width === 0 || box.height === 0) {
+      outline.classList.remove('scan-outline--found');
+      outlinePath.setAttribute('points', '');
+      return;
+    }
+    outline.classList.add('scan-outline--found');
+
+    const scale = Math.max(box.width / reading.frameWidth, box.height / reading.frameHeight);
+    const left = (box.width - reading.frameWidth * scale) / 2;
+    const top = (box.height - reading.frameHeight * scale) / 2;
+
+    outline.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+    outlinePath.setAttribute(
+      'points',
+      reading.corners
+        .map((corner) => `${left + corner.x * scale},${top + corner.y * scale}`)
+        .join(' '),
+    );
+  }
+
   function renderCapture(): HTMLElement {
     const camera = session.state.camera;
     const live = camera === 'live';
+    const auto = session.state.auto;
+
+    hint.textContent = live ? AUTO_HINTS[auto] : CAMERA_HINTS[camera];
 
     // Assigned rather than re-created, and cleared when there is nothing to
     // show, so the placeholder is never a still of the last frame.
@@ -137,10 +198,17 @@ export function scanView(): HTMLElement {
       ),
       el(
         'div',
-        { class: ['scan-viewfinder', live ? 'scan-viewfinder--live' : ''] },
+        {
+          class: [
+            'scan-viewfinder',
+            live ? 'scan-viewfinder--live' : '',
+            live ? `scan-viewfinder--${auto}` : '',
+          ],
+        },
         video,
+        outline,
         el('div', { class: 'scan-viewfinder__paper' }),
-        el('span', { class: 'scan-viewfinder__hint', text: HINTS[camera] }),
+        hint,
       ),
       el(
         'button',
