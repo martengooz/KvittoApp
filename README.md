@@ -20,6 +20,64 @@ apps/server       Companion sync server (Fastify + SQLite)
 fixtures/receipts Real receipt photographs used by the verification harness
 ```
 
+## Native iOS status (current)
+
+The native iOS client lives in `apps/ios` and is under active migration from the
+PWA architecture. Current state is intentionally mixed:
+
+- Implemented now (JS wiring): Expo Router tabs, typed service composition,
+  lazy boot with diagnostics/retry, and functional tab screens for Receipts,
+  Purchases, Scan, Collections, and Settings.
+- Implemented now (route contracts): pushed/modal route shells for receipt
+  detail/edit, OCR details, extraction details, filters, category/tag
+  management, pairing scanner, debug log, and archive preflight/result.
+- Not yet fully device-native: camera preview UI + VisionCamera plugin,
+  SQLCipher-backed persistent storage wiring, Keychain-backed credentials,
+  real pairing scanner flow, and archive import/export UX.
+
+This means tab flows and controller wiring are testable today, while several
+hardware/native surfaces still require device-first integration.
+
+### Native architecture snapshot
+
+- `apps/ios/app`: Expo Router route files only.
+- `apps/ios/src/app`: boot, service composition/DI, route contracts.
+- `apps/ios/src/features/*`: controller logic and feature UIs.
+- `apps/ios/modules/kvitto-native`: native bridge contracts and adapters.
+
+### Prerequisites (Xcode 27 + iOS 26)
+
+- macOS with Xcode 27 installed.
+- iOS 26 simulator/runtime installed in Xcode.
+- Node 20.11+ and npm.
+
+If multiple Xcode versions are installed, pin command-line tools explicitly:
+
+```bash
+export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+xcodebuild -version
+```
+
+### Native commands
+
+```bash
+# install workspace dependencies
+npm install
+
+# iOS static checks and tests
+npm run typecheck:ios
+npm run test:ios -- --runInBand
+
+# produce iOS JS bundle/export
+npm run ios:bundle
+
+# run Expo dev client entry (Metro)
+CI=1 npm run dev:ios -- --port 8081
+
+# run the iOS app (after prebuild/native setup when needed)
+npm run ios
+```
+
 ## Deploying to GitHub Pages
 
 `.github/workflows/deploy-pages.yml` builds the PWA and publishes **only**

@@ -22,9 +22,12 @@ export default tseslint.config(
     ignores: [
       '**/dist/**',
       '**/node_modules/**',
+      'apps/web/dev-dist/**',
       'apps/web/public/**',
       'apps/web/src/vendor/**',
       'packages/shared/dist/**',
+      'apps/ios/.expo/**',
+      'apps/ios/ios/**',
     ],
   },
 
@@ -134,6 +137,30 @@ export default tseslint.config(
     files: ['apps/web/e2e/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
+    },
+  },
+
+  {
+    files: ['apps/ios/metro.config.js'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
+  {
+    files: ['apps/ios/src/ui/sf-symbol.tsx'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
+  {
+    files: ['apps/ios/**/*.{ts,tsx,js,jsx}'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        __DEV__: 'readonly',
+      },
     },
   },
 

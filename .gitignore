@@ -174,3 +174,23 @@ apps/server/*.sqlite-*
 /favicon.svg
 /apple-touch-icon.png
 /.nojekyll
+
+# --- iOS native / Expo ---
+apps/ios/.expo/
+apps/ios/.expo-shared/
+apps/ios/dist/
+apps/ios/ios/build/
+apps/ios/ios/Pods/
+apps/ios/ios/.xcode.env.local
+apps/ios/ios/**/*.xcuserstate
+apps/ios/ios/**/xcuserdata/
+DerivedData/
+
+# Local signing and simulator artifacts
+*.mobileprovision
+*.p12
+*.keychain-db
+
+# Maestro artifacts
+maestro-report/
+maestro-results/

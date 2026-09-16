@@ -1,0 +1,125 @@
+name: iOS CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  ios-native-verification:
+    runs-on: macos-15
+    env:
+      CI: "1"
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: iOS typecheck
+        run: npm run typecheck:ios
+
+      - name: iOS Jest
+        run: npm run test:ios -- --ci --runInBand
+
+      - name: Expo iOS bundle export
+        run: npm run ios:bundle
+
+      - name: Install CocoaPods
+        working-directory: apps/ios/ios
+        run: pod install
+
+      - name: Select iOS 26 simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIM_JSON="$(xcrun simctl list -j)"
+
+          SELECT_RESULT="$(node -e '
+            const data = JSON.parse(process.argv[1]);
+            const desiredDeviceName = "iPhone 17 Pro";
+            const runtimes = (data.runtimes || [])
+              .filter((runtime) => runtime.isAvailable && runtime.platform === "iOS" && /^iOS 26(\\.|$)/.test(runtime.name))
+              .sort((a, b) => String(b.version || "").localeCompare(String(a.version || "")));
+
+            if (runtimes.length === 0) {
+              console.error("No available iOS 26 runtime found.");
+              process.exit(1);
+            }
+
+            const runtime = runtimes[0];
+            const runtimeDevices = data.devices?.[runtime.identifier] || [];
+            let device = runtimeDevices.find((candidate) => candidate.isAvailable && candidate.name === desiredDeviceName);
+
+            if (!device) {
+              const fallback = runtimeDevices.find((candidate) => candidate.isAvailable && /iPhone/.test(candidate.name));
+              if (fallback) {
+                console.log(`reuse:${fallback.udid}`);
+                process.exit(0);
+              }
+            }
+
+            if (device) {
+              console.log(`reuse:${device.udid}`);
+              process.exit(0);
+            }
+
+            const deviceTypes = data.devicetypes || [];
+            const desiredType = deviceTypes.find((type) => type.name === desiredDeviceName);
+            const fallbackType = deviceTypes.find((type) => /iPhone/.test(type.name));
+            const typeToCreate = desiredType || fallbackType;
+
+            if (!typeToCreate) {
+              console.error("No iPhone simulator device type available.");
+              process.exit(1);
+            }
+
+            console.log(`create:${typeToCreate.identifier}:${runtime.identifier}`);
+          ' "$SIM_JSON")"
+
+          case "$SELECT_RESULT" in
+            reuse:*)
+              IOS_SIMULATOR_UDID="${SELECT_RESULT#reuse:}"
+              ;;
+            create:*)
+              PAYLOAD="${SELECT_RESULT#create:}"
+              DEVICE_TYPE_IDENTIFIER="${PAYLOAD%%:*}"
+              RUNTIME_IDENTIFIER="${PAYLOAD#*:}"
+              IOS_SIMULATOR_UDID="$(xcrun simctl create KvittoApp-CI "$DEVICE_TYPE_IDENTIFIER" "$RUNTIME_IDENTIFIER")"
+              ;;
+            *)
+              echo "Unexpected simulator selection output: $SELECT_RESULT" >&2
+              exit 1
+              ;;
+          esac
+
+          xcrun simctl boot "$IOS_SIMULATOR_UDID" || true
+          xcrun simctl bootstatus "$IOS_SIMULATOR_UDID" -b
+          echo "IOS_SIMULATOR_UDID=$IOS_SIMULATOR_UDID" >> "$GITHUB_ENV"
+
+      - name: Xcode build
+        run: |
+          xcodebuild build \
+            -workspace apps/ios/ios/KvittoAppiOS.xcworkspace \
+            -scheme KvittoAppiOS \
+            -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/KvittoAppDerivedData" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Xcode test
+        run: |
+          xcodebuild test \
+            -workspace apps/ios/ios/KvittoAppiOS.xcworkspace \
+            -scheme KvittoAppiOS \
+            -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/KvittoAppDerivedData" \
+            CODE_SIGNING_ALLOWED=NO

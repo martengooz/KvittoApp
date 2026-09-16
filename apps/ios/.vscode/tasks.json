@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "ios-full-jest-packet11",
+			"type": "shell",
+			"command": "CI=1 npm run test -- --runInBand",
+			"isBackground": false
+		}
+	]
+}

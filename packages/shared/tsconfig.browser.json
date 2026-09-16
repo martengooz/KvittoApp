@@ -6,5 +6,5 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/dom.ts", "src/ui-rows.ts", "src/ai-settings-ui.ts"]
+  "include": ["src/dom.ts", "src/ui-rows.ts", "src/ai-settings.ts", "src/ai-settings-ui.ts"]
 }
