@@ -32,6 +32,13 @@ export function renderImageSection(): HTMLElement {
       iconColor: GLYPH.image,
       onChange: (checked) => void updateSettings({ image: { detectEdges: checked } }),
     }),
+    switchRow({
+      label: 'Ta bilden automatiskt',
+      checked: image.autoCapture,
+      icon: 'camera',
+      iconColor: GLYPH.image,
+      onChange: (checked) => void updateSettings({ image: { autoCapture: checked } }),
+    }),
     sliderRow({
       label: 'Maxstorlek',
       value: image.maxDimension,

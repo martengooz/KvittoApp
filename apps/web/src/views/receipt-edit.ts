@@ -24,6 +24,7 @@ import {
   type Tag,
 } from '@kvitto/shared';
 
+import { swipeRow } from '../components/swipe-actions.js';
 import { banner, deleteButton, field, listGroup, moneyInput, row as listRow } from '../components/ui.js';
 import { el } from '../core/dom.js';
 import { router, type RouteContext } from '../core/router.js';
@@ -34,6 +35,7 @@ import {
   addItem,
   createTag,
   deleteItem,
+  restoreItem,
   setReceiptTags,
   updateItem,
   updateReceipt,
@@ -242,8 +244,17 @@ function renderItems(receipt: Receipt, items: ReceiptItem[], categories: Categor
   );
 }
 
+/**
+ * One line item, editable.
+ *
+ * The row can be swiped away as well as deleted from its own trash button: the
+ * gesture is the quick way through a receipt the model over-read, and the
+ * button is the way that works with a keyboard, with VoiceOver, and with a
+ * mouse. The swipe deletes on the spot and offers an undo; the button, having
+ * no accidental way to fire, asks first.
+ */
 function renderItem(item: ReceiptItem, categories: Category[]): HTMLElement {
-  return el(
+  const editor = el(
     'div',
     { class: 'item-editor' },
     el(
@@ -329,6 +340,21 @@ function renderItem(item: ReceiptItem, categories: Category[]): HTMLElement {
       ? el('p', { class: 'faint', text: `Tryckt som: ${item.rawName}` })
       : null,
   );
+
+  return swipeRow({
+    content: editor,
+    label: `Ta bort ${item.name}`,
+    onAction: () => removeItem(item),
+  });
+}
+
+/** Deletes a line item outright, with the undo that lets the swipe be cheap. */
+async function removeItem(item: ReceiptItem): Promise<void> {
+  await deleteItem(item.id);
+  toast(`"${item.name}" togs bort.`, {
+    durationMs: 6000,
+    action: { label: 'Ångra', onClick: () => void restoreItem(item.id) },
+  });
 }
 
 /**

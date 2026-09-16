@@ -145,6 +145,9 @@ try {
 
   if (PIPELINE) await runPipelineSweep(page, fixtures);
   await runScanFlow(page, fixtures);
+  await runCameraFlow();
+  await runAutoCaptureFlow(page, fixtures);
+  await runSwipeFlow(page);
 
   if (errors.length > 0) fail(`page reported errors:\n${errors.join('\n')}`);
   log('OK');
@@ -289,4 +292,289 @@ async function runScanFlow(page, fixtures) {
   if (cards !== expected) fail(`expected ${expected} receipts in the list, found ${cards}`);
   log(`receipts in the list: ${cards}`);
   await page.screenshot({ path: join(OUT, 'screen-list.png') });
+}
+
+/**
+ * Swipe-to-delete, on the list the scan flow has just filled.
+ *
+ * Driven with real pointer events rather than by calling the handlers, because
+ * what is worth checking here is what the browser decides: that a sideways drag
+ * is not taken for a scroll, that the click it leaves behind never reaches the
+ * card underneath, and that the delete it fires can be taken back.
+ */
+async function runSwipeFlow(page) {
+  await page.goto(`${BASE}/#/receipts`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.swipe-row');
+  const cards = () => page.locator('.receipt-card').count();
+  const before = await cards();
+  if (before < 2) fail(`the swipe checks need a list to work on, found ${before} receipts`);
+
+  // An upright drag belongs to the list, which has to keep scrolling.
+  await swipe(page, -14, -90);
+  if ((await page.locator('.swipe-row--open').count()) !== 0) fail('an upright drag opened a row');
+
+  await swipe(page, -80);
+  const opened = await page.locator('.swipe-row--open').count();
+  if (opened !== 1) fail(`a swipe left ${opened} rows open, expected exactly 1`);
+  if (!page.url().includes('#/receipts')) fail(`the swipe opened the receipt: ${page.url()}`);
+  log('swipe uncovers the delete, and does not follow the card it was made on');
+
+  await page.click('.swipe-row__action');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before - 1);
+  if (!(await page.isVisible('.toast__action'))) fail('the swipe delete offered no undo');
+  log('the uncovered action deletes, and offers an undo');
+
+  await page.click('.toast:last-child .toast__action');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before);
+  log('undo brings the receipt back');
+
+  // Carried across the row, the delete fires on release without stopping open.
+  const box = await page.locator('.swipe-row').first().boundingBox();
+  await swipe(page, -box.width);
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before - 1);
+  log('a full swipe deletes on release');
+
+  await page.click('.toast:last-child .toast__action');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before);
+}
+
+/** Drags the first row of the list, in steps, the way a finger moves. */
+async function swipe(page, dx, dy = 0) {
+  const box = await page.locator('.swipe-row').first().boundingBox();
+  const fromX = box.x + box.width - 30;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(fromX, y);
+  await page.mouse.down();
+  for (let step = 1; step <= 10; step += 1) {
+    await page.mouse.move(fromX + (dx * step) / 10, y + (dy * step) / 10);
+    await page.waitForTimeout(12);
+  }
+  await page.mouse.up();
+  // Long enough for the row to settle, which is when the outcome is readable.
+  await page.waitForTimeout(400);
+}
+
+/**
+ * The capture screen in a browser that has a camera.
+ *
+ * The main browser deliberately has none — that absence is what exercises the
+ * file-picker fallback above — so this opens a second one with Chromium's fake
+ * device. What it checks is the part nothing else can see: that the live
+ * preview takes exactly the box the placeholder had, so the shutter neither
+ * moves nor leaves the screen the moment the stream arrives, and that one press
+ * of it takes the photograph rather than merely opening a camera.
+ */
+async function runCameraFlow() {
+  const withCamera = await chromium.launch({
+    executablePath: chromiumPath(),
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+    ],
+  });
+
+  try {
+    const context = await withCamera.newContext({
+      viewport: { width: 414, height: 896 },
+      locale: 'sv-SE',
+      serviceWorkers: 'block',
+      permissions: ['camera'],
+    });
+    const cameraPage = await context.newPage();
+    cameraPage.on('pageerror', (error) => errors.push(`pageerror (camera): ${error.message}`));
+
+    await cameraPage.goto(`${BASE}/#/scan`, { waitUntil: 'domcontentloaded' });
+    await cameraPage.waitForSelector('.scan-viewfinder', { timeout: 30_000 });
+    const placeholder = await captureGeometry(cameraPage);
+
+    await cameraPage.waitForSelector('.scan-viewfinder--live', { timeout: 30_000 });
+    const live = await captureGeometry(cameraPage);
+    await cameraPage.screenshot({ path: join(OUT, 'screen-camera.png') });
+
+    if (JSON.stringify(placeholder) !== JSON.stringify(live)) {
+      fail(
+        `the live preview resized the screen: ${JSON.stringify(placeholder)} -> ${JSON.stringify(live)}`,
+      );
+    }
+    if (live.scrollHeight > live.viewportHeight + 1) {
+      fail(`the capture screen overflows: ${live.scrollHeight} > ${live.viewportHeight}`);
+    }
+    log('camera: the preview takes the placeholder\'s box, and the screen still fits');
+
+    // Live, the shutter is the shutter — not a button that opens a camera.
+    await cameraPage.click('.scan-shutter');
+    await cameraPage.waitForSelector('.scan-review', { timeout: 90_000 });
+    log('camera: one shutter press goes straight to the review screen');
+  } finally {
+    await withCamera.close();
+  }
+}
+
+/**
+ * The shutter that fires by itself, pointed at things that should and should
+ * not set it off.
+ *
+ * Chromium will play a Y4M file as if it were the camera, so a fixture
+ * photograph becomes a receipt held in front of the lens — the only way to
+ * exercise the watcher end to end, detector and all. The scenes are built from
+ * that same fixture in the browser (there is no image tooling to assume here),
+ * and a wooden desk is painted alongside it, because what the feature must do
+ * is as much about the picture it refuses to take as the one it takes.
+ */
+async function runAutoCaptureFlow(page, fixtures) {
+  const scenes = await writeCameraScenes(page, fixtures[0]);
+
+  // A receipt in shot: traced, and photographed without anyone pressing anything.
+  await withCameraScene(scenes.receipt, async (scanPage) => {
+    await scanPage.waitForSelector('.scan-outline--found', { timeout: 30_000 });
+    const corners = await scanPage.$eval('.scan-outline__shape', (node) => node.getAttribute('points'));
+    if ((corners ?? '').split(' ').length !== 4) fail(`the outline is not a quadrilateral: ${corners}`);
+
+    await scanPage.waitForSelector('.scan-review', { timeout: 60_000 });
+    await scanPage.screenshot({ path: join(OUT, 'screen-auto-capture.png') });
+    log('auto: a receipt held still is traced and photographed unprompted');
+  });
+
+  // A desk in shot: nothing traced, nothing taken, and the screen says so.
+  await withCameraScene(scenes.desk, async (scanPage) => {
+    await scanPage.waitForTimeout(9000);
+    const state = await scanPage.evaluate(() => ({
+      review: document.querySelector('.scan-review') !== null,
+      outline: document.querySelector('.scan-outline--found') !== null,
+      hint: document.querySelector('.scan-viewfinder__hint')?.textContent ?? '',
+    }));
+    if (state.review) fail('the shutter fired at a wooden desk');
+    if (state.outline) fail('a wooden desk was traced as a receipt');
+    if (!/tryck på knappen/i.test(state.hint)) {
+      fail(`a fruitless search never handed back to the button: "${state.hint}"`);
+    }
+    log('auto: a desk is neither traced nor photographed, and the screen says so');
+  });
+}
+
+/** Runs `body` against the scan screen of a browser whose camera plays `clip`. */
+async function withCameraScene(clip, body) {
+  const browser = await chromium.launch({
+    executablePath: chromiumPath(),
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+      `--use-file-for-fake-video-capture=${clip}`,
+    ],
+  });
+  try {
+    const context = await browser.newContext({
+      viewport: { width: 414, height: 896 },
+      locale: 'sv-SE',
+      serviceWorkers: 'block',
+      permissions: ['camera'],
+    });
+    const scanPage = await context.newPage();
+    scanPage.on('pageerror', (error) => errors.push(`pageerror (auto): ${error.message}`));
+    await scanPage.goto(`${BASE}/#/scan`, { waitUntil: 'domcontentloaded' });
+    await scanPage.waitForSelector('.scan-viewfinder--live', { timeout: 30_000 });
+    await body(scanPage);
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * Writes the two camera scenes as Y4M clips and returns their paths.
+ *
+ * The conversion runs in the page because that is where an image decoder is:
+ * the fixture is drawn to a canvas, read back as RGBA and converted to the
+ * I420 planes a Y4M frame carries. Chromium loops the file, so one frame is a
+ * scene that holds perfectly still — which is exactly the thing being tested.
+ */
+async function writeCameraScenes(page, fixtureName) {
+  const width = 480;
+  const height = 640;
+  const paths = {};
+
+  for (const scene of ['receipt', 'desk']) {
+    const planes = await page.evaluate(
+      async ({ name, width, height, scene }) => {
+        const canvas = new OffscreenCanvas(width, height);
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        // A wooden table, under both scenes: it is the background in one and
+        // the whole of the other.
+        context.fillStyle = '#6d5238';
+        context.fillRect(0, 0, width, height);
+        if (scene === 'receipt') {
+          const bitmap = await createImageBitmap(await (await fetch(`/__fixture/${name}`)).blob(), {
+            imageOrientation: 'from-image',
+          });
+          const scale = Math.min((width * 0.72) / bitmap.width, (height * 0.82) / bitmap.height);
+          const drawWidth = bitmap.width * scale;
+          const drawHeight = bitmap.height * scale;
+          context.drawImage(bitmap, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+        } else {
+          for (let row = 0; row < 30; row += 1) {
+            context.fillStyle = row % 2 ? '#5d4228' : '#7a5f45';
+            context.fillRect(0, row * 22, width, 11);
+          }
+        }
+
+        const { data } = context.getImageData(0, 0, width, height);
+        const luma = new Uint8Array(width * height);
+        const blue = new Uint8Array((width / 2) * (height / 2));
+        const red = new Uint8Array((width / 2) * (height / 2));
+        for (let row = 0; row < height; row += 1) {
+          for (let column = 0; column < width; column += 1) {
+            const offset = (row * width + column) * 4;
+            const r = data[offset];
+            const g = data[offset + 1];
+            const b = data[offset + 2];
+            luma[row * width + column] = Math.max(16, Math.min(235, Math.round(0.257 * r + 0.504 * g + 0.098 * b + 16)));
+            if (row % 2 === 0 && column % 2 === 0) {
+              const index = (row / 2) * (width / 2) + column / 2;
+              blue[index] = Math.max(16, Math.min(240, Math.round(-0.148 * r - 0.291 * g + 0.439 * b + 128)));
+              red[index] = Math.max(16, Math.min(240, Math.round(0.439 * r - 0.368 * g - 0.071 * b + 128)));
+            }
+          }
+        }
+        return { luma: [...luma], blue: [...blue], red: [...red] };
+      },
+      { name: fixtureName, width, height, scene },
+    );
+
+    const frame = Buffer.concat([
+      Buffer.from('FRAME\n', 'ascii'),
+      Buffer.from(planes.luma),
+      Buffer.from(planes.blue),
+      Buffer.from(planes.red),
+    ]);
+    const file = join(OUT, `camera-${scene}.y4m`);
+    writeFileSync(
+      file,
+      Buffer.concat([
+        Buffer.from(`YUV4MPEG2 W${width} H${height} F15:1 Ip A1:1 C420mpeg2\n`, 'ascii'),
+        ...Array.from({ length: 15 }, () => frame),
+      ]),
+    );
+    paths[scene] = file;
+  }
+  return paths;
+}
+
+/** The capture screen's measurements, as the layout has to keep them. */
+function captureGeometry(page) {
+  return page.evaluate(() => {
+    const box = (selector) => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)];
+    };
+    return {
+      viewfinder: box('.scan-viewfinder'),
+      shutter: box('.scan-shutter'),
+      tools: box('.scan-capture__tools'),
+      scrollHeight: document.scrollingElement.scrollHeight,
+      viewportHeight: window.innerHeight,
+    };
+  });
 }

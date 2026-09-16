@@ -54,6 +54,11 @@ export interface AiSettings {
 
 export interface ImageSettings {
   detectEdges: boolean;
+  /**
+   * Let the scan screen take the picture by itself, once it can see a receipt
+   * being held still. The shutter still works while it watches.
+   */
+  autoCapture: boolean;
   enhance: 'color' | 'grayscale' | 'binarize' | 'none';
   maxDimension: number;
   quality: number;
@@ -144,6 +149,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   image: {
     detectEdges: true,
+    autoCapture: true,
     enhance: 'grayscale',
     maxDimension: 1568,
     quality: 0.9,

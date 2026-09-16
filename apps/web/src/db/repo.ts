@@ -206,17 +206,34 @@ export async function deleteReceipt(id: ID): Promise<void> {
   announce('receipts', 'items', 'receiptTags');
 }
 
-/** Undoes {@link deleteReceipt} while the tombstone is still around. */
+/**
+ * Undoes {@link deleteReceipt} while the tombstone is still around.
+ *
+ * Only what that delete took goes back. Every row it tombstoned carries the
+ * delete's own timestamp, so an item or a tag link the user had removed
+ * earlier, on purpose, is left tombstoned rather than resurrected along with
+ * the receipt.
+ */
 export async function restoreReceipt(id: ID): Promise<void> {
+  const receipt = await db.receipts.get(id);
+  if (!receipt || receipt.deletedAt === 0) return;
+  const deletedAt = receipt.deletedAt;
   const now = Date.now();
+
   await db.transaction('rw', db.receipts, db.items, db.receiptTags, async () => {
     await db.receipts.update(id, { deletedAt: 0, updatedAt: now, dirty: 1 });
-    const items = await db.items.where('receiptId').equals(id).primaryKeys();
-    for (const itemId of items) {
-      await db.items.update(itemId, { deletedAt: 0, updatedAt: now, dirty: 1 });
+    const items = await db.items.where('receiptId').equals(id).toArray();
+    for (const item of items) {
+      if (item.deletedAt !== deletedAt) continue;
+      await db.items.update(item.id, { deletedAt: 0, updatedAt: now, dirty: 1 });
+    }
+    const links = await db.receiptTags.where('receiptId').equals(id).toArray();
+    for (const link of links) {
+      if (link.deletedAt !== deletedAt) continue;
+      await db.receiptTags.update(link.id, { deletedAt: 0, updatedAt: now, dirty: 1 });
     }
   });
-  announce('receipts', 'items');
+  announce('receipts', 'items', 'receiptTags');
 }
 
 // --- items ----------------------------------------------------------------
@@ -267,6 +284,15 @@ export async function deleteItem(id: ID): Promise<void> {
   if (!item) return;
   const now = Date.now();
   await db.items.update(id, { deletedAt: now, updatedAt: now, dirty: 1 });
+  await refreshItemCount(item.receiptId);
+  announce('items', 'receipts');
+}
+
+/** Undoes {@link deleteItem} while the tombstone is still around. */
+export async function restoreItem(id: ID): Promise<void> {
+  const item = await db.items.get(id);
+  if (!item || item.deletedAt === 0) return;
+  await db.items.update(id, { deletedAt: 0, updatedAt: Date.now(), dirty: 1 });
   await refreshItemCount(item.receiptId);
   announce('items', 'receipts');
 }

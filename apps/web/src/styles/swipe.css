@@ -1,0 +1,73 @@
+/* --- swipe to delete ----------------------------------------------------- */
+
+/*
+ * A row that can be dragged left to uncover a delete, as in Mail and Settings.
+ *
+ * The action sits behind the row rather than beside it: the backdrop fills the
+ * whole row and the button is pinned to its trailing edge, so a full swipe
+ * leaves red behind the row all the way across instead of a button floating in
+ * a gap. Nothing is clipped, which keeps the receipt cards' shadow intact —
+ * the backdrop just takes the same rounded shape as whatever it sits under.
+ */
+.swipe-row {
+  position: relative;
+  /* Vertical drags stay the list's to scroll; horizontal ones come here. */
+  touch-action: pan-y;
+}
+
+.swipe-row__actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  border-radius: inherit;
+  /* Clips the button's pressed state to the rounded shape. Only the button is
+     in here — the row itself, shadow and all, is a sibling. */
+  overflow: hidden;
+  background: var(--danger);
+}
+
+.swipe-row__action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 92px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.swipe-row__action:active {
+  background: rgb(0 0 0 / 12%);
+}
+
+/*
+ * Whatever is wrapped has to be opaque: the backdrop is behind it at all times,
+ * not only while a gesture is running, so a see-through row would show red
+ * without being touched. A receipt card brings its own background; a row that
+ * does not gets one where it is wrapped — see `.inset-list` in
+ * `receipt-detail.css`.
+ */
+.swipe-row__content {
+  position: relative;
+}
+
+/* Promoted only while the row is actually moving: a receipt list is every
+   receipt ever scanned, and a standing layer per row is not worth the frame
+   it would save. */
+.swipe-row--swiping .swipe-row__content,
+.swipe-row__content--settling {
+  will-change: transform;
+}
+
+/* Only while the row is settling into place. During the drag itself the
+   transform tracks the finger and must not lag behind it. */
+.swipe-row__content--settling {
+  transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}

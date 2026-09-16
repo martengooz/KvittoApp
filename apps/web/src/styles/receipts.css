@@ -163,6 +163,14 @@
   content: none;
 }
 
+/* Each card is wrapped in a swipe container, so the red backdrop has to take
+   the card's own rounded shape — the wrapper cannot clip to it without
+   clipping the card's shadow away with it. */
+.receipt-group .swipe-row,
+.receipt-group .swipe-row__actions {
+  border-radius: 18px;
+}
+
 .receipt-card:active {
   background: var(--fill-quaternary);
 }
