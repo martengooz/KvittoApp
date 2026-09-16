@@ -147,6 +147,7 @@ try {
   await runScanFlow(page, fixtures);
   await runCameraFlow();
   await runAutoCaptureFlow(page, fixtures);
+  await runSearchFlow(page);
   await runSwipeFlow(page);
 
   if (errors.length > 0) fail(`page reported errors:\n${errors.join('\n')}`);
@@ -577,4 +578,55 @@ function captureGeometry(page) {
       viewportHeight: window.innerHeight,
     };
   });
+}
+
+/**
+ * Searching, which is typing — so the screen must hold still around it.
+ *
+ * The field is checked by node identity rather than by selector: the bug this
+ * guards against replaced the whole view between keystrokes, which looks fine
+ * in a screenshot and costs the caret, the focus and (on iOS) the keyboard.
+ */
+async function runSearchFlow(page) {
+  await page.goto(`${BASE}/#/receipts`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.receipt-card', { timeout: 20_000 });
+  const before = await page.locator('.receipt-card').count();
+
+  // Marks on the live nodes; a rebuild of either loses its mark.
+  await page.evaluate(() => {
+    document.querySelector('.search-field input').dataset.probe = 'original';
+    document.querySelector('#view-outlet').firstElementChild.dataset.probe = 'original';
+  });
+
+  await page.click('.search-field input');
+  for (const character of 'zvv') {
+    await page.keyboard.type(character, { delay: 60 });
+    // Past the debounce, which is when the screen used to be rebuilt.
+    await page.waitForTimeout(320);
+    const state = await page.evaluate(() => {
+      const input = document.querySelector('.search-field input');
+      return {
+        sameInput: input?.dataset.probe === 'original',
+        sameView: document.querySelector('#view-outlet').firstElementChild?.dataset.probe === 'original',
+        focused: document.activeElement === input,
+        value: input?.value,
+        caret: input?.selectionStart,
+      };
+    });
+    if (!state.sameInput) fail(`the search field was rebuilt while "${state.value}" was being typed`);
+    if (!state.sameView) fail(`the screen was rebuilt while "${state.value}" was being typed`);
+    if (!state.focused) fail(`the search field lost focus while "${state.value}" was being typed`);
+    if (state.caret !== state.value.length) fail(`the caret moved: ${state.caret} in "${state.value}"`);
+  }
+
+  await page.waitForSelector('.empty-state', { timeout: 10_000 });
+  if (!page.url().includes('q=zvv')) fail(`the query never reached the URL: ${page.url()}`);
+  log('search: the field keeps focus and its caret while the results narrow');
+
+  // And clearing it brings the list back, without a reload.
+  await page.fill('.search-field input', '');
+  await page.waitForFunction((count) => document.querySelectorAll('.receipt-card').length === count, before, {
+    timeout: 10_000,
+  });
+  log('search: clearing the query brings the list back');
 }

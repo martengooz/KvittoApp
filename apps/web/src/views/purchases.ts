@@ -17,8 +17,8 @@ import {
 } from '@kvitto/shared';
 
 import { actionRow, chip as chipControl, emptyState, searchField } from '../components/ui.js';
-import { debounce, el } from '../core/dom.js';
-import { liveView } from '../core/live-view.js';
+import { debounce, el, replaceChildren, type Child } from '../core/dom.js';
+import { liveScreen } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
 import { getSettings } from '../core/settings.js';
@@ -45,13 +45,6 @@ const SORT_LABELS: Record<ItemSortKey, string> = {
 /** Rows rendered before the "show more" button appears. */
 const PAGE_SIZE = 150;
 
-interface PurchasesData {
-  rows: PurchaseRow[];
-  categories: Map<string, Category>;
-  tags: Map<string, Tag>;
-  merchants: string[];
-}
-
 export function purchasesView(context: RouteContext): Promise<HTMLElement> {
   const filter = filterFromParams(context.params);
   filter.includeDiscounts ??= getSettings().ui.showAuxiliaryLines;
@@ -60,74 +53,103 @@ export function purchasesView(context: RouteContext): Promise<HTMLElement> {
   // "Show more" paging, like the filter panel elsewhere, is UI state that must
   // survive a `data:changed` refresh rather than reset the list to one page.
   let limit = PAGE_SIZE;
-  let refreshView: () => Promise<void> = async () => {};
+  // What the last full load found, kept for the refreshes that only redo the
+  // rows. Reloaded on every full pass rather than cached once, so a tag or
+  // category created elsewhere shows up in these filters immediately instead of
+  // only after leaving the screen and coming back.
+  let categories = new Map<string, Category>();
+  let tags = new Map<string, Tag>();
+  let merchants: string[] = [];
 
   function updateUrl(): void {
     syncFilterToUrl('/purchases', filter, paramsFromFilter);
   }
 
-  function onFilterChange(): void {
-    limit = PAGE_SIZE;
-    updateUrl();
-    void refreshView();
+  /**
+   * Re-runs the query and swaps the results, leaving the filters alone.
+   *
+   * Which is the whole point: the search field is one of those filters, and an
+   * `<input>` rebuilt between keystrokes loses its caret and, on iOS, the
+   * keyboard with it. See `liveScreen`.
+   */
+  async function refreshResults(): Promise<void> {
+    const rows = await searchPurchases(filter);
+    replaceChildren(heroHost, renderPurchaseHero(rows, filter.query));
+    replaceChildren(
+      listHost,
+      renderRows(rows, categories, limit, () => {
+        limit += PAGE_SIZE;
+        void refreshResults();
+      }),
+    );
   }
 
   const applySearch = debounce((value: string) => {
     filter.query = value || undefined;
-    onFilterChange();
+    limit = PAGE_SIZE;
+    updateUrl();
+    void refreshResults();
   }, 220);
 
-  return liveView<PurchasesData>({
-    // Merchants, categories and tags are reloaded on every pass — not cached
-    // once outside it — so a tag or category created elsewhere shows up in
-    // these filters immediately instead of only after leaving and returning.
-    load: async () => {
-      const [rows, categories, tags, merchants] = await Promise.all([
-        searchPurchases(filter),
-        categoriesById(),
-        tagsById(),
-        knownMerchants(),
-      ]);
-      return { rows, categories, tags, merchants };
-    },
-    render: ({ rows, categories, tags, merchants }, refresh) => {
-      refreshView = refresh;
+  /** A filter tapped rather than typed: the controls redraw to show it. */
+  function onFilterChange(): void {
+    limit = PAGE_SIZE;
+    updateUrl();
+    replaceChildren(controlsHost, ...renderFilters({ filter, categories, tags, merchants, onChange: onFilterChange }));
+    void refreshResults();
+  }
 
-      return [
-        renderFilters({ filter, categories, tags, merchants, onSearch: applySearch, onChange: onFilterChange }),
-        renderPurchaseHero(rows, filter.query),
-        el(
-          'div',
-          { class: 'purchase-list' },
-          renderRows(rows, categories, limit, () => {
-            limit += PAGE_SIZE;
-            void refreshView();
-          }),
-        ),
-      ];
-    },
+  // Built once: these are what the user is working in, and no refresh is
+  // allowed to replace them underneath a finger.
+  const search = searchField({
+    value: filter.query ?? '',
+    placeholder: 'Sök vara, t.ex. mjölk',
+    label: 'Sök bland köpta varor',
+    onInput: applySearch,
+  });
+  // `display: contents`, so the filters keep their place in the grid rather
+  // than collapsing into one cell of it.
+  const controlsHost = el('div', { class: 'purchase-filters__controls' });
+  const heroHost = el('div', {});
+  const listHost = el('div', { class: 'purchase-list' });
+
+  /** Everything on the screen that comes from the database. */
+  async function refreshAll(): Promise<void> {
+    const [loadedCategories, loadedTags, loadedMerchants] = await Promise.all([
+      categoriesById(),
+      tagsById(),
+      knownMerchants(),
+    ]);
+    categories = loadedCategories;
+    tags = loadedTags;
+    merchants = loadedMerchants;
+    replaceChildren(controlsHost, ...renderFilters({ filter, categories, tags, merchants, onChange: onFilterChange }));
+    await refreshResults();
+  }
+
+  return liveScreen({
+    element: el(
+      'div',
+      {},
+      el('div', { class: 'purchase-filters' }, search, controlsHost),
+      heroHost,
+      listHost,
+    ),
+    refresh: refreshAll,
   });
 }
 
+/** Everything in the filter block except the search field, which outlives it. */
 function renderFilters(options: {
   filter: ItemFilter;
   categories: Map<string, Category>;
   tags: Map<string, Tag>;
   merchants: string[];
-  onSearch: (value: string) => void;
   onChange: () => void;
-}): HTMLElement {
-  const { filter, categories, tags, merchants, onSearch, onChange } = options;
+}): Child[] {
+  const { filter, categories, tags, merchants, onChange } = options;
 
-  return el(
-    'div',
-    { class: 'purchase-filters' },
-    searchField({
-      value: filter.query ?? '',
-      placeholder: 'Sök vara, t.ex. mjölk',
-      label: 'Sök bland köpta varor',
-      onInput: onSearch,
-    }),
+  return [
     renderSortRow({
       sortKey: (filter.sort ?? 'date') as ItemSortKey,
       direction: filter.direction ?? 'desc',
@@ -208,7 +230,7 @@ function renderFilters(options: {
         },
       }),
     ),
-  );
+  ];
 }
 
 function renderPurchaseHero(rows: PurchaseRow[], query?: string): HTMLElement | null {

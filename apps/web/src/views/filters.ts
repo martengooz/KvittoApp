@@ -17,10 +17,17 @@ import type { SortDirection } from '../db/queries.js';
 
 export { listParam, numberParam } from './filter-params.js';
 
-/** Replaces the current URL with `path` plus `filter` serialised as query params. */
+/**
+ * Records `filter` in the URL, so a filtered view survives a reload and can be
+ * shared — without disturbing the screen that is already showing it.
+ *
+ * Deliberately not a navigation: the screen has applied the change itself by
+ * the time this runs, and re-rendering it from the URL would rebuild the very
+ * control the change was typed into.
+ */
 export function syncFilterToUrl<F>(path: string, filter: F, toParams: (filter: F) => URLSearchParams): void {
   const query = toParams(filter).toString();
-  router.navigate(query ? `${path}?${query}` : path, { replace: true });
+  router.replaceUrl(query ? `${path}?${query}` : path);
 }
 
 /**

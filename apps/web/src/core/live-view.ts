@@ -39,6 +39,38 @@ export async function liveView<T>(options: LiveViewOptions<T>): Promise<HTMLElem
   return root;
 }
 
+export interface LiveScreenOptions {
+  /** Events that should trigger a refresh. Defaults to `['data:changed']`. */
+  on?: (keyof AppEvents)[];
+  /** The screen itself, built once. */
+  element: HTMLElement;
+  /** Fills the parts of `element` that come from data. */
+  refresh: () => Promise<void>;
+}
+
+/**
+ * The same lifecycle as {@link liveView}, for a screen that must not be
+ * rebuilt.
+ *
+ * `liveView` swaps everything it rendered on every refresh, which is right for
+ * a screen that is only output. It is wrong for one the user is working *in*:
+ * an `<input>` torn out and rebuilt between keystrokes loses its caret, and on
+ * iOS it takes the software keyboard down with it — nothing can bring that back
+ * outside a user gesture, {@link preserveFocus} included. So this builds the
+ * element once and leaves it alone; `refresh` fills the parts that come from
+ * data, and the controls in between are never detached at all.
+ */
+export async function liveScreen(options: LiveScreenOptions): Promise<HTMLElement> {
+  const events = options.on ?? ['data:changed'];
+  const unsubscribes = events.map((event) => bus.on(event, () => void options.refresh()));
+  router.onTeardown(() => {
+    for (const unsubscribe of unsubscribes) unsubscribe();
+  });
+
+  await options.refresh();
+  return options.element;
+}
+
 /** A busy flag paired with the run-and-refresh sequence every long action needs. */
 export interface BusyTask {
   readonly busy: boolean;

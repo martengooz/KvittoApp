@@ -62,13 +62,30 @@ export class Router {
   }
 
   navigate(path: string, options: { replace?: boolean } = {}): void {
-    const target = path.startsWith('#') ? path : `#${path.startsWith('/') ? path : `/${path}`}`;
+    const target = toHash(path);
     if (options.replace) {
       history.replaceState(null, '', target);
       void this.render();
     } else {
       location.hash = target;
     }
+  }
+
+  /**
+   * Rewrites the address bar without rendering anything.
+   *
+   * For state that belongs in the URL but is not a navigation — the filters the
+   * list screens keep there, typed in a character at a time. Going through
+   * {@link navigate} rebuilds the whole view for every keystroke, which costs a
+   * search field its caret and, on iOS, takes the keyboard down with it. The
+   * screen updates the part of itself that the change actually affects.
+   */
+  replaceUrl(path: string): void {
+    const target = toHash(path);
+    history.replaceState(null, '', target);
+    // `hashchange` does not fire for `replaceState`, so nothing else will bring
+    // this back in step.
+    this.#currentPath = pathOf(target);
   }
 
   async render(): Promise<void> {
@@ -119,6 +136,17 @@ export class Router {
     }
     return null;
   }
+}
+
+/** `/receipts?q=ica` -> `#/receipts?q=ica`, whichever form the caller used. */
+function toHash(path: string): string {
+  if (path.startsWith('#')) return path;
+  return `#${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+/** The path part of a hash target, without its query string. */
+function pathOf(target: string): string {
+  return target.replace(/^#/, '').split('?')[0] || '/';
 }
 
 function matches(pattern: string[], segments: string[]): boolean {

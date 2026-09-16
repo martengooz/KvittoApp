@@ -6,6 +6,12 @@
   margin-bottom: 18px;
 }
 
+/* The filters other than the search field, which is built once and outlives
+   them. Transparent to layout, so they stay direct items of the grid above. */
+.purchase-filters__controls {
+  display: contents;
+}
+
 .purchase-filters .search-field input {
   height: 46px;
   border-radius: 999px;
