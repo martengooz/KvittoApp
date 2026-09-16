@@ -9,7 +9,12 @@
 
 import { normalizeBaseUrl } from '../url.js';
 import { RECEIPT_JSON_SCHEMA } from '../extraction.js';
-import { RECEIPT_USER_PROMPT, buildSystemPrompt, jsonOnlyInstruction } from '../prompt.js';
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  jsonOnlyInstruction,
+  type CorrectionContext,
+} from '../prompt.js';
 
 import {
   DEFAULT_TIMEOUT_MS,
@@ -36,6 +41,8 @@ export interface OpenAiCallParams {
   effort?: OpenAiEffort;
   structuredOutput: boolean;
   extraInstructions?: string | null;
+  /** When set, runs the correcting pass instead of a plain transcription. */
+  correction?: CorrectionContext | null;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -47,7 +54,8 @@ function endpoint(baseUrl: string, path: string): string {
 export async function callOpenAi(params: OpenAiCallParams): Promise<ProviderCallResult> {
   const started = Date.now();
   const dataUrl = `data:${params.image.mediaType};base64,${params.image.base64}`;
-  const system = buildSystemPrompt(params.extraInstructions);
+  const system = buildSystemPrompt(params.extraInstructions, { correction: Boolean(params.correction) });
+  const userPrompt = buildUserPrompt(params.correction);
 
   const body = (structured: boolean): Record<string, unknown> => ({
     model: params.model,
@@ -61,7 +69,7 @@ export async function callOpenAi(params: OpenAiCallParams): Promise<ProviderCall
         role: 'user',
         content: [
           { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
-          { type: 'text', text: RECEIPT_USER_PROMPT },
+          { type: 'text', text: userPrompt },
         ],
       },
     ],

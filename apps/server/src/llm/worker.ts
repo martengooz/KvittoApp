@@ -22,6 +22,7 @@ import {
   LOCAL_LLM_PROVIDER,
   RECEIPT_USER_PROMPT,
   guessCategorySlug,
+  isBetterReading,
   mergeEnrichment,
   newId,
   normalizeExtraction,
@@ -172,11 +173,28 @@ async function extractOne(accountId: string, receiptId: string): Promise<Outcome
     return 'failed';
   }
 
-  const extraction = normalizeExtraction(raw);
+  let extraction = normalizeExtraction(raw);
   // Arithmetic/consistency issues, same check the phone runs after every
   // extraction — a receipt the local model reads must get the same review
   // prompts as one read on a device.
-  const report = validateExtraction(extraction);
+  let report = validateExtraction(extraction);
+
+  // And, when it does not hold together, the same single correcting pass: told
+  // what is wrong, the model re-reads the image looking for the misreading.
+  // Kept only if it comes back with fewer problems than it was sent to fix.
+  if (!report.ok) {
+    const corrected = await correctExtraction(image, raw, report);
+    if (corrected) {
+      raw = corrected.raw;
+      extraction = corrected.extraction;
+      report = corrected.report;
+      model = corrected.model;
+      durationMs += corrected.durationMs;
+      outputTokens = (outputTokens ?? 0) + (corrected.outputTokens ?? 0);
+      inputTokens = (inputTokens ?? 0) + (corrected.inputTokens ?? 0);
+    }
+  }
+
   const warnings = [
     ...extraction.warnings,
     ...report.issues.filter((issue) => issue.severity !== 'info').map((issue) => issue.message),
@@ -328,3 +346,62 @@ export function stopWorker(): void {
 function describe(error: unknown): string {
   return describeError(error);
 }
+
+interface CorrectedPass {
+  raw: Record<string, unknown>;
+  extraction: ReturnType<typeof normalizeExtraction>;
+  report: ReturnType<typeof validateExtraction>;
+  model: string;
+  durationMs: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
+/**
+ * One more look at a receipt whose first reading did not add up.
+ *
+ * Mirrors what the phone does, and with the same two safeguards: exactly one
+ * retry, and the result is discarded unless it is measurably better than what
+ * it was correcting. A failure here is not the job's failure — the first
+ * reading still stands and the receipt is merely flagged — so it returns null
+ * rather than throwing back into the queue's retry policy.
+ */
+async function correctExtraction(
+  image: Buffer,
+  previous: Record<string, unknown>,
+  firstReport: ReturnType<typeof validateExtraction>,
+): Promise<CorrectedPass | null> {
+  const problems = firstReport.issues
+    .filter((issue) => issue.severity !== 'info')
+    .map((issue) => issue.message);
+  if (problems.length === 0) return null;
+
+  try {
+    const response = await generate({
+      model: config.llm.model,
+      prompt: RECEIPT_USER_PROMPT,
+      images: [image.toString('base64')],
+      structuredOutput: true,
+      maxOutputTokens: config.llm.maxOutputTokens,
+      timeoutMs: config.llm.requestTimeoutMs,
+      correction: { problems, previous },
+    });
+
+    const extraction = normalizeExtraction(response.raw);
+    const report = validateExtraction(extraction);
+    if (!isBetterReading(report, firstReport)) return null;
+
+    return {
+      raw: response.raw,
+      extraction,
+      report,
+      model: response.model,
+      durationMs: response.durationMs,
+      inputTokens: response.promptTokens,
+      outputTokens: response.outputTokens,
+    };
+  } catch {
+    return null;
+  }
+}
+

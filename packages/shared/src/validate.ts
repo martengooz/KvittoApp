@@ -168,3 +168,33 @@ export function validateExtraction(extraction: NormalizedExtraction): Validation
   };
 }
 
+
+/**
+ * Whether one reading of a receipt is a better account of it than another.
+ *
+ * Used to decide whether a correcting second pass earned its place. Errors are
+ * compared before warnings rather than weighted against them, because they are
+ * different in kind: a missing total makes the receipt unusable, while a VAT
+ * line a krona out is a detail. Only when both counts tie does the size of the
+ * arithmetic gap break it — so a pass that narrows a 40 kr discrepancy to 60
+ * öre counts as progress even though the warning itself survives.
+ *
+ * Deliberately strict: equal is not better. A correcting pass that merely
+ * trades one problem for another leaves the original reading in place, because
+ * two readings that are equally wrong are not an improvement, and the first one
+ * at least was not produced by a prompt that had been told to change something.
+ */
+export function isBetterReading(next: ValidationReport, previous: ValidationReport): boolean {
+  const count = (report: ValidationReport, severity: IssueSeverity): number =>
+    report.issues.filter((issue) => issue.severity === severity).length;
+
+  const nextErrors = count(next, 'error');
+  const previousErrors = count(previous, 'error');
+  if (nextErrors !== previousErrors) return nextErrors < previousErrors;
+
+  const nextWarnings = count(next, 'warning');
+  const previousWarnings = count(previous, 'warning');
+  if (nextWarnings !== previousWarnings) return nextWarnings < previousWarnings;
+
+  return Math.abs(next.discrepancy ?? 0) < Math.abs(previous.discrepancy ?? 0);
+}

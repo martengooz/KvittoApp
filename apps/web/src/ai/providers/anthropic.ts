@@ -49,6 +49,7 @@ export const anthropicProvider: Provider = {
         effort: settings.effort,
         structuredOutput: settings.structuredOutput,
         extraInstructions: settings.extraInstructions,
+        correction: request.correction,
         signal,
       });
 
@@ -61,6 +62,7 @@ export const anthropicProvider: Provider = {
         outputTokens: result.outputTokens,
         durationMs: result.durationMs,
         structuredOutputFallback: result.structuredOutputFallback,
+        corrected: Boolean(request.correction),
       };
     } catch (error) {
       throw toExtractionError(error);

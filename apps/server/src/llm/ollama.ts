@@ -14,7 +14,13 @@
  * equivalent on the phone at all.
  */
 
-import { ProviderError, callOllama, normalizeBaseUrl, timedFetch } from '@kvitto/shared';
+import {
+  ProviderError,
+  callOllama,
+  normalizeBaseUrl,
+  timedFetch,
+  type CorrectionContext,
+} from '@kvitto/shared';
 
 import { config } from '../env.ts';
 
@@ -64,6 +70,8 @@ export interface GenerateOptions {
   signal?: AbortSignal;
   /** Appended to the system prompt, for store-specific quirks. */
   extraInstructions?: string | null;
+  /** When set, runs the correcting pass instead of a plain transcription. */
+  correction?: CorrectionContext | null;
   /**
    * Use the compact system prompt tuned for small local models. Defaults to
    * `true` — this client only ever talks to the local model, which is always
@@ -189,7 +197,9 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
       structuredOutput: options.structuredOutput,
       extraInstructions: options.extraInstructions ?? null,
       compactPrompt: options.compactPrompt ?? true,
-      userPrompt: options.prompt,
+      correction: options.correction,
+      // The correcting pass carries its own user turn, describing what went wrong.
+      userPrompt: options.correction ? undefined : options.prompt,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
     });

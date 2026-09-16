@@ -56,6 +56,9 @@ export const serverProvider: Provider = {
     // silently is the bug this fixes.
     if (settings.effort && settings.effort !== 'auto') form.append('effort', settings.effort);
     if (settings.maxOutputTokens) form.append('maxOutputTokens', String(settings.maxOutputTokens));
+    // A correcting pass carries what went wrong last time, so the server can run
+    // the same second-pass prompt the in-app providers do.
+    if (request.correction) form.append('correction', JSON.stringify(request.correction));
 
     let response: Response;
     try {
@@ -89,6 +92,7 @@ export const serverProvider: Provider = {
       outputTokens: payload.outputTokens ?? null,
       durationMs: Math.round(performance.now() - started),
       structuredOutputFallback: payload.structuredOutputFallback ?? false,
+      corrected: Boolean(request.correction),
     };
   },
 
