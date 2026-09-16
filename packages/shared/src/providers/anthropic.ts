@@ -8,6 +8,7 @@
  * hand, once against `@anthropic-ai/sdk` and once against raw `fetch`.
  */
 
+import { normalizeBaseUrl } from '../url.js';
 import { RECEIPT_JSON_SCHEMA } from '../extraction.js';
 import { RECEIPT_USER_PROMPT, buildSystemPrompt, jsonOnlyInstruction } from '../prompt.js';
 
@@ -44,7 +45,7 @@ export interface AnthropicCallParams {
 const ANTHROPIC_VERSION = '2023-06-01';
 
 function endpoint(baseUrl: string | undefined): string {
-  return (baseUrl?.trim() || 'https://api.anthropic.com').replace(/\/+$/, '');
+  return normalizeBaseUrl(baseUrl || 'https://api.anthropic.com');
 }
 
 export async function callAnthropic(params: AnthropicCallParams): Promise<ProviderCallResult> {

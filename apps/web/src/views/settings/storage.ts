@@ -8,7 +8,7 @@ import { el } from '../../core/dom.js';
 import { router } from '../../core/router.js';
 import { toast } from '../../core/toast.js';
 import { blobStoreSize, collectGarbage, discardOriginals } from '../../db/blobs.js';
-import { requestPersistentStorage, storageEstimate } from '../../db/db.js';
+import { requestPersistentStorage, storageEstimate } from '../../core/platform.js';
 import { eraseAllData, purgeTombstones } from '../../db/repo.js';
 
 export async function renderStorageSection(refresh: () => Promise<void>): Promise<HTMLElement> {

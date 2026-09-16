@@ -8,6 +8,7 @@
  * than asking a model to please return JSON.
  */
 
+import { normalizeBaseUrl } from '../url.js';
 import { RECEIPT_JSON_SCHEMA } from '../extraction.js';
 import { RECEIPT_USER_PROMPT, buildSystemPrompt, jsonOnlyInstruction } from '../prompt.js';
 
@@ -39,7 +40,7 @@ export interface OllamaCallParams {
 }
 
 function endpoint(baseUrl: string | undefined): string {
-  return (baseUrl?.trim() || 'http://localhost:11434').replace(/\/+$/, '');
+  return normalizeBaseUrl(baseUrl || 'http://localhost:11434');
 }
 
 export async function callOllama(params: OllamaCallParams): Promise<ProviderCallResult> {

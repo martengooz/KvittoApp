@@ -17,7 +17,7 @@
  * Contract taken from https://apiverket.se/openapi.json (version 2026-02-15).
  */
 
-import { checkOrgNumber, type Company } from '@kvitto/shared';
+import { checkOrgNumber, normalizeBaseUrl, type Company } from '@kvitto/shared';
 
 /** Apiverket's public origin. Overridable so a proxy can stand in front. */
 export const APIVERKET_BASE_URL = 'https://apiverket.se';
@@ -238,7 +238,7 @@ function toRecord(data: CompanyData, orgNumber: string, fallbackLegalForm: strin
 
 /** Performs one authenticated GET and turns any failure into a typed error. */
 async function request<T>(path: string, options: LookupOptions): Promise<T> {
-  const baseUrl = (options.baseUrl?.trim() || APIVERKET_BASE_URL).replace(/\/+$/, '');
+  const baseUrl = normalizeBaseUrl(options.baseUrl || APIVERKET_BASE_URL);
 
   let response: Response;
   try {

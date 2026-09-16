@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { normalizeBaseUrl } from '@kvitto/shared';
 import { networkInterfaces } from 'node:os';
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -60,7 +61,7 @@ function send(reply: FastifyReply, contentType: string, body: string): FastifyRe
 }
 
 function pairingServerUrl(request: FastifyRequest): string {
-  if (config.publicUrl) return config.publicUrl.replace(/\/+$/, '');
+  if (config.publicUrl) return normalizeBaseUrl(config.publicUrl);
   if (!isLoopback(request)) return `${request.protocol}://${request.host}`;
 
   const port = new URL(`${request.protocol}://${request.host}`).port;

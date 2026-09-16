@@ -14,7 +14,7 @@
  * equivalent on the phone at all.
  */
 
-import { ProviderError, callOllama, timedFetch } from '@kvitto/shared';
+import { ProviderError, callOllama, normalizeBaseUrl, timedFetch } from '@kvitto/shared';
 
 import { config } from '../env.ts';
 
@@ -83,7 +83,7 @@ export interface GenerateResult {
 }
 
 function baseUrl(): string {
-  return config.llm.baseUrl.replace(/\/+$/, '');
+  return normalizeBaseUrl(config.llm.baseUrl);
 }
 
 /** Whether Ollama is answering. Cheap; used by the health endpoint. */

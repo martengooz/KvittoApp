@@ -9,7 +9,7 @@ import type {
   SyncStatusResponse,
   WhoAmIResponse,
 } from '@kvitto/shared';
-import { describeError, SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
+import { describeError, normalizeBaseUrl, SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
 
 import { appendClientDebug, type DebugEntry, type DebugValue } from '../core/debug-log.js';
 import { getDeviceId, getDeviceName, getDeviceToken } from './identity.js';
@@ -43,7 +43,7 @@ function parseRetryAfter(header: string | null): number | null {
 }
 
 function normalizeBase(url: string): string {
-  const trimmed = url.trim().replace(/\/+$/, '');
+  const trimmed = normalizeBaseUrl(url);
   if (!trimmed) throw new SyncError('Ingen server-URL angiven.');
   return trimmed;
 }

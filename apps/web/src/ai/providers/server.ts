@@ -8,7 +8,12 @@
  * boundary moves.
  */
 
-import { describeNetworkError, normalizeExtraction, type NormalizedExtraction } from '@kvitto/shared';
+import {
+  describeNetworkError,
+  normalizeBaseUrl,
+  normalizeExtraction,
+  type NormalizedExtraction,
+} from '@kvitto/shared';
 
 import {
   ExtractionError,
@@ -54,7 +59,7 @@ export const serverProvider: Provider = {
 
     let response: Response;
     try {
-      response = await fetch(`${serverUrl.replace(/\/+$/, '')}/ai/parse`, {
+      response = await fetch(`${normalizeBaseUrl(serverUrl)}/ai/parse`, {
         method: 'POST',
         headers: { authorization: `Bearer ${serverToken}` },
         body: form,
@@ -93,7 +98,7 @@ export const serverProvider: Provider = {
     if (!serverToken) return { ok: false, message: 'Enheten är inte parkopplad med servern.' };
 
     try {
-      const response = await fetch(`${serverUrl.replace(/\/+$/, '')}/auth/me`, {
+      const response = await fetch(`${normalizeBaseUrl(serverUrl)}/auth/me`, {
         headers: { authorization: `Bearer ${serverToken}` },
       });
       if (!response.ok) return { ok: false, message: `Servern svarade ${response.status}.` };

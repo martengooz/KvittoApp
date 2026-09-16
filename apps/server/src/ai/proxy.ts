@@ -9,6 +9,7 @@
  */
 
 import {
+  normalizeBaseUrl,
   describeError,
   ProviderError,
   callAnthropic,
@@ -82,7 +83,7 @@ export async function runExtraction(
       case 'openai-compatible': {
         const result = await callOpenAi({
           apiKey: settings.apiKey,
-          baseUrl: (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, ''),
+          baseUrl: normalizeBaseUrl(settings.baseUrl || 'https://api.openai.com/v1'),
           model,
           image: imageInput,
           maxOutputTokens,

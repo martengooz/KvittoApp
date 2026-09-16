@@ -1,6 +1,6 @@
 /** Server pairing and the sync status row. */
 
-import { describeError, formatRelativeTime } from '@kvitto/shared';
+import { describeError, formatRelativeTime, normalizeBaseUrl } from '@kvitto/shared';
 
 import { confirmDialog } from '../../components/dialog.js';
 import { actionRow, listGroup, row, switchRow } from '../../components/ui.js';
@@ -44,7 +44,7 @@ export async function renderSyncSection(refresh: () => Promise<void>): Promise<H
         on: {
           change: (event) => {
             void updateSettings({
-              sync: { serverUrl: (event.target as HTMLInputElement).value.trim().replace(/\/+$/, '') },
+              sync: { serverUrl: normalizeBaseUrl((event.target as HTMLInputElement).value) },
             });
             // A new address is a new server; whatever the old one was failing
             // at says nothing about this one.

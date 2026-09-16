@@ -7,6 +7,7 @@
  * directly than through a vendor client.
  */
 
+import { normalizeBaseUrl } from '../url.js';
 import { RECEIPT_JSON_SCHEMA } from '../extraction.js';
 import { RECEIPT_USER_PROMPT, buildSystemPrompt, jsonOnlyInstruction } from '../prompt.js';
 
@@ -40,7 +41,7 @@ export interface OpenAiCallParams {
 }
 
 function endpoint(baseUrl: string, path: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}${path}`;
+  return `${normalizeBaseUrl(baseUrl)}${path}`;
 }
 
 export async function callOpenAi(params: OpenAiCallParams): Promise<ProviderCallResult> {
