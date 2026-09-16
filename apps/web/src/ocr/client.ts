@@ -12,6 +12,7 @@
  * three assets are runtime-cached by the service worker, never precached.
  */
 
+import { describeError } from '@kvitto/shared';
 import { createWorker, type Worker } from 'tesseract.js';
 
 /** Where `scripts/prepare-vendor.mjs` stages the runtime. */
@@ -119,7 +120,7 @@ class OcrClient {
       this.#status = { ready: true, loading: false, error: null };
       return worker;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeError(error);
       this.#status = { ready: false, loading: false, error: message };
       console.warn('OCR engine failed to start', error);
       return null;

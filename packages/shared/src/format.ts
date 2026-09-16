@@ -97,3 +97,21 @@ export function formatRelativeTime(timestamp: number | null): string {
   if (days < 30) return `för ${days} dagar sedan`;
   return new Date(timestamp).toLocaleDateString(LOCALE);
 }
+
+/**
+ * A `Date` as a naive local `YYYY-MM-DD`.
+ *
+ * Deliberately built from the local getters rather than `toISOString()`, which
+ * would convert to UTC and hand back yesterday's date for anyone east of
+ * Greenwich late in the evening.
+ */
+export function toLocalIsoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** Today, as a naive local `YYYY-MM-DD`. */
+export function localDateToday(): string {
+  return toLocalIsoDate(new Date());
+}

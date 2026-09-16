@@ -5,6 +5,8 @@ export * from './extraction.js';
 export * from './validate.js';
 export * from './categories.js';
 export * from './format.js';
+export * from './errors.js';
+export * from './url.js';
 export * from './ids.js';
 export * from './prompt.js';
 export * from './orgnumber.js';

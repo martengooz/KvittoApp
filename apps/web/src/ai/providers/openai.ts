@@ -6,7 +6,7 @@
  * mapping — the same core the server proxy calls for this provider.
  */
 
-import { ProviderError, callOpenAi, listOpenAiModels, normalizeExtraction } from '@kvitto/shared';
+import { describeError, ProviderError, callOpenAi, listOpenAiModels, normalizeExtraction } from '@kvitto/shared';
 
 import {
   ExtractionError,
@@ -86,5 +86,5 @@ function toExtractionError(error: unknown): ExtractionError {
   if (error instanceof ProviderError) {
     return new ExtractionError(error.message, { status: error.status, retryable: error.retryable, cause: error });
   }
-  return new ExtractionError(error instanceof Error ? error.message : String(error), { cause: error });
+  return new ExtractionError(describeError(error), { cause: error });
 }

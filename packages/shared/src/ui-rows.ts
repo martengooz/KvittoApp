@@ -161,7 +161,7 @@ export function actionRow(label: string, action: () => Promise<unknown>, pending
   wireBusyAction(button, pendingLabel, action, (btn, result, error) => {
     let resultLabel = label;
     if (error !== undefined) {
-      resultLabel = error instanceof Error ? error.message : String(error);
+      resultLabel = (error instanceof Error ? error.message : String(error));
     } else if (typeof result === 'string') {
       resultLabel = result;
     } else if (result && typeof result === 'object' && 'message' in result && typeof (result as { message: unknown }).message === 'string') {

@@ -15,6 +15,7 @@
  */
 
 import {
+  describeError,
   ProviderError,
   callAnthropic,
   listAnthropicModels,
@@ -91,5 +92,5 @@ function toExtractionError(error: unknown): ExtractionError {
   if (error instanceof ProviderError) {
     return new ExtractionError(error.message, { status: error.status, retryable: error.retryable, cause: error });
   }
-  return new ExtractionError(error instanceof Error ? error.message : String(error), { cause: error });
+  return new ExtractionError(describeError(error), { cause: error });
 }

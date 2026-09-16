@@ -17,6 +17,7 @@
 import { readFile } from 'node:fs/promises';
 
 import {
+  describeError,
   EMPTY_SYNC_META,
   LOCAL_LLM_PROVIDER,
   RECEIPT_USER_PROMPT,
@@ -24,6 +25,7 @@ import {
   mergeEnrichment,
   newId,
   normalizeExtraction,
+  seedCategoryId,
   validateExtraction,
   type ExtractionInfo,
   type Receipt,
@@ -266,7 +268,7 @@ async function extractOne(accountId: string, receiptId: string): Promise<Outcome
 function seededCategoryId(searchName: string, live: Set<string>): string | null {
   const slug = guessCategorySlug(searchName);
   if (!slug) return null;
-  const id = `seed-category-${slug}`;
+  const id = seedCategoryId(slug);
   return live.has(id) ? id : null;
 }
 
@@ -324,5 +326,5 @@ export function stopWorker(): void {
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeError(error);
 }

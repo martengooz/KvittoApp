@@ -1,5 +1,6 @@
 /** Diagnostics: the debug log and the manual update check. */
 
+import { describeError } from '@kvitto/shared';
 import { listGroup, row } from '../../components/ui.js';
 import { checkForAppUpdate } from '../../core/app-update.js';
 import { router } from '../../core/router.js';
@@ -33,7 +34,7 @@ export function renderDeveloperSection(): HTMLElement {
             }
           })
           .catch((error) => {
-            toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
+            toast(describeError(error), { kind: 'error' });
           });
       },
     }),

@@ -1,6 +1,6 @@
 import QrScanner from 'qr-scanner';
 
-import type { PairingQrPayload } from '@kvitto/shared';
+import { describeError, type PairingQrPayload } from '@kvitto/shared';
 
 import { actionRow, listGroup } from '../components/ui.js';
 import { appendClientDebug } from '../core/debug-log.js';
@@ -59,7 +59,7 @@ export async function pairScanView(): Promise<HTMLElement> {
     try {
       payload = parsePairingPayload(raw);
     } catch (error) {
-      status.textContent = error instanceof Error ? error.message : String(error);
+      status.textContent = describeError(error);
       return;
     }
 
@@ -81,7 +81,7 @@ export async function pairScanView(): Promise<HTMLElement> {
         stopped: !canRetry,
       });
       if (!canRetry) {
-        status.textContent = error instanceof Error ? error.message : String(error);
+        status.textContent = describeError(error);
         toast(
           pairAttempts >= MAX_PAIR_ATTEMPTS
             ? 'Parkopplingen stoppades efter tre misslyckade försök.'
@@ -145,7 +145,7 @@ export async function pairScanView(): Promise<HTMLElement> {
       if (disposed) return;
       scanner?.stop();
       appendClientDebug('warn', 'Pairing camera unavailable', {
-        message: error instanceof Error ? error.message : String(error),
+        message: describeError(error),
       });
       status.textContent = 'Kameran är inte tillgänglig. Ta en bild av QR-koden istället.';
     }

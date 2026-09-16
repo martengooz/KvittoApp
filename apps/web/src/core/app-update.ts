@@ -1,4 +1,5 @@
 import { appendClientDebug } from './debug-log.js';
+import { describeError } from '@kvitto/shared';
 import { toast } from './toast.js';
 
 type UpdateServiceWorker = (reloadPage?: boolean) => Promise<void>;
@@ -28,13 +29,13 @@ export async function registerAppServiceWorker(): Promise<void> {
       },
       onRegisterError(error) {
         appendClientDebug('error', 'Service worker registration failed', {
-          message: error instanceof Error ? error.message : String(error),
+          message: describeError(error),
         });
       },
     });
   } catch (error) {
     appendClientDebug('error', 'Service worker registration failed', {
-      message: error instanceof Error ? error.message : String(error),
+      message: describeError(error),
     });
   }
 }
@@ -64,7 +65,7 @@ async function activateUpdateSafely(): Promise<void> {
     await activateUpdate();
   } catch (error) {
     appendClientDebug('error', 'Application update activation failed', {
-      message: error instanceof Error ? error.message : String(error),
+      message: describeError(error),
     });
     toast('Uppdateringen misslyckades.', { kind: 'error' });
   }

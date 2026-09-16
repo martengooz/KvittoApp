@@ -40,16 +40,6 @@ export interface KeyValue {
   value: unknown;
 }
 
-/** A queued AI extraction, retried when the app regains connectivity. */
-export interface PendingExtraction {
-  id: string;
-  receiptId: string;
-  createdAt: number;
-  attempts: number;
-  lastAttemptAt: number | null;
-  lastError: string | null;
-}
-
 export class KvittoDatabase extends Dexie {
   receipts!: EntityTable<Receipt, 'id'>;
   items!: EntityTable<ReceiptItem, 'id'>;
@@ -60,7 +50,6 @@ export class KvittoDatabase extends Dexie {
   secrets!: EntityTable<SyncedSecret, 'id'>;
   blobs!: EntityTable<StoredBlob, 'id'>;
   kv!: EntityTable<KeyValue, 'key'>;
-  pendingExtractions!: EntityTable<PendingExtraction, 'id'>;
 
   constructor() {
     super('kvittoapp');
@@ -89,6 +78,13 @@ export class KvittoDatabase extends Dexie {
 
     this.version(2).stores({
       secrets: 'id, updatedAt, dirty, deletedAt',
+    });
+
+    // `pendingExtractions` was a retry queue that never shipped — nothing ever
+    // wrote to it. Mapping it to null is how Dexie drops a store, so devices
+    // that have carried the empty table since version 1 let go of it too.
+    this.version(3).stores({
+      pendingExtractions: null,
     });
   }
 }

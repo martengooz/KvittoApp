@@ -167,23 +167,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
 };
 
-/** Suggested models per provider, offered as a datalist rather than a hard list. */
-export const MODEL_SUGGESTIONS: Record<AiProvider, string[]> = {
-  anthropic: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
-  openai: ['gpt-4o', 'gpt-4o-mini'],
-  'openai-compatible': [],
-  ollama: ['llama3.2-vision', 'qwen2.5vl', 'minicpm-v'],
-  server: [],
-  none: [],
-};
-
-/** Default endpoint per provider, filled in when the user switches provider. */
-export const DEFAULT_BASE_URLS: Partial<Record<AiProvider, string>> = {
-  openai: 'https://api.openai.com/v1',
-  'openai-compatible': 'https://openrouter.ai/api/v1',
-  ollama: 'http://localhost:11434',
-};
-
 const SETTINGS_KEY = 'settings';
 
 let cached: AppSettings = structuredClone(DEFAULT_SETTINGS);

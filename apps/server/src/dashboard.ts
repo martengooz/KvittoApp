@@ -391,7 +391,7 @@ import { formatDateTimeShort } from '/server/format.js';
         element('updated').textContent = 'Dashboardens session har återställts. Uppdatera sidan.';
       } else {
         setConnection('error', 'Ej tillgänglig');
-        element('updated').textContent = error instanceof Error ? error.message : String(error);
+        element('updated').textContent = (error instanceof Error ? error.message : String(error));
       }
     } finally {
       element('refresh').disabled = false;
@@ -508,7 +508,7 @@ import { formatDateTimeShort } from '/server/format.js';
       element('secret-message').textContent = value ? 'Sparad.' : 'Rensad.';
       await refresh();
     } catch (error) {
-      element('secret-message').textContent = error instanceof Error ? error.message : String(error);
+      element('secret-message').textContent = (error instanceof Error ? error.message : String(error));
     } finally {
       submit.disabled = false;
     }
@@ -527,7 +527,7 @@ import { formatDateTimeShort } from '/server/format.js';
       element('pairing-qr').hidden = false;
       element('pair-message').textContent = 'Giltig till ' + formatTime(result.expiresAt) + '.';
     } catch (error) {
-      element('pair-message').textContent = error instanceof Error ? error.message : String(error);
+      element('pair-message').textContent = (error instanceof Error ? error.message : String(error));
     } finally {
       button.disabled = false;
     }
@@ -539,7 +539,7 @@ import { formatDateTimeShort } from '/server/format.js';
       await request('/auth/devices/' + encodeURIComponent(id), { method: 'DELETE' });
       await refresh();
     } catch (error) {
-      element('updated').textContent = error instanceof Error ? error.message : String(error);
+      element('updated').textContent = (error instanceof Error ? error.message : String(error));
       button.disabled = false;
     }
   }

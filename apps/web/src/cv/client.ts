@@ -6,6 +6,7 @@
  * must always be able to produce *some* scan.
  */
 
+import { describeError } from '@kvitto/shared';
 import { runCanvasPipeline } from './fallback.js';
 import {
   DEFAULT_PIPELINE_OPTIONS,
@@ -73,7 +74,7 @@ class CvClient {
         ready: false,
         loading: false,
         version: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       };
       return false;
     }
@@ -138,7 +139,7 @@ class CvClient {
         notes: response.notes,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeError(error);
       console.warn('OpenCV pipeline failed, falling back to canvas', error);
       return runCanvasPipeline(spare, options, [`OpenCV-felet: ${message}`]);
     }

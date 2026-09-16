@@ -16,6 +16,7 @@
  * platform it is actually on.
  */
 
+import { describeError } from '@kvitto/shared';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { platform } from 'node:os';
@@ -162,7 +163,7 @@ export async function fetchModel(): Promise<boolean> {
   } catch (error) {
     pull = null;
     state = 'no-model';
-    detail = error instanceof Error ? error.message : String(error);
+    detail = describeError(error);
     return false;
   }
 }

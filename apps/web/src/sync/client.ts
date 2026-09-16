@@ -9,7 +9,7 @@ import type {
   SyncStatusResponse,
   WhoAmIResponse,
 } from '@kvitto/shared';
-import { SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
+import { describeError, SYNC_PROTOCOL_VERSION } from '@kvitto/shared';
 
 import { appendClientDebug, type DebugEntry, type DebugValue } from '../core/debug-log.js';
 import { getDeviceId, getDeviceName, getDeviceToken } from './identity.js';
@@ -180,7 +180,7 @@ async function responseBodyToDebug(response: Response, path: string): Promise<De
     const text = await response.text();
     return redactHttpBody(parseDebugText(text, contentType), path);
   } catch (error) {
-    return { content: '[unavailable]', error: error instanceof Error ? error.message : String(error) };
+    return { content: '[unavailable]', error: describeError(error) };
   }
 }
 

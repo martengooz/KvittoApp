@@ -1,6 +1,6 @@
 /** Server pairing and the sync status row. */
 
-import { formatRelativeTime } from '@kvitto/shared';
+import { describeError, formatRelativeTime } from '@kvitto/shared';
 
 import { confirmDialog } from '../../components/dialog.js';
 import { actionRow, listGroup, row, switchRow } from '../../components/ui.js';
@@ -72,7 +72,7 @@ export async function renderSyncSection(refresh: () => Promise<void>): Promise<H
         }
         return { ok: true, message: 'Anslutningen till servern fungerar.' };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return { ok: false, message: describeError(error) };
       }
     }),
   ];
@@ -103,7 +103,7 @@ export async function renderSyncSection(refresh: () => Promise<void>): Promise<H
             await pairAndSync(url, codeInput.value);
             await refresh();
           } catch (error) {
-            toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
+            toast(describeError(error), { kind: 'error' });
           }
         },
       }),

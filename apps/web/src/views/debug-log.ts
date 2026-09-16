@@ -1,4 +1,5 @@
 import { listGroup, loadingState, segmented } from '../components/ui.js';
+import { describeError } from '@kvitto/shared';
 import { getClientDebugEntries, clearClientDebugEntries, type DebugEntry } from '../core/debug-log.js';
 import { el, replaceChildren } from '../core/dom.js';
 import { router } from '../core/router.js';
@@ -35,7 +36,7 @@ export async function debugLogView(): Promise<HTMLElement> {
           { title: 'Logg' },
           el('div', {
             class: 'debug-log__empty',
-            text: error instanceof Error ? error.message : String(error),
+            text: describeError(error),
           }),
         ),
       );
@@ -287,7 +288,7 @@ async function exportLog(source: LogSource): Promise<void> {
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {
-    toast(error instanceof Error ? error.message : String(error), { kind: 'error' });
+    toast(describeError(error), { kind: 'error' });
   }
 }
 

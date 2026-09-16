@@ -81,3 +81,17 @@ export function guessCategorySlug(searchName: string): string | null {
   }
   return best?.slug ?? null;
 }
+
+/**
+ * The id of a seeded category, derived from its slug.
+ *
+ * Seeded categories are created independently on every device rather than
+ * synced, so both sides must arrive at the same id or a receipt filed under
+ * "Livsmedel" on the phone would point at nothing on the server. The client and
+ * the server's extraction worker both derive it here, so the rule they agree on
+ * is written down once instead of being a template literal repeated in two
+ * packages and held together by a comment.
+ */
+export function seedCategoryId(slug: string): string {
+  return `seed-category-${slug}`;
+}

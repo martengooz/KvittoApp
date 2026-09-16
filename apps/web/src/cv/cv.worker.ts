@@ -13,6 +13,7 @@
  * would have done anyway.
  */
 
+import { describeError } from '@kvitto/shared';
 import { detectDocument, warpAndEnhance } from './pipeline.js';
 import type { DetectionSource, PipelineOptions, WorkerRequest, WorkerResponse } from './types.js';
 
@@ -128,7 +129,7 @@ async function handle(request: WorkerRequest): Promise<void> {
     post({
       type: 'error',
       id: request.id,
-      message: error instanceof Error ? error.message : String(error),
+      message: describeError(error),
     });
   }
 }

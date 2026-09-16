@@ -9,6 +9,7 @@
  */
 
 import {
+  describeError,
   ProviderError,
   callAnthropic,
   callOpenAi,
@@ -135,5 +136,5 @@ function toProxyError(error: unknown): ProxyError {
     if (error.status === 429) return new ProxyError('AI-tjänsten är hastighetsbegränsad just nu.', 429, true);
     return new ProxyError(error.message, 502, error.retryable);
   }
-  return new ProxyError(error instanceof Error ? error.message : String(error), 502);
+  return new ProxyError(describeError(error), 502);
 }

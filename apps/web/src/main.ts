@@ -6,6 +6,7 @@
  * so a slow network cannot delay first paint.
  */
 
+import { describeError } from '@kvitto/shared';
 import './styles/app.css';
 
 import { mountApp } from './app.js';
@@ -77,7 +78,7 @@ function renderFatal(container: HTMLElement, error: unknown): void {
   const detail = document.createElement('p');
   detail.textContent =
     'Privat surfläge och blockerade cookies kan hindra KvittoApp från att spara data. ' +
-    (error instanceof Error ? error.message : String(error));
+    (describeError(error));
 
   wrapper.append(heading, detail);
   container.appendChild(wrapper);

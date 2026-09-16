@@ -12,6 +12,7 @@
  * phone and on the server.
  */
 
+import { describeError } from '../errors.js';
 import { extractJsonObject } from '../prompt.js';
 
 /** Why a {@link ProviderError} happened, for callers that want to react to it. */
@@ -88,7 +89,7 @@ export function describeNetworkError(error: unknown): string {
       'från webbläsaren (CORS).'
     );
   }
-  return error instanceof Error ? error.message : String(error);
+  return describeError(error);
 }
 
 /**

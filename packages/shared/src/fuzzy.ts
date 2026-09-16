@@ -252,3 +252,13 @@ function bestTokenMatch(
 
   return best;
 }
+
+/**
+ * Drops combining diacritics: `Ärla` → `Arla`.
+ *
+ * Receipt printers and company registers disagree about whether Swedish
+ * merchant names carry their accents, so matching folds them away first.
+ */
+export function stripAccents(value: string): string {
+  return value.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
