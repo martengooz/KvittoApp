@@ -2,16 +2,19 @@
  * Receipt list, grouped by month, with search and filters.
  *
  * Filter state lives in the URL query string so a filtered view survives a
- * reload and can be bookmarked or shared between the app's own screens.
+ * reload and can be bookmarked or shared between the app's own screens. It is
+ * written there with `replaceUrl` rather than navigated to, and the screen is
+ * built once and refilled in parts rather than re-rendered, because both of the
+ * alternatives rebuild the search field the filter is being typed into.
  */
 
 import { formatAmount, formatDate, formatMoney, formatMonth, type Category, type Receipt } from '@kvitto/shared';
 
 import { swipeRow } from '../components/swipe-actions.js';
 import { chip, emptyState, searchField } from '../components/ui.js';
-import { debounce, el } from '../core/dom.js';
+import { debounce, el, replaceChildren } from '../core/dom.js';
 import { icon } from '../core/icons.js';
-import { liveView } from '../core/live-view.js';
+import { liveScreen } from '../core/live-view.js';
 import { router } from '../core/router.js';
 import type { RouteContext } from '../core/router.js';
 import { toast } from '../core/toast.js';
@@ -37,79 +40,97 @@ const SORT_LABELS: Record<ReceiptSortKey, string> = {
 
 export function receiptsView(context: RouteContext): Promise<HTMLElement> {
   const filter = filterFromParams(context.params);
-  // The filter panel's open/closed state is UI, not data — kept outside the
-  // reload/render cycle so a `data:changed` refresh doesn't collapse it.
-  let filterOpen = false;
-  let refreshView: () => Promise<void> = async () => {};
 
   function updateUrl(): void {
     syncFilterToUrl('/receipts', filter, paramsFromFilter);
   }
 
+  /**
+   * Re-runs the query and swaps the list, and nothing else on the screen.
+   *
+   * The search field is the reason this exists rather than a full refresh: an
+   * `<input>` that is torn out and rebuilt between keystrokes loses the caret,
+   * and on iOS it takes the keyboard down with it — a programmatic `focus()`
+   * outside a user gesture will not bring that back. Nothing above the list is
+   * touched here, so the field the user is typing into is never detached at
+   * all.
+   */
+  async function refreshResults(): Promise<void> {
+    replaceChildren(listHost, await renderList(await searchReceipts(filter)));
+  }
+
   const applySearch = debounce((value: string) => {
     filter.query = value || undefined;
     updateUrl();
-    void refreshView();
+    void refreshResults();
   }, 220);
 
+  /** A filter tapped rather than typed: the panel has to redraw to show it. */
   function onFilterChange(): void {
     updateUrl();
-    void refreshView();
+    replaceChildren(filterPanel, ...renderFilterPanel());
+    void refreshResults();
   }
 
-  return liveView({
-    load: async () => {
-      const [receipts, allReceipts, categories] = await Promise.all([
-        searchReceipts(filter),
-        liveReceipts(),
-        categoriesById(),
-      ]);
-      return { receipts, allReceipts, categories };
-    },
-    render: async ({ receipts, allReceipts, categories }, refresh) => {
-      refreshView = refresh;
+  function renderFilterPanel(): HTMLElement[] {
+    return [
+      renderQuickFilters(filter, onFilterChange),
+      el('div', { class: 'pad' }, renderReceiptSortRow(filter, onFilterChange)),
+    ];
+  }
 
-      return [
-        renderSummary(allReceipts, categories),
-        el(
-          'div',
-          { class: 'receipt-tools' },
-          el(
-            'div',
-            { class: 'receipt-search-row' },
-            searchField({
-              value: filter.query ?? '',
-              placeholder: 'Sök butik eller vara',
-              label: 'Sök bland kvitton',
-              onInput: applySearch,
-            }),
-            el(
-              'button',
-              {
-                class: 'filter-button',
-                type: 'button',
-                'aria-label': 'Visa filter',
-                'aria-expanded': String(filterOpen),
-                on: {
-                  click: () => {
-                    filterOpen = !filterOpen;
-                    void refreshView();
-                  },
-                },
-              },
-              icon('filter', { size: 20 }),
-            ),
-          ),
-          el(
-            'div',
-            { class: 'receipt-filter-panel', hidden: !filterOpen },
-            renderQuickFilters(filter, onFilterChange),
-            el('div', { class: 'pad' }, renderReceiptSortRow(filter, onFilterChange)),
-          ),
-        ),
-        await renderList(receipts),
-      ];
+  // Built once, for the same reason `refreshResults` exists: these are the
+  // controls the user is working in, and a render is not allowed to replace
+  // them underneath a finger.
+  const search = searchField({
+    value: filter.query ?? '',
+    placeholder: 'Sök butik eller vara',
+    label: 'Sök bland kvitton',
+    onInput: applySearch,
+  });
+  const filterPanel = el('div', { class: 'receipt-filter-panel', hidden: true }, ...renderFilterPanel());
+  const filterButton = el(
+    'button',
+    {
+      class: 'filter-button',
+      type: 'button',
+      'aria-label': 'Visa filter',
+      'aria-expanded': 'false',
+      on: {
+        // Open/closed is UI state, not data: flipped in place rather than
+        // rendered, so opening the panel cannot disturb the list or the search.
+        click: () => {
+          const open = filterPanel.hidden;
+          filterPanel.hidden = !open;
+          filterButton.setAttribute('aria-expanded', String(open));
+        },
+      },
     },
+    icon('filter', { size: 20 }),
+  );
+  const tools = el(
+    'div',
+    { class: 'receipt-tools' },
+    el('div', { class: 'receipt-search-row' }, search, filterButton),
+    filterPanel,
+  );
+  const summaryHost = el('div', {});
+  const listHost = el('div', {});
+
+  /** Everything on the screen that comes from the database. */
+  async function refreshAll(): Promise<void> {
+    const [receipts, allReceipts, categories] = await Promise.all([
+      searchReceipts(filter),
+      liveReceipts(),
+      categoriesById(),
+    ]);
+    replaceChildren(summaryHost, renderSummary(allReceipts, categories));
+    replaceChildren(listHost, await renderList(receipts));
+  }
+
+  return liveScreen({
+    element: el('div', {}, summaryHost, tools, listHost),
+    refresh: refreshAll,
   });
 }
 
