@@ -10,7 +10,12 @@
 
 import { normalizeBaseUrl } from '../url.js';
 import { RECEIPT_JSON_SCHEMA } from '../extraction.js';
-import { RECEIPT_USER_PROMPT, buildSystemPrompt, jsonOnlyInstruction } from '../prompt.js';
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  jsonOnlyInstruction,
+  type CorrectionContext,
+} from '../prompt.js';
 
 import {
   DEFAULT_TIMEOUT_MS,
@@ -35,6 +40,8 @@ export interface OllamaCallParams {
   /** The compact system prompt tuned for small local models (the server's worker). */
   compactPrompt?: boolean;
   userPrompt?: string;
+  /** When set, runs the correcting pass instead of a plain transcription. */
+  correction?: CorrectionContext | null;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -45,7 +52,12 @@ function endpoint(baseUrl: string | undefined): string {
 
 export async function callOllama(params: OllamaCallParams): Promise<ProviderCallResult> {
   const started = Date.now();
-  const system = buildSystemPrompt(params.extraInstructions, { compact: params.compactPrompt });
+  // A correcting pass needs the reasoning the compact prompt deliberately drops,
+  // so it always uses the full one even on a small local model.
+  const system = buildSystemPrompt(params.extraInstructions, {
+    compact: params.compactPrompt && !params.correction,
+    correction: Boolean(params.correction),
+  });
 
   const body = (structured: boolean): Record<string, unknown> => ({
     model: params.model,
@@ -63,7 +75,7 @@ export async function callOllama(params: OllamaCallParams): Promise<ProviderCall
         role: 'system',
         content: structured ? system : `${system}\n\n${jsonOnlyInstruction(RECEIPT_JSON_SCHEMA)}`,
       },
-      { role: 'user', content: params.userPrompt ?? RECEIPT_USER_PROMPT, images: params.images },
+      { role: 'user', content: params.userPrompt ?? buildUserPrompt(params.correction), images: params.images },
     ],
   });
 

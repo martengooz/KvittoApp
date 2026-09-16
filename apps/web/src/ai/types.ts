@@ -1,6 +1,6 @@
 /** Provider-facing contract for receipt extraction. */
 
-import type { NormalizedExtraction } from '@kvitto/shared';
+import type { CorrectionContext, NormalizedExtraction } from '@kvitto/shared';
 import type { AiSettings } from '../core/settings.js';
 
 export interface ExtractionRequest {
@@ -11,6 +11,11 @@ export interface ExtractionRequest {
   serverUrl?: string;
   /** Bearer token for the companion server. */
   serverToken?: string;
+  /**
+   * Set to re-read a receipt whose first pass did not hold together, telling
+   * the model what was wrong so it can look for the misreading.
+   */
+  correction?: CorrectionContext | null;
   /** Aborts the request when the user leaves the screen. */
   signal?: AbortSignal;
 }
@@ -26,6 +31,8 @@ export interface ExtractionResponse {
   durationMs: number;
   /** True when structured output was requested but the provider refused it. */
   structuredOutputFallback: boolean;
+  /** True when this result came from a correcting second pass. */
+  corrected: boolean;
 }
 
 export interface Provider {

@@ -10,7 +10,12 @@
 
 import { normalizeBaseUrl } from '../url.js';
 import { RECEIPT_JSON_SCHEMA } from '../extraction.js';
-import { RECEIPT_USER_PROMPT, buildSystemPrompt, jsonOnlyInstruction } from '../prompt.js';
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  jsonOnlyInstruction,
+  type CorrectionContext,
+} from '../prompt.js';
 
 import {
   DEFAULT_TIMEOUT_MS,
@@ -38,6 +43,8 @@ export interface AnthropicCallParams {
   effort?: AnthropicEffort;
   structuredOutput: boolean;
   extraInstructions?: string | null;
+  /** When set, runs the correcting pass instead of a plain transcription. */
+  correction?: CorrectionContext | null;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -50,7 +57,8 @@ function endpoint(baseUrl: string | undefined): string {
 
 export async function callAnthropic(params: AnthropicCallParams): Promise<ProviderCallResult> {
   const started = Date.now();
-  const system = buildSystemPrompt(params.extraInstructions);
+  const system = buildSystemPrompt(params.extraInstructions, { correction: Boolean(params.correction) });
+  const userPrompt = buildUserPrompt(params.correction);
   const url = `${endpoint(params.baseUrl)}/v1/messages`;
   const hasEffort = Boolean(params.effort && params.effort !== 'auto');
 
@@ -66,7 +74,7 @@ export async function callAnthropic(params: AnthropicCallParams): Promise<Provid
             type: 'image',
             source: { type: 'base64', media_type: params.image.mediaType, data: params.image.base64 },
           },
-          { type: 'text', text: RECEIPT_USER_PROMPT },
+          { type: 'text', text: userPrompt },
         ],
       },
     ],

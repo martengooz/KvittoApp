@@ -38,6 +38,7 @@ function makeProvider(id: 'openai' | 'openai-compatible', fallbackBaseUrl: strin
           effort: settings.effort,
           structuredOutput: settings.structuredOutput,
           extraInstructions: settings.extraInstructions,
+          correction: request.correction,
           signal,
         });
 
@@ -50,6 +51,7 @@ function makeProvider(id: 'openai' | 'openai-compatible', fallbackBaseUrl: strin
           outputTokens: result.outputTokens,
           durationMs: result.durationMs,
           structuredOutputFallback: result.structuredOutputFallback,
+          corrected: Boolean(request.correction),
         };
       } catch (error) {
         throw toExtractionError(error);

@@ -3,7 +3,12 @@
  * the outcome on the receipt.
  */
 
-import { validateExtraction, type NormalizedExtraction } from '@kvitto/shared';
+import {
+  isBetterReading,
+  validateExtraction,
+  type NormalizedExtraction,
+  type ValidationReport,
+} from '@kvitto/shared';
 
 import { bus } from '../core/events.js';
 import { getSettings, isAiConfigured, type AiProvider } from '../core/settings.js';
@@ -68,6 +73,20 @@ export interface ParseOutcome {
   /** Warnings from normalisation plus issues from arithmetic validation. */
   warnings: string[];
   error: string | null;
+  /** True when a correcting second pass ran and its result was the one kept. */
+  corrected: boolean;
+}
+
+/** Normalisation warnings plus everything validation considers worth raising. */
+function collectWarnings(response: ExtractionResponse, report: ValidationReport): string[] {
+  const warnings = [
+    ...response.extraction.warnings,
+    ...report.issues.filter((issue) => issue.severity !== 'info').map((issue) => issue.message),
+  ];
+  if (response.structuredOutputFallback) {
+    warnings.push('Leverantören stödde inte JSON-schema; tolkningen kördes utan schemakontroll.');
+  }
+  return warnings;
 }
 
 /**
@@ -104,6 +123,58 @@ async function linkCompany(receiptId: string, orgNumber: string | null): Promise
   }
 }
 
+interface CorrectionOutcome {
+  response: ExtractionResponse;
+  report: ValidationReport;
+  warnings: string[];
+}
+
+/**
+ * Re-reads a receipt whose first pass did not add up.
+ *
+ * Returns `null` — leaving the first result in place — when the retry fails, or
+ * when it comes back no better than what it was correcting. A provider error
+ * here is deliberately swallowed: the first pass produced something usable, and
+ * losing it because an optional second call timed out would be the worse
+ * outcome.
+ */
+async function runCorrectionPass(
+  first: ExtractionResponse,
+  firstReport: ValidationReport,
+  context: {
+    provider: Provider;
+    image: Blob;
+    settings: ReturnType<typeof getSettings>;
+    serverUrl: string;
+    serverToken: string | undefined;
+    signal?: AbortSignal;
+  },
+): Promise<CorrectionOutcome | null> {
+  const problems = firstReport.issues
+    .filter((issue) => issue.severity !== 'info')
+    .map((issue) => issue.message);
+  if (problems.length === 0) return null;
+
+  try {
+    const response = await withAiActivity(() => context.provider.extract({
+        image: context.image,
+        settings: context.settings.ai,
+        serverUrl: context.serverUrl,
+        serverToken: context.serverToken,
+        signal: context.signal,
+        correction: { problems, previous: first.raw },
+      }));
+
+    const report = validateExtraction(response.extraction);
+    if (!isBetterReading(report, firstReport)) return null;
+
+    return { response, report, warnings: collectWarnings(response, report) };
+  } catch (error) {
+    console.warn('Correcting pass failed; keeping the first reading', error);
+    return null;
+  }
+}
+
 export async function parseReceipt(
   receiptId: string,
   options: { signal?: AbortSignal } = {},
@@ -118,12 +189,20 @@ export async function parseReceipt(
       response: null,
       warnings: [],
       error: 'AI-tolkning är inte konfigurerad. Ställ in en leverantör under Inställningar.',
+      corrected: false,
     };
   }
 
   const receipt = await db.receipts.get(receiptId);
   if (!receipt) {
-    return { ok: false, extraction: null, response: null, warnings: [], error: 'Kvittot finns inte.' };
+    return {
+      ok: false,
+      extraction: null,
+      response: null,
+      warnings: [],
+      error: 'Kvittot finns inte.',
+      corrected: false,
+    };
   }
 
   const stored = await getBlob(receipt.imageId);
@@ -134,6 +213,7 @@ export async function parseReceipt(
       response: null,
       warnings: [],
       error: 'Kvittobilden saknas på den här enheten.',
+      corrected: false,
     };
   }
 
@@ -141,7 +221,7 @@ export async function parseReceipt(
 
   try {
     const serverToken = (await getDeviceToken()) ?? undefined;
-    const response = await withAiActivity(() => provider.extract({
+    let response = await withAiActivity(() => provider.extract({
         image: stored.data,
         settings: settings.ai,
         serverUrl: settings.sync.serverUrl,
@@ -149,13 +229,33 @@ export async function parseReceipt(
         signal: options.signal,
       }));
 
-    const report = validateExtraction(response.extraction);
-    const warnings = [
-      ...response.extraction.warnings,
-      ...report.issues.filter((issue) => issue.severity !== 'info').map((issue) => issue.message),
-    ];
-    if (response.structuredOutputFallback) {
-      warnings.push('Leverantören stödde inte JSON-schema; tolkningen kördes utan schemakontroll.');
+    let report = validateExtraction(response.extraction);
+    let warnings = collectWarnings(response, report);
+
+    // A first pass that does not hold together gets one more attempt, this time
+    // told what is wrong so it can hunt for the misreading rather than start
+    // cold. Exactly one retry: a model that could not find the mistake with the
+    // problem spelled out will not find it on a third look either, and each
+    // pass costs the user another call.
+    //
+    // The second result is only kept if it is actually better. A correcting
+    // pass that introduces new problems, or trades one for another, is a worse
+    // reading of the same paper — so the original stands and the receipt stays
+    // flagged for the user.
+    if (!report.ok) {
+      const retry = await runCorrectionPass(response, report, {
+        provider,
+        image: stored.data,
+        settings,
+        serverUrl: settings.sync.serverUrl,
+        serverToken,
+        signal: options.signal,
+      });
+      if (retry) {
+        response = retry.response;
+        report = retry.report;
+        warnings = retry.warnings;
+      }
     }
 
     await applyExtraction(receiptId, response.extraction, {
@@ -174,7 +274,14 @@ export async function parseReceipt(
     // nothing and never reaches the network.
     await linkCompany(receiptId, response.extraction.merchant.orgNumber);
 
-    return { ok: true, extraction: response.extraction, response, warnings, error: null };
+    return {
+      ok: true,
+      extraction: response.extraction,
+      response,
+      warnings,
+      error: null,
+      corrected: response.corrected,
+    };
   } catch (error) {
     const message =
       error instanceof ExtractionError
@@ -196,6 +303,13 @@ export async function parseReceipt(
         error: message,
       },
     });
-    return { ok: false, extraction: null, response: null, warnings: [], error: message };
+    return {
+      ok: false,
+      extraction: null,
+      response: null,
+      warnings: [],
+      error: message,
+      corrected: false,
+    };
   }
 }

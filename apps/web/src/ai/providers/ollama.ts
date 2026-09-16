@@ -34,6 +34,7 @@ export const ollamaProvider: Provider = {
         maxOutputTokens: settings.maxOutputTokens,
         structuredOutput: settings.structuredOutput,
         extraInstructions: settings.extraInstructions,
+        correction: request.correction,
         signal,
       });
 
@@ -46,6 +47,7 @@ export const ollamaProvider: Provider = {
         outputTokens: result.outputTokens,
         durationMs: result.durationMs,
         structuredOutputFallback: result.structuredOutputFallback,
+        corrected: Boolean(request.correction),
       };
     } catch (error) {
       throw toExtractionError(error);

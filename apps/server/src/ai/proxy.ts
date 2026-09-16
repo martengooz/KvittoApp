@@ -16,6 +16,7 @@ import {
   callOpenAi,
   normalizeExtraction,
   validateExtraction,
+  type CorrectionContext,
   type NormalizedExtraction,
   type ProviderCallResult,
 } from '@kvitto/shared';
@@ -52,7 +53,13 @@ export async function runExtraction(
   settings: EffectiveAiSettings,
   image: Buffer,
   mimeType: string,
-  options: { model?: string; extraInstructions?: string; effort?: AiEffort; maxOutputTokens?: number } = {},
+  options: {
+    model?: string;
+    extraInstructions?: string;
+    effort?: AiEffort;
+    maxOutputTokens?: number;
+    correction?: CorrectionContext | null;
+  } = {},
 ): Promise<ProxyResult> {
   const model = options.model ?? settings.model;
   const extraInstructions = [settings.extraInstructions, options.extraInstructions].filter(Boolean).join('\n');
@@ -75,6 +82,7 @@ export async function runExtraction(
           effort,
           structuredOutput: settings.structuredOutput,
           extraInstructions,
+          correction: options.correction,
           timeoutMs,
         });
         return finish(result, 'anthropic');
@@ -90,6 +98,7 @@ export async function runExtraction(
           effort,
           structuredOutput: settings.structuredOutput,
           extraInstructions,
+          correction: options.correction,
           timeoutMs,
         });
         return finish(result, settings.provider);
