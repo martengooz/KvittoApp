@@ -13,6 +13,7 @@
  * would have done anyway.
  */
 
+import { describeError } from '@kvitto/shared';
 import { detectDocument, warpAndEnhance } from './pipeline.js';
 import type { DetectionSource, PipelineOptions, WorkerRequest, WorkerResponse } from './types.js';
 
@@ -69,6 +70,12 @@ function loadOpenCv(): Promise<CV> {
 
     const pending = scope.cv;
     if (!pending) throw new Error('opencv.js loaded but did not expose `cv`.');
+    // `scope.cv` is typed `unknown` because it is assigned by the eval'd UMD
+    // bundle, not by anything this codebase declares — but at runtime it is
+    // the promise opencv.js resolves once its WASM runtime is ready (see the
+    // note above), so awaiting it is correct even though the type checker
+    // cannot see that it is thenable.
+    // eslint-disable-next-line @typescript-eslint/await-thenable
     const cv = (await pending) as CV;
     if (typeof cv.Mat !== 'function') throw new Error('opencv.js initialised without a Mat class.');
     return cv;
@@ -122,7 +129,7 @@ async function handle(request: WorkerRequest): Promise<void> {
     post({
       type: 'error',
       id: request.id,
-      message: error instanceof Error ? error.message : String(error),
+      message: describeError(error),
     });
   }
 }

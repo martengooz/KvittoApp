@@ -18,6 +18,7 @@
  * and would otherwise retry in lockstep forever.
  */
 
+import { describeError } from '@kvitto/shared';
 import { SyncError } from './client.js';
 
 export interface RetryPolicy {
@@ -119,7 +120,7 @@ export class Breaker {
 
   recordFailure(error: unknown): void {
     this.#failures += 1;
-    this.#lastError = error instanceof Error ? error.message : String(error);
+    this.#lastError = describeError(error);
 
     const requested = error instanceof SyncError ? error.retryAfterMs : null;
     const delay =

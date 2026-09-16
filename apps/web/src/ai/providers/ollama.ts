@@ -3,114 +3,60 @@
  *
  * Nothing leaves the local network, which makes it the privacy-preserving
  * option — at the cost of needing Ollama started with `OLLAMA_ORIGINS` set so
- * the browser is allowed to call it.
+ * the browser is allowed to call it. Thin adapter over the shared provider
+ * core in `@kvitto/shared`, which the server's local-model worker also calls.
  */
 
-import {
-  RECEIPT_JSON_SCHEMA,
-  RECEIPT_USER_PROMPT,
-  buildSystemPrompt,
-  extractJsonObject,
-  jsonOnlyInstruction,
-  normalizeExtraction,
-} from '@kvitto/shared';
+import { ProviderError, callOllama, describeNetworkError, listOllamaModels, normalizeExtraction } from '@kvitto/shared';
 
 import {
   ExtractionError,
   blobToBase64,
   type ExtractionRequest,
-  type ExtractionResponse,
   type Provider,
   type TestResult,
 } from '../types.js';
-import { describeNetworkError } from './openai.js';
-
-interface OllamaChatResponse {
-  message?: { content?: string };
-  model?: string;
-  prompt_eval_count?: number;
-  eval_count?: number;
-  error?: string;
-}
 
 export const ollamaProvider: Provider = {
   id: 'ollama',
 
-  async extract(request: ExtractionRequest): Promise<ExtractionResponse> {
+  async extract(request: ExtractionRequest) {
     const { settings, image, signal } = request;
-    const baseUrl = (settings.baseUrl.trim() || 'http://localhost:11434').replace(/\/+$/, '');
+    const baseUrl = settings.baseUrl.trim() || 'http://localhost:11434';
 
-    const started = performance.now();
     const data = await blobToBase64(image);
 
-    let response: Response;
     try {
-      response = await fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        signal: signal ?? null,
-        body: JSON.stringify({
-          model: settings.model,
-          stream: false,
-          // Ollama takes a JSON Schema directly in `format`, which is a much
-          // stronger guarantee than asking for JSON in the prompt.
-          ...(settings.structuredOutput ? { format: RECEIPT_JSON_SCHEMA } : {}),
-          options: { num_predict: settings.maxOutputTokens, temperature: 0 },
-          messages: [
-            {
-              role: 'system',
-              content: settings.structuredOutput
-                ? buildSystemPrompt(settings.extraInstructions)
-                : `${buildSystemPrompt(settings.extraInstructions)}\n\n${jsonOnlyInstruction(RECEIPT_JSON_SCHEMA)}`,
-            },
-            { role: 'user', content: RECEIPT_USER_PROMPT, images: [data] },
-          ],
-        }),
+      const result = await callOllama({
+        baseUrl,
+        model: settings.model,
+        images: [data],
+        maxOutputTokens: settings.maxOutputTokens,
+        structuredOutput: settings.structuredOutput,
+        extraInstructions: settings.extraInstructions,
+        signal,
       });
+
+      return {
+        extraction: normalizeExtraction(result.raw),
+        raw: result.raw,
+        model: result.model,
+        provider: 'ollama',
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        durationMs: result.durationMs,
+        structuredOutputFallback: result.structuredOutputFallback,
+      };
     } catch (error) {
-      throw new ExtractionError(describeNetworkError(error), { cause: error });
+      throw toExtractionError(error);
     }
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new ExtractionError(
-        response.status === 404
-          ? `Modellen "${settings.model}" finns inte i Ollama. Kör "ollama pull ${settings.model}".`
-          : detail || `${response.status} ${response.statusText}`,
-        { status: response.status },
-      );
-    }
-
-    const payload = (await response.json()) as OllamaChatResponse;
-    if (payload.error) throw new ExtractionError(payload.error);
-
-    const raw = extractJsonObject(payload.message?.content ?? '');
-    if (!raw) throw new ExtractionError('Modellen svarade inte med giltig JSON.');
-
-    return {
-      extraction: normalizeExtraction(raw),
-      raw,
-      model: payload.model ?? settings.model,
-      provider: 'ollama',
-      inputTokens: payload.prompt_eval_count ?? null,
-      outputTokens: payload.eval_count ?? null,
-      durationMs: Math.round(performance.now() - started),
-      structuredOutputFallback: false,
-    };
   },
 
   async test(request): Promise<TestResult> {
     const { settings } = request;
-    const baseUrl = (settings.baseUrl.trim() || 'http://localhost:11434').replace(/\/+$/, '');
+    const baseUrl = settings.baseUrl.trim() || 'http://localhost:11434';
     try {
-      const response = await fetch(`${baseUrl}/api/tags`);
-      if (!response.ok) {
-        return { ok: false, message: `Ollama svarade ${response.status}.` };
-      }
-      const payload = (await response.json()) as { models?: { name?: string }[] };
-      const models = (payload.models ?? [])
-        .map((model) => model.name)
-        .filter((name): name is string => typeof name === 'string');
+      const models = await listOllamaModels({ baseUrl });
       const known = models.some((name) => name === settings.model || name.startsWith(`${settings.model}:`));
       return {
         ok: true,
@@ -120,12 +66,22 @@ export const ollamaProvider: Provider = {
         models,
       };
     } catch (error) {
-      return {
-        ok: false,
-        message:
-          `${describeNetworkError(error)} Starta Ollama med ` +
-          `OLLAMA_ORIGINS="${location.origin}" så att webbläsaren får anropa den.`,
-      };
+      const base = toExtractionError(error).message;
+      // A network-layer failure (as opposed to Ollama answering with an
+      // error) is most often a missing OLLAMA_ORIGINS, not a dead instance.
+      const hint =
+        error instanceof ProviderError && error.kind === 'network'
+          ? ` Starta Ollama med OLLAMA_ORIGINS="${location.origin}" så att webbläsaren får anropa den.`
+          : '';
+      return { ok: false, message: `${base}${hint}` };
     }
   },
 };
+
+function toExtractionError(error: unknown): ExtractionError {
+  if (error instanceof ExtractionError) return error;
+  if (error instanceof ProviderError) {
+    return new ExtractionError(error.message, { status: error.status, retryable: error.retryable, cause: error });
+  }
+  return new ExtractionError(describeNetworkError(error), { cause: error });
+}

@@ -40,16 +40,6 @@ export interface KeyValue {
   value: unknown;
 }
 
-/** A queued AI extraction, retried when the app regains connectivity. */
-export interface PendingExtraction {
-  id: string;
-  receiptId: string;
-  createdAt: number;
-  attempts: number;
-  lastAttemptAt: number | null;
-  lastError: string | null;
-}
-
 export class KvittoDatabase extends Dexie {
   receipts!: EntityTable<Receipt, 'id'>;
   items!: EntityTable<ReceiptItem, 'id'>;
@@ -60,7 +50,6 @@ export class KvittoDatabase extends Dexie {
   secrets!: EntityTable<SyncedSecret, 'id'>;
   blobs!: EntityTable<StoredBlob, 'id'>;
   kv!: EntityTable<KeyValue, 'key'>;
-  pendingExtractions!: EntityTable<PendingExtraction, 'id'>;
 
   constructor() {
     super('kvittoapp');
@@ -90,6 +79,13 @@ export class KvittoDatabase extends Dexie {
     this.version(2).stores({
       secrets: 'id, updatedAt, dirty, deletedAt',
     });
+
+    // `pendingExtractions` was a retry queue that never shipped — nothing ever
+    // wrote to it. Mapping it to null is how Dexie drops a store, so devices
+    // that have carried the empty table since version 1 let go of it too.
+    this.version(3).stores({
+      pendingExtractions: null,
+    });
   }
 }
 
@@ -115,26 +111,4 @@ export async function getKv<T>(key: string, fallback: T): Promise<T> {
 
 export async function setKv(key: string, value: unknown): Promise<void> {
   await db.kv.put({ key, value });
-}
-
-/**
- * Estimated storage use, for the Settings screen. Returns `null` where the
- * Storage API is unavailable (Safari before 17, and some private modes).
- */
-export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
-  if (!navigator.storage?.estimate) return null;
-  const estimate = await navigator.storage.estimate();
-  if (estimate.usage === undefined || estimate.quota === undefined) return null;
-  return { usage: estimate.usage, quota: estimate.quota };
-}
-
-/**
- * Asks the browser to make storage persistent, so receipts survive eviction
- * under storage pressure. Chrome grants this silently for installed PWAs;
- * Firefox prompts. Returns whether storage is persistent afterwards.
- */
-export async function requestPersistentStorage(): Promise<boolean> {
-  if (!navigator.storage?.persist) return false;
-  if (await navigator.storage.persisted()) return true;
-  return navigator.storage.persist();
 }

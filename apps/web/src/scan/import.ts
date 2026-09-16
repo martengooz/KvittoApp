@@ -20,7 +20,7 @@
  *    import.
  */
 
-import type { ID, ReceiptSource } from '@kvitto/shared';
+import type { ID, Receipt, ReceiptSource } from '@kvitto/shared';
 
 import { getSettings, isAiConfigured } from '../core/settings.js';
 import { cvClient, decodeImage } from '../cv/client.js';
@@ -29,6 +29,8 @@ import { putBlob } from '../db/blobs.js';
 import { createReceipt } from '../db/repo.js';
 import { enrichFromImage } from '../ocr/enrich.js';
 import { parseReceipt } from '../ai/index.js';
+
+export { describeImportOutcome, type ImportToast } from './import-toast.js';
 
 /**
  * Below this the detector's outline is not trusted on its own.
@@ -168,31 +170,51 @@ async function crop(file: Blob): Promise<CroppedImage> {
 
 /** Stores the scan, the original and the thumbnail, and creates the receipt. */
 async function store(source: Blob, cropped: CroppedImage, from: ReceiptSource): Promise<ID> {
-  const { result } = cropped;
+  const receipt = await saveScan({
+    source: from,
+    processed: cropped.result,
+    original: { blob: source, width: cropped.sourceWidth, height: cropped.sourceHeight },
+  });
+  return receipt.id;
+}
 
-  const imageId = await putBlob(result.blob, {
+/**
+ * Persists a processed scan (and, if the settings call for it, the untouched
+ * original) as a thumbnail plus a draft receipt.
+ *
+ * The one save path both capture flows end at: the camera screen's reviewed
+ * single shot and this module's unattended batch differ only in how they got
+ * their `PipelineResult` and what `source` to file it under.
+ */
+export async function saveScan(options: {
+  source: ReceiptSource;
+  processed: PipelineResult;
+  /** The untouched capture, kept only when `settings.image.keepOriginal` is on. */
+  original?: { blob: Blob; width: number; height: number } | null;
+}): Promise<Receipt> {
+  const { processed } = options;
+  const imageId = await putBlob(processed.blob, {
     role: 'processed',
-    width: result.width,
-    height: result.height,
+    width: processed.width,
+    height: processed.height,
   });
 
   let originalImageId: string | null = null;
-  if (getSettings().image.keepOriginal) {
-    originalImageId = await putBlob(source, {
+  if (options.original && getSettings().image.keepOriginal) {
+    originalImageId = await putBlob(options.original.blob, {
       role: 'original',
-      width: cropped.sourceWidth,
-      height: cropped.sourceHeight,
+      width: options.original.width,
+      height: options.original.height,
     });
   }
 
-  const receipt = await createReceipt({
-    source: from,
+  return createReceipt({
+    source: options.source,
     imageId,
     originalImageId,
-    thumbId: await makeThumbnail(result.blob),
+    thumbId: await makeThumbnail(processed.blob),
     status: 'draft',
   });
-  return receipt.id;
 }
 
 /**

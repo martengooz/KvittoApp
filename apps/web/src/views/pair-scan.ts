@@ -1,16 +1,16 @@
 import QrScanner from 'qr-scanner';
 
-import type { PairingQrPayload } from '@kvitto/shared';
+import { describeError, type PairingQrPayload } from '@kvitto/shared';
 
-import { listGroup } from '../components/ui.js';
+import { actionRow, listGroup } from '../components/ui.js';
 import { appendClientDebug } from '../core/debug-log.js';
 import { el, nextFrame } from '../core/dom.js';
 import { router } from '../core/router.js';
 import { updateSettings } from '../core/settings.js';
 import { toast } from '../core/toast.js';
-import { pairDevice, SyncError } from '../sync/client.js';
-import { resetSyncBackoff, sync } from '../sync/engine.js';
-import { setDeviceToken } from '../sync/identity.js';
+import { SyncError } from '../sync/client.js';
+import { resetSyncBackoff } from '../sync/engine.js';
+import { pairAndSync } from '../sync/pairing.js';
 
 const MAX_PAIR_ATTEMPTS = 3;
 
@@ -59,7 +59,7 @@ export async function pairScanView(): Promise<HTMLElement> {
     try {
       payload = parsePairingPayload(raw);
     } catch (error) {
-      status.textContent = error instanceof Error ? error.message : String(error);
+      status.textContent = describeError(error);
       return;
     }
 
@@ -70,11 +70,8 @@ export async function pairScanView(): Promise<HTMLElement> {
     try {
       await updateSettings({ sync: { serverUrl: payload.serverUrl } });
       resetSyncBackoff();
-      const result = await pairDevice(payload.serverUrl, payload.code);
-      await setDeviceToken(result.token, result.accountId);
+      await pairAndSync(payload.serverUrl, payload.code);
       appendClientDebug('info', 'Device paired from QR code');
-      toast('Enheten är parkopplad.', { kind: 'success' });
-      void sync();
       router.navigate('/settings', { replace: true });
     } catch (error) {
       const canRetry = error instanceof SyncError && error.retryable && pairAttempts < MAX_PAIR_ATTEMPTS;
@@ -84,7 +81,7 @@ export async function pairScanView(): Promise<HTMLElement> {
         stopped: !canRetry,
       });
       if (!canRetry) {
-        status.textContent = error instanceof Error ? error.message : String(error);
+        status.textContent = describeError(error);
         toast(
           pairAttempts >= MAX_PAIR_ATTEMPTS
             ? 'Parkopplingen stoppades efter tre misslyckade försök.'
@@ -112,20 +109,8 @@ export async function pairScanView(): Promise<HTMLElement> {
     status,
     listGroup(
       {},
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:600',
-        text: 'Ta bild av QR-kod',
-        on: { click: () => cameraInput.click() },
-      }),
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--tint);justify-content:center;font-weight:600',
-        text: 'Välj QR-bild',
-        on: { click: () => fileInput.click() },
-      }),
+      actionRow({ label: 'Ta bild av QR-kod', onClick: () => cameraInput.click() }),
+      actionRow({ label: 'Välj QR-bild', onClick: () => fileInput.click() }),
     ),
     cameraInput,
     fileInput,
@@ -160,7 +145,7 @@ export async function pairScanView(): Promise<HTMLElement> {
       if (disposed) return;
       scanner?.stop();
       appendClientDebug('warn', 'Pairing camera unavailable', {
-        message: error instanceof Error ? error.message : String(error),
+        message: describeError(error),
       });
       status.textContent = 'Kameran är inte tillgänglig. Ta en bild av QR-koden istället.';
     }

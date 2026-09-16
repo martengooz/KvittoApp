@@ -9,6 +9,7 @@
  */
 
 import {
+  formatAmount,
   formatMoney,
   formatQuantity,
   formatUnit,
@@ -18,51 +19,36 @@ import {
   type Tag,
 } from '@kvitto/shared';
 
-import { banner, listGroup, row as listRow } from '../components/ui.js';
+import { actionRow, banner, listGroup, row as listRow, spinner } from '../components/ui.js';
 import { el } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { busyTask } from '../core/live-view.js';
 import { canShare, haptic, share } from '../core/platform.js';
 import { router, type RouteContext } from '../core/router.js';
 import { isAiConfigured } from '../core/settings.js';
-import { confirmDialog, toast } from '../core/toast.js';
-import { parseReceipt } from '../ai/index.js';
+import { confirmDialog } from '../components/dialog.js';
+import { toast } from '../core/toast.js';
 import { blobUrl, getBlob } from '../db/blobs.js';
-import type { ReceiptBundle } from '../db/queries.js';
 import { deleteReceipt, updateReceipt } from '../db/repo.js';
-import { receiptScreen } from './receipt-shared.js';
+import { receiptScreen, runParse, type ReceiptScreenData } from './receipt-shared.js';
 
-export async function receiptView(context: RouteContext): Promise<HTMLElement> {
-  let parsing = false;
-  let refreshScreen: () => Promise<void> = async () => {};
+export function receiptView(context: RouteContext): Promise<HTMLElement> {
+  const parseTask = busyTask();
 
-  async function runParse(id: string): Promise<void> {
-    if (parsing) return;
-    parsing = true;
-    await refreshScreen();
-    const outcome = await parseReceipt(id);
-    parsing = false;
-    if (outcome.ok) toast('Kvittot tolkades.', { kind: 'success' });
-    else if (outcome.error) toast(outcome.error, { kind: 'error' });
-    await refreshScreen();
-  }
+  return receiptScreen(context.segments[1], ({ bundle, categories }, refresh) => render(bundle, categories, refresh));
 
-  return receiptScreen(context.segments[1], async ({ bundle, categories }, refresh) => {
-    refreshScreen = refresh;
-    return render(bundle, categories);
-  });
-
-  async function render(bundle: ReceiptBundle, categories: Category[]): Promise<HTMLElement> {
+  async function render(
+    bundle: ReceiptScreenData['bundle'],
+    categories: Category[],
+    refresh: () => Promise<void>,
+  ): Promise<HTMLElement> {
     const { receipt, items } = bundle;
     const imageSrc = await blobUrl(receipt.imageId);
     const imageDetails = imageSrc
       ? el(
           'details',
           { class: 'list-group receipt-image-details' },
-          el('summary', {
-            class: 'list-group__title',
-            style: 'cursor:pointer;color:var(--tint)',
-            text: 'Kvittobild',
-          }),
+          el('summary', { class: 'list-group__title', text: 'Kvittobild' }),
           el(
             'div',
             { class: 'pad' },
@@ -79,7 +65,7 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     return el(
       'div',
       { class: 'receipt-detail' },
-      renderStatusBanner(receipt, parsing),
+      renderStatusBanner(receipt),
       renderPaper(receipt, items),
       renderPaperChips(receipt, bundle.tags, categories),
       el(
@@ -114,13 +100,11 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
       ),
       imageDetails,
       renderNavigation(receipt, items),
-      renderActions(receipt),
+      renderActions(receipt, refresh),
     );
   }
 
   /**
-   * The receipt itself.
-   *
    * Every row is printed, however long the receipt is. An archive whose whole
    * point is "what did I actually buy" cannot answer that behind a "+ 24 rader"
    * line, and the rows are cheap: they are text in a flow, not a virtual list.
@@ -164,21 +148,21 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
                     ? el('small', { text: ` ${formatQuantity(item.quantity)} ${formatUnit(item.unit)}` })
                     : null,
                 ),
-                el('span', { text: formatMoney(item.totalPrice, receipt.currency).replace(/\s*kr$/, '') }),
+                el('span', { text: formatAmount(item.totalPrice) }),
               ),
             ),
       ),
       el(
         'div',
         { class: 'receipt-paper__totals' },
-        paperTotalRow('Varor', receipt.subtotal ?? itemTotal, receipt.currency),
-        receipt.roundingAmount ? paperTotalRow('Öresavrundning', receipt.roundingAmount, receipt.currency) : null,
-        receipt.depositTotal ? paperTotalRow('Varav pant', receipt.depositTotal, receipt.currency) : null,
+        paperTotalRow('Varor', receipt.subtotal ?? itemTotal),
+        receipt.roundingAmount ? paperTotalRow('Öresavrundning', receipt.roundingAmount) : null,
+        receipt.depositTotal ? paperTotalRow('Varav pant', receipt.depositTotal) : null,
         el(
           'div',
           { class: 'receipt-paper__pay' },
           el('strong', { text: 'ATT BETALA' }),
-          el('strong', { text: formatMoney(receipt.total, receipt.currency).replace(/\s*kr$/, '') }),
+          el('strong', { text: formatAmount(receipt.total) }),
         ),
       ),
       // Omitted entirely when there is nothing to print in it, rather than
@@ -191,9 +175,7 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
               'div',
               {},
               ...receipt.vatLines.map((line) =>
-                el('span', {
-                  text: `MOMS ${line.rate}% · ${formatMoney(line.vat, receipt.currency).replace(/\s*kr$/, '')}`,
-                }),
+                el('span', { text: `MOMS ${line.rate}% · ${formatAmount(line.vat)}` }),
               ),
             ),
             receipt.status === 'confirmed'
@@ -204,12 +186,12 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     );
   }
 
-  function paperTotalRow(label: string, amount: number, currency: string): HTMLElement {
+  function paperTotalRow(label: string, amount: number): HTMLElement {
     return el(
       'div',
       { class: 'receipt-paper__total-row' },
       el('span', { text: label }),
-      el('span', { text: formatMoney(amount, currency).replace(/\s*kr$/, '') }),
+      el('span', { text: formatAmount(amount) }),
     );
   }
 
@@ -231,12 +213,12 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     );
   }
 
-  function renderStatusBanner(receipt: Receipt, busy: boolean): HTMLElement | null {
-    if (busy || receipt.status === 'processing') {
+  function renderStatusBanner(receipt: Receipt): HTMLElement | null {
+    if (parseTask.busy || receipt.status === 'processing') {
       return el(
         'div',
         { class: 'banner banner--info' },
-        el('div', { class: 'spinner', style: 'width:20px;height:20px;flex:none' }),
+        spinner({ size: 20 }),
         el('div', { class: 'banner__body' }, el('strong', { text: 'Tolkar kvittot med AI…' })),
       );
     }
@@ -294,20 +276,17 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     );
   }
 
-  function renderActions(receipt: Receipt): HTMLElement {
+  function renderActions(receipt: Receipt, refresh: () => Promise<void>): HTMLElement {
     const rows: HTMLElement[] = [];
 
     // Only while there is nothing parsed yet. Re-running a parse that already
     // produced something is a detail-screen action, next to what it produced.
     if (isAiConfigured() && (receipt.status === 'draft' || receipt.status === 'failed')) {
       rows.push(
-        el('button', {
-          class: 'row',
-          type: 'button',
-          style: 'color:var(--tint);justify-content:center;font-weight:600',
-          disabled: parsing,
-          text: 'Tolka med AI',
-          on: { click: () => void runParse(receipt.id) },
+        actionRow({
+          label: 'Tolka med AI',
+          disabled: parseTask.busy,
+          onClick: () => runParse(receipt.id, refresh, parseTask),
         }),
       );
     }
@@ -317,39 +296,29 @@ export async function receiptView(context: RouteContext): Promise<HTMLElement> {
     // which is a better export story than anything the app could build.
     if (canShare()) {
       rows.push(
-        el(
-          'button',
-          {
-            class: 'row',
-            type: 'button',
-            style: 'color:var(--tint);justify-content:center',
-            on: { click: () => void shareReceipt(receipt) },
-          },
-          icon('share', { size: 18 }),
-          el('span', { text: 'Dela kvitto' }),
-        ),
+        actionRow({
+          label: 'Dela kvitto',
+          icon: icon('share', { size: 18 }),
+          onClick: () => shareReceipt(receipt),
+        }),
       );
     }
 
     rows.push(
-      el('button', {
-        class: 'row',
-        type: 'button',
-        style: 'color:var(--danger);justify-content:center',
-        text: 'Ta bort kvittot',
-        on: {
-          click: async () => {
-            const confirmed = await confirmDialog({
-              title: 'Ta bort kvittot?',
-              message: 'Kvittot och dess varor tas bort, även på dina andra enheter.',
-              confirmLabel: 'Ta bort',
-              destructive: true,
-            });
-            if (!confirmed) return;
-            await deleteReceipt(receipt.id);
-            toast('Kvittot togs bort.');
-            router.navigate('/receipts');
-          },
+      actionRow({
+        label: 'Ta bort kvittot',
+        tone: 'danger',
+        onClick: async () => {
+          const confirmed = await confirmDialog({
+            title: 'Ta bort kvittot?',
+            message: 'Kvittot och dess varor tas bort, även på dina andra enheter.',
+            confirmLabel: 'Ta bort',
+            destructive: true,
+          });
+          if (!confirmed) return;
+          await deleteReceipt(receipt.id);
+          toast('Kvittot togs bort.');
+          router.navigate('/receipts');
         },
       }),
     );

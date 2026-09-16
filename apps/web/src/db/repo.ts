@@ -13,6 +13,7 @@ import {
   guessCategorySlug,
   newId,
   normalizeSearchName,
+  seedCategoryId,
   type Category,
   type ID,
   type Merchant,
@@ -277,11 +278,6 @@ async function refreshItemCount(receiptId: ID): Promise<void> {
 
 // --- categories -----------------------------------------------------------
 
-/** Deterministic id per seed slug, so seeding twice cannot duplicate rows. */
-function seedCategoryId(slug: string): ID {
-  return `seed-category-${slug}`;
-}
-
 export async function seedDefaultCategoriesOnce(): Promise<void> {
   const alreadySeeded = await db.kv.get('categories:seeded');
   if (alreadySeeded) return;
@@ -481,7 +477,6 @@ export async function eraseAllData(): Promise<void> {
       db.companies,
       db.blobs,
       db.kv,
-      db.pendingExtractions,
     ],
     async () => {
       await Promise.all([
@@ -492,7 +487,6 @@ export async function eraseAllData(): Promise<void> {
         db.receiptTags.clear(),
         db.companies.clear(),
         db.blobs.clear(),
-        db.pendingExtractions.clear(),
         // Settings and the device identity survive a data wipe on purpose.
         db.kv.where('key').startsWith('sync:').delete(),
         db.kv.where('key').equals('categories:seeded').delete(),

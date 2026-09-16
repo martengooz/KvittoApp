@@ -1,11 +1,37 @@
 import { readFileSync } from 'node:fs';
+import { normalizeBaseUrl } from '@kvitto/shared';
 import { networkInterfaces } from 'node:os';
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
+import { isLoopback } from './auth.ts';
+import { SERVER_AI_PROVIDERS } from './db/server-settings.ts';
 import { config } from './env.ts';
 
-const aiSettingsModule = readFileSync(new URL(import.meta.resolve('@kvitto/shared/ai-settings-ui')), 'utf8');
+/**
+ * `ai-settings-ui` now imports its own `dom`/`ui-rows` siblings instead of
+ * carrying a private copy of them (see `@kvitto/shared/ai-settings-ui`), so
+ * the browser needs to load those too. It fetches them as plain ES modules
+ * — no bundler runs over the dashboard's script — so every module the graph
+ * touches must be served here under the same `/server/` origin the page's
+ * `script-src 'self'` CSP allows. `ai-settings-ui` keeps its existing,
+ * shortened `/server/ai-settings.js` route; the others are served under
+ * their own name, which is all the relative imports inside those modules
+ * need to resolve (they are relative to the *serving* URL, not the
+ * package's file name).
+ */
+const SHARED_BROWSER_MODULES: Record<string, string> = {
+  dom: 'dom',
+  'ui-rows': 'ui-rows',
+  format: 'format',
+  'ai-settings': 'ai-settings-ui',
+};
+const sharedModules = new Map(
+  Object.entries(SHARED_BROWSER_MODULES).map(([route, moduleName]) => [
+    route,
+    readFileSync(new URL(import.meta.resolve(`@kvitto/shared/${moduleName}`)), 'utf8'),
+  ]),
+);
 
 const securityHeaders = {
   'cache-control': 'no-cache',
@@ -23,8 +49,10 @@ export function registerDashboard(app: FastifyInstance): void {
       'text/javascript; charset=utf-8',
       script.replace('__PAIR_SERVER_URL__', JSON.stringify(pairingServerUrl(request))),
     ));
-  app.get('/server/ai-settings.js', async (_request, reply) =>
-    send(reply, 'text/javascript; charset=utf-8', aiSettingsModule));
+  for (const route of Object.keys(SHARED_BROWSER_MODULES)) {
+    app.get(`/server/${route}.js`, async (_request, reply) =>
+      send(reply, 'text/javascript; charset=utf-8', sharedModules.get(route)!));
+  }
 }
 
 function send(reply: FastifyReply, contentType: string, body: string): FastifyReply {
@@ -33,8 +61,8 @@ function send(reply: FastifyReply, contentType: string, body: string): FastifyRe
 }
 
 function pairingServerUrl(request: FastifyRequest): string {
-  if (config.publicUrl) return config.publicUrl.replace(/\/+$/, '');
-  if (!isLoopback(request.hostname)) return `${request.protocol}://${request.host}`;
+  if (config.publicUrl) return normalizeBaseUrl(config.publicUrl);
+  if (!isLoopback(request)) return `${request.protocol}://${request.host}`;
 
   const port = new URL(`${request.protocol}://${request.host}`).port;
   const address = Object.values(networkInterfaces())
@@ -43,11 +71,6 @@ function pairingServerUrl(request: FastifyRequest): string {
     ?.address;
   if (!address) return `${request.protocol}://${request.host}`;
   return `${request.protocol}://${address}${port ? `:${port}` : ''}`;
-}
-
-function isLoopback(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }
 
 const page = `<!doctype html>
@@ -289,6 +312,7 @@ textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px 10px; b
 
 const script = `
 import { createAiSettingsView } from '/server/ai-settings.js';
+import { formatDateTimeShort } from '/server/format.js';
 
 (() => {
   const storageKey = 'kvitto.server.token';
@@ -318,8 +342,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
   }
 
   function formatTime(value) {
-    if (!value) return 'Aldrig';
-    return new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+    return formatDateTimeShort(value) ?? 'Aldrig';
   }
 
   async function refresh() {
@@ -369,7 +392,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
         element('updated').textContent = 'Dashboardens session har återställts. Uppdatera sidan.';
       } else {
         setConnection('error', 'Ej tillgänglig');
-        element('updated').textContent = error instanceof Error ? error.message : String(error);
+        element('updated').textContent = (error instanceof Error ? error.message : String(error));
       }
     } finally {
       element('refresh').disabled = false;
@@ -416,7 +439,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
   function renderAiSettings(serverConfig, llm) {
     element('ai-settings').replaceChildren(createAiSettingsView({
       ai: serverConfig.ai,
-      providers: ['none', 'anthropic', 'openai', 'openai-compatible'],
+      providers: ${JSON.stringify(SERVER_AI_PROVIDERS)},
       localModel: llm,
       onChange: async (patch) => {
         const { apiKey, apiKeyConfigured, autoParse, ...configPatch } = patch;
@@ -486,7 +509,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
       element('secret-message').textContent = value ? 'Sparad.' : 'Rensad.';
       await refresh();
     } catch (error) {
-      element('secret-message').textContent = error instanceof Error ? error.message : String(error);
+      element('secret-message').textContent = (error instanceof Error ? error.message : String(error));
     } finally {
       submit.disabled = false;
     }
@@ -505,7 +528,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
       element('pairing-qr').hidden = false;
       element('pair-message').textContent = 'Giltig till ' + formatTime(result.expiresAt) + '.';
     } catch (error) {
-      element('pair-message').textContent = error instanceof Error ? error.message : String(error);
+      element('pair-message').textContent = (error instanceof Error ? error.message : String(error));
     } finally {
       button.disabled = false;
     }
@@ -517,7 +540,7 @@ import { createAiSettingsView } from '/server/ai-settings.js';
       await request('/auth/devices/' + encodeURIComponent(id), { method: 'DELETE' });
       await refresh();
     } catch (error) {
-      element('updated').textContent = error instanceof Error ? error.message : String(error);
+      element('updated').textContent = (error instanceof Error ? error.message : String(error));
       button.disabled = false;
     }
   }

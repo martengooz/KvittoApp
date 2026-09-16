@@ -1,0 +1,280 @@
+/* --- forms --------------------------------------------------------------- */
+
+.field {
+  display: block;
+  margin: 0;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--label-secondary);
+}
+
+.field__hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--label-secondary);
+}
+
+input[type='text'],
+input[type='search'],
+input[type='number'],
+input[type='date'],
+input[type='password'],
+input[type='url'],
+select,
+textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: var(--fill-tertiary);
+  color: var(--label);
+  font: inherit;
+  /* Never below 16 px, or iOS Safari zooms the viewport on focus. */
+  font-size: max(16px, 17px);
+  letter-spacing: -0.022em;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* Inside a list row, fields are borderless and blend into the row. */
+.row input[type='text'],
+.row input[type='search'],
+.row input[type='number'],
+.row input[type='date'],
+.row input[type='password'],
+.row input[type='url'],
+.row select,
+.row textarea {
+  background: none;
+  padding: 0;
+  min-height: 22px;
+  border-radius: 0;
+  text-align: right;
+}
+
+.row input::placeholder,
+.row textarea::placeholder {
+  color: var(--label-tertiary);
+}
+
+.row select {
+  text-align: right;
+  text-align-last: right;
+  color: var(--label-secondary);
+  padding-right: 2px;
+}
+
+textarea {
+  min-height: 80px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+input[type='search'] {
+  /* iOS search fields are pill-shaped and sit on a fill. */
+  border-radius: 10px;
+  background: var(--fill-tertiary);
+  padding-left: 34px;
+}
+
+.search-field {
+  position: relative;
+  margin-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+}
+
+.search-field__icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--label-secondary);
+  pointer-events: none;
+}
+
+input[type='color'] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  appearance: none;
+  -webkit-appearance: none;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type='color']::-webkit-color-swatch {
+  border: 0.5px solid var(--separator);
+  border-radius: 16px;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--tint);
+}
+
+:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+ * Switches.
+ *
+ * Safari 17.4+ renders `<input type="checkbox" switch>` as the real iOS
+ * control, complete with its animation and accessibility semantics — so it is
+ * used directly and only tinted. Everywhere else the rules below draw a
+ * faithful stand-in from the same element, so the markup never branches.
+ */
+input[type='checkbox'][switch] {
+  accent-color: var(--ios-green);
+}
+
+@supports not (appearance: base-select) {
+  /* no-op guard: keeps the fallback below from applying in Safari's own
+     switch rendering, which already ignores appearance overrides. */
+}
+
+input[type='checkbox'].switch {
+  flex: none;
+  position: relative;
+  width: 51px;
+  height: 31px;
+  margin: 0;
+  border-radius: 16px;
+  background: var(--fill);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+input[type='checkbox'].switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgb(0 0 0 / 15%), 0 1px 1px rgb(0 0 0 / 16%);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+input[type='checkbox'].switch:checked {
+  background: var(--ios-green);
+}
+
+input[type='checkbox'].switch:checked::after {
+  transform: translateX(20px);
+}
+
+/* Safari draws the real control, so the stand-in styling must not apply. */
+@supports (-webkit-touch-callout: none) {
+  input[type='checkbox'].switch[switch] {
+    width: auto;
+    height: auto;
+    background: none;
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+
+  input[type='checkbox'].switch[switch]::after {
+    content: none;
+  }
+}
+
+/* --- segmented control --------------------------------------------------- */
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--fill-tertiary);
+}
+
+.segmented__option {
+  flex: 1;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease;
+}
+
+.segmented__option[aria-selected='true'] {
+  background: var(--bg-grouped-secondary);
+  font-weight: 600;
+  box-shadow: 0 3px 8px rgb(0 0 0 / 12%), 0 1px 1px rgb(0 0 0 / 4%);
+}
+
+/* --- filter chips -------------------------------------------------------- */
+
+.chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px max(var(--gutter), var(--safe-left));
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+
+.chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 13px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--fill-tertiary);
+  color: var(--label);
+  font: inherit;
+  font-size: 15px;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chip:active {
+  opacity: 0.5;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--tint);
+  color: var(--on-tint);
+}
+

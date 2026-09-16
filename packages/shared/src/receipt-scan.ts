@@ -7,6 +7,8 @@
  * cross-check the model — and to stand in for it when no provider is set up.
  */
 
+import { toLocalIsoDate } from './format.js';
+import { stripAccents } from './fuzzy.js';
 import { findOrgNumbers, type OrgNumberCandidate } from './orgnumber.js';
 import { parseLocalDateTime } from './parse.js';
 
@@ -156,13 +158,3 @@ function lineAround(text: string, index: number): string {
   return text.slice(start, end === -1 ? text.length : end);
 }
 
-/** Folds å/ä/ö and friends, so accent-blind OCR still matches the labels. */
-function stripAccents(input: string): string {
-  return input.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-function toLocalIsoDate(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-}

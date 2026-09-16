@@ -28,7 +28,7 @@ import {
 import { getSettings } from '../core/settings.js';
 import { getBlob } from '../db/blobs.js';
 import { db } from '../db/db.js';
-import { resolveCompany, resolveCompanyByName, type ResolveOutcome } from '../db/companies.js';
+import { resolveCompany, resolveCompanyByName, type ResolveOutcome } from '../company/lookup.js';
 import type { LookupFailure } from '../api/apiverket.js';
 import { updateReceipt } from '../db/repo.js';
 import { ocrClient } from './client.js';

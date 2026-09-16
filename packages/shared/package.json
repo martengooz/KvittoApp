@@ -13,12 +13,24 @@
     "./ai-settings-ui": {
       "types": "./dist/ai-settings-ui.d.ts",
       "default": "./dist/ai-settings-ui.js"
+    },
+    "./dom": {
+      "types": "./dist/dom.d.ts",
+      "default": "./dist/dom.js"
+    },
+    "./ui-rows": {
+      "types": "./dist/ui-rows.d.ts",
+      "default": "./dist/ui-rows.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "default": "./dist/format.js"
     }
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
     "test": "npm run build && node --test --experimental-strip-types test/*.test.ts"
   },
   "dependencies": {

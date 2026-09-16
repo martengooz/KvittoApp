@@ -113,3 +113,25 @@ export function supportsNativeSwitch(): boolean {
 
   return nativeSwitchSupport;
 }
+
+/**
+ * Estimated storage use, for the Settings screen. Returns `null` where the
+ * Storage API is unavailable (Safari before 17, and some private modes).
+ */
+export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
+  if (!navigator.storage?.estimate) return null;
+  const estimate = await navigator.storage.estimate();
+  if (estimate.usage === undefined || estimate.quota === undefined) return null;
+  return { usage: estimate.usage, quota: estimate.quota };
+}
+
+/**
+ * Asks the browser to make storage persistent, so receipts survive eviction
+ * under storage pressure. Chrome grants this silently for installed PWAs;
+ * Firefox prompts. Returns whether storage is persistent afterwards.
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (!navigator.storage?.persist) return false;
+  if (await navigator.storage.persisted()) return true;
+  return navigator.storage.persist();
+}

@@ -3,9 +3,9 @@
 import type { FastifyInstance } from 'fastify';
 import QRCode from 'qrcode';
 
-import { SYNC_PROTOCOL_VERSION, type PairRequest } from '@kvitto/shared';
+import type { PairRequest } from '@kvitto/shared';
 
-import { device, requireDevice } from '../auth.ts';
+import { device, isLoopback, requireDevice } from '../auth.ts';
 import {
   createDeviceSession,
   createPairingCode,
@@ -15,6 +15,7 @@ import {
   revokeDevice,
 } from '../db/accounts.ts';
 import { effectiveAiSettings } from '../db/server-settings.ts';
+import { fail, withSyncEnvelope } from '../http/reply.ts';
 
 export function registerAuthRoutes(app: FastifyInstance): void {
   app.post<{ Body: { deviceId: string; deviceName: string } }>(
@@ -33,20 +34,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const hostname = request.hostname.replace(/^\[|\]$/g, '');
-      const remoteAddress = request.socket.remoteAddress ?? '';
-      const isLocal =
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1' ||
-        remoteAddress === '127.0.0.1' ||
-        remoteAddress === '::1' ||
-        remoteAddress === '::ffff:127.0.0.1';
-      if (!isLocal) {
-        return reply.code(403).send({
-          error: 'forbidden',
-          message: 'Serverdashboarden kan bara aktiveras lokalt.',
-        });
+      if (!isLoopback(request)) {
+        return fail(reply, 403, 'forbidden', 'Serverdashboarden kan bara aktiveras lokalt.');
       }
 
       const session = createDeviceSession(
@@ -54,11 +43,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
         request.body.deviceId,
         request.body.deviceName,
       );
-      return reply.send({
-        ...session,
-        serverTime: Date.now(),
-        protocolVersion: SYNC_PROTOCOL_VERSION,
-      });
+      return reply.send(withSyncEnvelope(session));
     },
   );
 
@@ -81,10 +66,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       try {
         parsed = new URL(serverUrl);
       } catch {
-        return reply.code(400).send({ error: 'invalid_server_url', message: 'Ogiltig serveradress.' });
+        return fail(reply, 400, 'invalid_server_url', 'Ogiltig serveradress.');
       }
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return reply.code(400).send({ error: 'invalid_server_url', message: 'Serveradressen måste använda HTTP eller HTTPS.' });
+        return fail(reply, 400, 'invalid_server_url', 'Serveradressen måste använda HTTP eller HTTPS.');
       }
 
       const pairingCode = createPairingCode(device(request).accountId);
@@ -139,32 +124,30 @@ export function registerAuthRoutes(app: FastifyInstance): void {
               : 'Okänd kod.';
         // A single status for all three: distinguishing them would tell a
         // guesser which codes exist.
-        return reply.code(400).send({ error: 'pairing_failed', message });
+        return fail(reply, 400, 'pairing_failed', message);
       }
 
-      return reply.send({
-        token: result.token,
-        deviceId: result.deviceId,
-        deviceName: result.deviceName,
-        accountId: result.accountId,
-        serverTime: Date.now(),
-        protocolVersion: SYNC_PROTOCOL_VERSION,
-      });
+      return reply.send(
+        withSyncEnvelope({
+          token: result.token,
+          deviceId: result.deviceId,
+          deviceName: result.deviceName,
+          accountId: result.accountId,
+        }),
+      );
     },
   );
 
   app.get('/auth/me', { preHandler: requireDevice }, async (request) => {
     const context = device(request);
     const ai = effectiveAiSettings(context.accountId);
-    return {
+    return withSyncEnvelope({
       deviceId: context.deviceId,
       deviceName: context.deviceName,
       accountId: context.accountId,
-      serverTime: Date.now(),
-      protocolVersion: SYNC_PROTOCOL_VERSION,
       aiProxyEnabled: ai.enabled,
       aiProxyModels: ai.enabled ? ai.allowedModels : [],
-    };
+    });
   });
 
   app.get('/auth/devices', { preHandler: requireDevice }, async (request) => {
@@ -177,12 +160,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const context = device(request);
       if (request.params.id === context.deviceId) {
-        return reply
-          .code(400)
-          .send({ error: 'invalid_request', message: 'Använd "Koppla från" i appen för den här enheten.' });
+        return fail(reply, 400, 'invalid_request', 'Använd "Koppla från" i appen för den här enheten.');
       }
       const revoked = revokeDevice(context.accountId, request.params.id);
-      if (!revoked) return reply.code(404).send({ error: 'not_found', message: 'Enheten finns inte.' });
+      if (!revoked) return fail(reply, 404, 'not_found', 'Enheten finns inte.');
       return reply.code(204).send();
     },
   );

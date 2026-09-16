@@ -6,13 +6,55 @@
  * setup command before generating their first pairing code.
  */
 
+import type Database from 'better-sqlite3';
 import { and, eq, isNull, sql } from 'drizzle-orm';
+import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 
 import { newId, newPairingCode } from '@kvitto/shared';
 
 import { generateToken, hashToken } from '../auth.ts';
 import { config } from '../env.ts';
 import { getDb, schema } from './index.ts';
+
+/**
+ * What `upsertDevice` needs to run a query — satisfied by both a plain
+ * `getDb()` handle and the `tx` a `db.transaction(...)` callback receives,
+ * since the transaction object is the same database interface with writes
+ * scoped to the transaction.
+ */
+type DbHandle = BaseSQLiteDatabase<'sync', Database.RunResult, typeof schema>;
+
+/**
+ * Inserts a fresh device row, or rotates the token on one that already
+ * exists. Used both outside a transaction (an ordinary dashboard session)
+ * and inside one (redeeming a pairing code), so it takes whichever handle
+ * the caller is running under rather than assuming `getDb()`.
+ */
+function upsertDevice(
+  handle: DbHandle,
+  params: { id: string; accountId: string; name: string; tokenHash: string; now: number },
+): void {
+  const { id, accountId, name, tokenHash, now } = params;
+  const existing = handle
+    .select({ id: schema.devices.id })
+    .from(schema.devices)
+    .where(and(eq(schema.devices.id, id), eq(schema.devices.accountId, accountId)))
+    .limit(1)
+    .all()[0];
+
+  if (existing) {
+    handle
+      .update(schema.devices)
+      .set({ tokenHash, name, revokedAt: null, lastSeenAt: now })
+      .where(eq(schema.devices.id, id))
+      .run();
+  } else {
+    handle
+      .insert(schema.devices)
+      .values({ id, accountId, name, tokenHash, createdAt: now, lastSeenAt: now, revokedAt: null })
+      .run();
+  }
+}
 
 // Increment when a server sync bug requires every client to discard its cursor.
 const SYNC_HISTORY_VERSION = 2;
@@ -80,31 +122,8 @@ export function createDeviceSession(
   const now = Date.now();
   const token = generateToken();
   const tokenHash = hashToken(token);
-  const existing = db
-    .select({ id: schema.devices.id })
-    .from(schema.devices)
-    .where(and(eq(schema.devices.id, deviceId), eq(schema.devices.accountId, accountId)))
-    .limit(1)
-    .all()[0];
 
-  if (existing) {
-    db.update(schema.devices)
-      .set({ tokenHash, name: deviceName, revokedAt: null, lastSeenAt: now })
-      .where(eq(schema.devices.id, deviceId))
-      .run();
-  } else {
-    db.insert(schema.devices)
-      .values({
-        id: deviceId,
-        accountId,
-        name: deviceName,
-        tokenHash,
-        createdAt: now,
-        lastSeenAt: now,
-        revokedAt: null,
-      })
-      .run();
-  }
+  upsertDevice(db, { id: deviceId, accountId, name: deviceName, tokenHash, now });
 
   return { accountId, token, deviceId, deviceName };
 }
@@ -160,31 +179,7 @@ export function redeemPairingCode(code: string, deviceId: string, deviceName: st
   const tokenHash = hashToken(token);
 
   db.transaction((tx) => {
-    const existing = tx
-      .select()
-      .from(schema.devices)
-      .where(and(eq(schema.devices.id, deviceId), eq(schema.devices.accountId, row.accountId)))
-      .limit(1)
-      .all()[0];
-
-    if (existing) {
-      tx.update(schema.devices)
-        .set({ tokenHash, name: deviceName, revokedAt: null, lastSeenAt: now })
-        .where(eq(schema.devices.id, deviceId))
-        .run();
-    } else {
-      tx.insert(schema.devices)
-        .values({
-          id: deviceId,
-          accountId: row.accountId,
-          name: deviceName,
-          tokenHash,
-          createdAt: now,
-          lastSeenAt: now,
-          revokedAt: null,
-        })
-        .run();
-    }
+    upsertDevice(tx, { id: deviceId, accountId: row.accountId, name: deviceName, tokenHash, now });
 
     tx.update(schema.pairingCodes)
       .set({ usedAt: now, usedByDeviceId: deviceId })

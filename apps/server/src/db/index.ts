@@ -12,8 +12,10 @@ import { dirname } from 'node:path';
 
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { getTableConfig } from 'drizzle-orm/sqlite-core';
 
 import { config } from '../env.ts';
+import { assertSchemaMatchesDatabase } from './schema-check.ts';
 import * as schema from './schema.ts';
 
 const DDL = `
@@ -75,16 +77,16 @@ CREATE TABLE IF NOT EXISTS blobs (
 );
 `;
 
-/** The entity tables all share a shape, so their DDL is generated. */
-const ENTITY_TABLE_NAMES = [
-  'companies',
-  'receipts',
-  'items',
-  'categories',
-  'tags',
-  'receipt_tags',
-  'secrets',
-] as const;
+/**
+ * The entity tables all share a shape, so their DDL is generated.
+ *
+ * The names are derived from `schema.ENTITY_TABLES` rather than typed out
+ * again here, so this list and the Drizzle one cannot list a different set
+ * of tables from each other.
+ */
+const ENTITY_TABLE_NAMES: readonly string[] = Object.values(schema.ENTITY_TABLES).map(
+  (table) => getTableConfig(table).name,
+);
 
 function entityDdl(table: string): string {
   return `
@@ -142,6 +144,10 @@ export function getConnection(): Database.Database {
   database.exec(DDL);
   for (const table of ENTITY_TABLE_NAMES) database.exec(entityDdl(table));
   for (const [table, column, type] of ADDED_COLUMNS) addColumn(database, table, column, type);
+
+  // Refuse to start rather than let a schema that has drifted from
+  // `schema.ts` fail obscurely on whichever query hits the gap first.
+  assertSchemaMatchesDatabase(database);
 
   connection = database;
   return database;

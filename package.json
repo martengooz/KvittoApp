@@ -13,6 +13,7 @@
     "node": ">=20.11"
   },
   "scripts": {
+    "lint": "eslint .",
     "dev": "npm-run-all --parallel dev:web dev:server",
     "dev:web": "npm run dev --workspace @kvitto/web",
     "dev:server": "npm run dev --workspace @kvitto/server",
@@ -22,7 +23,11 @@
     "clean": "rm -rf apps/*/dist packages/*/dist apps/*/node_modules/.vite"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.12.0",
     "npm-run-all2": "^8.0.4",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.0"
   }
 }

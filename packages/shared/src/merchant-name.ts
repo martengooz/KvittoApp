@@ -20,7 +20,7 @@
  *    the card slip; noise does not repeat.
  */
 
-import { foldForMatching } from './fuzzy.js';
+import { foldForMatching, stripAccents } from './fuzzy.js';
 
 /** How many leading lines are considered for the header source. */
 const HEAD_LINES = 14;
@@ -351,6 +351,3 @@ export function looksSearchable(query: string): boolean {
   return true;
 }
 
-function stripAccents(value: string): string {
-  return value.normalize('NFD').replace(/[̀-ͯ]/g, '');
-}

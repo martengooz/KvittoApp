@@ -1,0 +1,301 @@
+/*
+ * KvittoApp — Apple design language.
+ *
+ * Built on iOS conventions rather than generic web ones: the system colour
+ * roles (label / secondaryLabel / systemFill and friends), inset grouped lists,
+ * a large title that collapses into the navigation bar on scroll, a translucent
+ * tab bar, and the SF text stack with Dynamic Type left free to scale.
+ *
+ * Colour values are Apple's published system colours for light and dark
+ * appearance. They are used through semantic roles — `--label`, not
+ * `--gray-900` — so dark mode is a palette swap rather than a set of overrides
+ * scattered through the file.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- iOS system colours, light appearance --- */
+  --ios-blue: #007aff;
+  --ios-green: #34c759;
+  --ios-indigo: #5856d6;
+  --ios-orange: #ff9500;
+  --ios-red: #ff3b30;
+  --ios-teal: #30b0c7;
+  --ios-yellow: #ffcc00;
+  --ios-pink: #ff2d55;
+  --ios-purple: #af52de;
+
+  /* Backgrounds: `grouped` is the one behind inset lists. */
+  --bg-grouped: #f2f2f7;
+  --bg-grouped-secondary: #ffffff;
+  --bg: #ffffff;
+  --bg-secondary: #f2f2f7;
+  --bg-tertiary: #ffffff;
+
+  /* Content colours, in descending prominence. */
+  --label: #000000;
+  --label-secondary: rgb(60 60 67 / 60%);
+  --label-tertiary: rgb(60 60 67 / 30%);
+  --label-quaternary: rgb(60 60 67 / 18%);
+
+  /* Fills, for control backgrounds that sit on top of a background colour. */
+  --fill: rgb(120 120 128 / 20%);
+  --fill-secondary: rgb(120 120 128 / 16%);
+  --fill-tertiary: rgb(118 118 128 / 12%);
+  --fill-quaternary: rgb(116 116 128 / 8%);
+
+  --separator: rgb(60 60 67 / 29%);
+  --separator-opaque: #c6c6c8;
+
+  --tint: var(--ios-blue);
+  --on-tint: #ffffff;
+  --danger: var(--ios-red);
+  --success: var(--ios-green);
+  --warning: var(--ios-orange);
+
+  /* Materials — Apple's translucent bar backgrounds. */
+  --material-bar: rgb(249 249 249 / 82%);
+  --material-thick: rgb(255 255 255 / 92%);
+
+  /*
+   * Corner radii. iOS uses continuous ("squircle") corners; the web has no
+   * equivalent, so these are the radii that read closest at each scale.
+   */
+  --radius-card: 10px;
+  --radius-control: 10px;
+  --radius-sheet: 14px;
+  --radius-field: 10px;
+
+  --tab-bar-height: 49px;
+  --nav-bar-height: 44px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* The standard iOS content inset. */
+  --gutter: 16px;
+
+  /*
+   * SF Pro via `-apple-system`, which also opts the page into Dynamic Type on
+   * iOS: the user's text-size setting scales everything sized in `rem`.
+   */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+    'Helvetica Neue', system-ui, sans-serif;
+  --font-rounded: -apple-system-rounded, ui-rounded, 'SF Pro Rounded', var(--font);
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ios-blue: #0a84ff;
+    --ios-green: #30d158;
+    --ios-indigo: #5e5ce6;
+    --ios-orange: #ff9f0a;
+    --ios-red: #ff453a;
+    --ios-teal: #40cbe0;
+    --ios-yellow: #ffd60a;
+    --ios-pink: #ff375f;
+    --ios-purple: #bf5af2;
+
+    --bg-grouped: #000000;
+    --bg-grouped-secondary: #1c1c1e;
+    --bg: #000000;
+    --bg-secondary: #1c1c1e;
+    --bg-tertiary: #2c2c2e;
+
+    --label: #ffffff;
+    --label-secondary: rgb(235 235 245 / 60%);
+    --label-tertiary: rgb(235 235 245 / 30%);
+    --label-quaternary: rgb(235 235 245 / 18%);
+
+    --fill: rgb(120 120 128 / 36%);
+    --fill-secondary: rgb(120 120 128 / 32%);
+    --fill-tertiary: rgb(118 118 128 / 24%);
+    --fill-quaternary: rgb(118 118 128 / 18%);
+
+    --separator: rgb(84 84 88 / 60%);
+    --separator-opaque: #38383a;
+
+    --material-bar: rgb(30 30 30 / 80%);
+    --material-thick: rgb(28 28 30 / 94%);
+  }
+}
+
+:root[data-theme='dark'] {
+  --ios-blue: #0a84ff;
+  --ios-green: #30d158;
+  --ios-indigo: #5e5ce6;
+  --ios-orange: #ff9f0a;
+  --ios-red: #ff453a;
+  --ios-teal: #40cbe0;
+  --ios-yellow: #ffd60a;
+  --ios-pink: #ff375f;
+  --ios-purple: #bf5af2;
+  --bg-grouped: #000000;
+  --bg-grouped-secondary: #1c1c1e;
+  --bg: #000000;
+  --bg-secondary: #1c1c1e;
+  --bg-tertiary: #2c2c2e;
+  --label: #ffffff;
+  --label-secondary: rgb(235 235 245 / 60%);
+  --label-tertiary: rgb(235 235 245 / 30%);
+  --label-quaternary: rgb(235 235 245 / 18%);
+  --fill: rgb(120 120 128 / 36%);
+  --fill-secondary: rgb(120 120 128 / 32%);
+  --fill-tertiary: rgb(118 118 128 / 24%);
+  --fill-quaternary: rgb(118 118 128 / 18%);
+  --separator: rgb(84 84 88 / 60%);
+  --separator-opaque: #38383a;
+  --material-bar: rgb(30 30 30 / 80%);
+  --material-thick: rgb(28 28 30 / 94%);
+}
+
+/* --- Kvitto palette ----------------------------------------------------- */
+
+:root,
+:root[data-theme='light'],
+:root[data-theme='dark'],
+:root[data-theme='rabarber'] {
+  color-scheme: light;
+  --k-bg: #fdf5f4;
+  --k-card: #ffffff;
+  --k-ink: #2c1b1e;
+  --k-muted: #7b5f61;
+  --k-accent: #b33049;
+  --k-on-accent: #ffffff;
+  --k-soft: #fbe3e6;
+  --k-line: #f0dcdd;
+  --k-chip: #f6e9ea;
+  --k-dark: #271619;
+  --k-dark-panel: #3b2327;
+  --k-dark-muted: #c3a1a5;
+  --k-ramp-1: #f8dfe3;
+  --k-ramp-2: #f0c2c9;
+  --k-ramp-3: #e19aa7;
+  --k-ramp-4: #cf6478;
+  --k-ramp-5: #b33049;
+  --k-positive: #4d7a43;
+  --bg-grouped: var(--k-bg);
+  --bg-grouped-secondary: var(--k-card);
+  --bg: var(--k-card);
+  --bg-secondary: var(--k-soft);
+  --bg-tertiary: var(--k-card);
+  --label: var(--k-ink);
+  --label-secondary: var(--k-muted);
+  --label-tertiary: color-mix(in srgb, var(--k-muted) 55%, transparent);
+  --label-quaternary: color-mix(in srgb, var(--k-muted) 25%, transparent);
+  --fill: var(--k-chip);
+  --fill-secondary: var(--k-soft);
+  --fill-tertiary: var(--k-chip);
+  --fill-quaternary: color-mix(in srgb, var(--k-soft) 60%, transparent);
+  --separator: var(--k-line);
+  --separator-opaque: var(--k-line);
+  --tint: var(--k-accent);
+  --on-tint: var(--k-on-accent);
+  --success: var(--k-positive);
+  --warning: #8a5a0c;
+  --material-bar: rgb(255 255 255 / 94%);
+  --material-thick: var(--k-card);
+  --radius-card: 18px;
+  --radius-control: 16px;
+  --radius-sheet: 20px;
+  --radius-field: 20px;
+  --shadow-card: 0 1px 2px rgb(40 30 20 / 5%), 0 8px 18px rgb(40 30 20 / 5%);
+  --shadow-hero: 0 2px 3px rgb(40 30 20 / 5%), 0 14px 28px rgb(40 30 20 / 7%);
+  --shadow-paper: 0 10px 24px rgb(40 30 20 / 7%);
+  --font: 'Manrope', 'Avenir Next', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+  --font-store: 'Newsreader', Georgia, serif;
+}
+
+:root[data-theme='lingon'] {
+  --k-accent: #8e2f3f;
+  --k-bg: #fdf6f1;
+  --k-card: #ffffff;
+  --k-ink: #241a1c;
+  --k-muted: #7d6169;
+  --k-soft: #f7e5e8;
+  --k-line: #efdfe2;
+  --k-chip: #f4ece8;
+  --k-positive: #2f6b4f;
+}
+
+:root[data-theme='pantgron'] {
+  --k-accent: #1f4d3a;
+  --k-bg: #f7f4ea;
+  --k-card: #fffdf6;
+  --k-ink: #1b2620;
+  --k-muted: #5f6e64;
+  --k-soft: #e4ede4;
+  --k-line: #e3e0d1;
+  --k-chip: #eeebdd;
+  --k-on-accent: #fffdf6;
+  --k-positive: #2f6b4f;
+}
+
+:root[data-theme='blabar'] {
+  --k-accent: #2e3a64;
+  --k-bg: #f4efe6;
+  --k-card: #ffffff;
+  --k-ink: #232a3d;
+  --k-muted: #5e657c;
+  --k-soft: #e6e9f2;
+  --k-line: #e0ddd3;
+  --k-chip: #eceadf;
+  --k-positive: #2f6b4f;
+}
+
+:root[data-theme='hjortron'] {
+  --k-accent: #8f5a07;
+  --k-bg: #fdf7ec;
+  --k-card: #fffdf7;
+  --k-ink: #2b2113;
+  --k-muted: #7a6647;
+  --k-soft: #fbeccd;
+  --k-line: #ece0c9;
+  --k-chip: #f2e9d7;
+  --k-positive: #2f6b4f;
+}
+
+:root[data-theme='svartvinbar'] {
+  --k-accent: #57265f;
+  --k-bg: #f8f4f7;
+  --k-card: #ffffff;
+  --k-ink: #251a2c;
+  --k-muted: #6e5c76;
+  --k-soft: #efe3f1;
+  --k-line: #e6dbe8;
+  --k-chip: #f1eaf2;
+  --k-positive: #2f6b4f;
+}
+
+:root[data-theme='krusbar'] {
+  --k-accent: #4c621a;
+  --k-bg: #f7f7ec;
+  --k-card: #fffef7;
+  --k-ink: #22260f;
+  --k-muted: #626a45;
+  --k-soft: #e9eed3;
+  --k-line: #e3e5cd;
+  --k-chip: #eceedb;
+  --k-positive: #2f6b4f;
+}
+
+:root[data-theme='lingon'],
+:root[data-theme='pantgron'],
+:root[data-theme='blabar'],
+:root[data-theme='hjortron'],
+:root[data-theme='svartvinbar'],
+:root[data-theme='krusbar'] {
+  --k-dark: color-mix(in srgb, var(--k-ink) 84%, #000);
+  --k-dark-panel: color-mix(in srgb, var(--k-ink) 78%, var(--k-accent));
+  --k-dark-muted: color-mix(in srgb, var(--k-muted) 72%, #fff);
+  --k-ramp-1: color-mix(in srgb, var(--k-accent) 16%, var(--k-card));
+  --k-ramp-2: color-mix(in srgb, var(--k-accent) 32%, var(--k-card));
+  --k-ramp-3: color-mix(in srgb, var(--k-accent) 52%, var(--k-card));
+  --k-ramp-4: color-mix(in srgb, var(--k-accent) 74%, var(--k-card));
+  --k-ramp-5: var(--k-accent);
+}
+

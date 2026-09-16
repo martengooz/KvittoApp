@@ -6,6 +6,7 @@
  * receipts deserve a second look.
  */
 
+import { localDateToday } from './format.js';
 import { roundMoney } from './parse.js';
 import type { NormalizedExtraction } from './extraction.js';
 
@@ -167,9 +168,3 @@ export function validateExtraction(extraction: NormalizedExtraction): Validation
   };
 }
 
-function localDateToday(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-}

@@ -78,6 +78,8 @@ export const config = {
      * it likes just by naming a different model.
      */
     allowedModels: list('KVITTO_AI_ALLOWED_MODELS'),
+    /** Deadline for a single proxied extraction call, so a hung provider does not hold the request forever. */
+    timeoutMs: int('KVITTO_AI_TIMEOUT_MS', 120_000),
   },
 
   /**

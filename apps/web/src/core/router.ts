@@ -7,6 +7,8 @@
  * rewrites, and the service worker never has to guess which paths are routes.
  */
 
+import { describeError } from '@kvitto/shared';
+
 export interface RouteContext {
   /** Path segments after the `#/`, e.g. `['receipt', 'abc-123']`. */
   segments: string[];
@@ -139,7 +141,7 @@ function renderError(error: unknown): HTMLElement {
   const heading = document.createElement('h2');
   heading.textContent = 'Något gick fel';
   const message = document.createElement('p');
-  message.textContent = error instanceof Error ? error.message : String(error);
+  message.textContent = describeError(error);
   container.append(heading, message);
   return container;
 }

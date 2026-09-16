@@ -1,0 +1,183 @@
+/* --- inset grouped lists ------------------------------------------------- */
+
+/*
+ * The iOS table view: rounded cards inset from the screen edge, rows separated
+ * by hairlines that stop short of the leading edge, and a small uppercase
+ * header above the group.
+ */
+.list-group {
+  margin: 0 0 32px;
+  padding: 0;
+}
+
+.list-group__title {
+  margin: 0 0 7px;
+  padding-inline: max(calc(var(--gutter) + 16px), var(--safe-left));
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.008em;
+  text-transform: uppercase;
+  color: var(--label-secondary);
+}
+
+.list-group__footer {
+  margin: 7px 0 0;
+  padding-inline: max(calc(var(--gutter) + 16px), var(--safe-left));
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--label-secondary);
+}
+
+/* A title sharing its line with a trailing button, e.g. "Varor (N)" next to
+   "Lägg till" — the wrapping row owns the spacing and inline padding instead. */
+.list-group__title--flush {
+  margin: 0;
+  padding: 0;
+}
+
+.list-group__header {
+  margin-bottom: 7px;
+}
+
+.inset-list {
+  margin-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+  border-radius: var(--radius-card);
+  background: var(--bg-grouped-secondary);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 17px;
+  text-align: left;
+  text-decoration: none;
+  position: relative;
+}
+
+/* Hairline separator, inset from the leading edge like a UITableView. */
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 0.5px;
+  background: var(--separator);
+}
+
+/* A full-bleed separator, for rows with no leading icon alignment to respect. */
+.row--full-separator + .row::before,
+.row + .row--full-separator::before {
+  left: 0;
+}
+
+button.row,
+a.row {
+  cursor: pointer;
+}
+
+button.row:active,
+a.row:active {
+  background: var(--fill-quaternary);
+}
+
+.row__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.row__value {
+  color: var(--label-secondary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A `row__value` that is itself the row's action — a tap target rather than
+   read-only trailing text — so it needs button reset plus the tint colour. */
+.row__value--link {
+  background: none;
+  border: 0;
+  font: inherit;
+  color: var(--tint);
+  cursor: pointer;
+}
+
+/* An editable row's own name/label, not a trailing value — `.row` inputs are
+   right-aligned by default, which reads wrong for the row's primary text. */
+.row input[type='text'].row__label {
+  text-align: left;
+}
+
+/* The iOS disclosure chevron. */
+.row__chevron {
+  flex: none;
+  width: 7px;
+  height: 12px;
+  color: var(--label-tertiary);
+}
+
+.row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  border-radius: 7px;
+  background: var(--fill-tertiary);
+  font-size: 16px;
+}
+
+/* A row that acts like a button: "Ny etikett", "Synka nu", "Radera all data". */
+.row--action {
+  color: var(--tint);
+  justify-content: center;
+  font-weight: 500;
+}
+
+.row--action--danger {
+  color: var(--danger);
+}
+
+/* A row whose control sits below its label rather than beside it. */
+.row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* A caption above a stacked control reads as a field label, not a row label —
+   `.field__label`'s own bottom margin would double up with the row's gap. */
+.row--stacked .field__label {
+  margin: 0;
+}
+
+/* A warnings list stacked under its own caption; not a paragraph, so it needs
+   its own reset rather than `.faint`'s. */
+.row--stacked ul.faint {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* A free-text control stacked under its own caption, styled as an editable
+   block rather than the trailing, right-aligned field `.row textarea` resets
+   every other textarea to. */
+.row--stacked textarea {
+  background: var(--fill-tertiary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
