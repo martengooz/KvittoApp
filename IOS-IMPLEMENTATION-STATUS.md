@@ -13,9 +13,9 @@ The repository now contains a buildable native iOS application, shared client
 contracts, archive rules, production-facing SQLite/SecureStore adapters, native
 Vision/storage source, feature controllers, and an integrated five-tab shell.
 
-The app has been built and launched as a standalone Release application on an
-iOS 26.5 simulator. The Receipts, Purchases, Scan, Collections, and Settings
-tabs rendered successfully.
+The app builds and launches as a standalone Release application on an iOS 26.5
+simulator, completes its boot sequence, and renders the five-tab shell. The
+Receipts list itself does not finish loading yet (see the 2026-09-17 entry).
 
 Repository reads and writes now execute as direct SQL against SQLite; the
 in-memory state mirror and full-table rewrite are gone. Sync runs automatically
@@ -29,6 +29,79 @@ E2E/performance/accessibility work.
 The native iOS rewrite is committed on `main`.
 
 ## Progress Log
+
+### 2026-09-17: The app actually runs - four startup bugs found by running it
+
+Running the Release build on a simulator showed the app had never started
+successfully. Earlier checkpoints in this document claimed a launch with all
+five tabs rendering; that claim was wrong. Every launch failed in the data
+foundation, and the first screen would have hung even if it had not.
+
+Four defects, each fixed with a regression test that fails without the fix:
+
+1. **SecureStore rejected the database key name.** `ios:data:sqlcipher-key`
+   contains colons; SecureStore only accepts alphanumerics, `.`, `-` and `_`.
+   Startup failed before the database could be opened. Renamed to
+   `ios.data.sqlcipher-key`, and `test/data-sql-persistence.test.ts` now asserts
+   every SecureStore key the app owns matches the accepted pattern.
+2. **Transactions ran on an unkeyed second connection.** expo-sqlite's
+   `withExclusiveTransactionAsync` creates a new native connection
+   (`useNewConnection: true`). `PRAGMA key` had only been applied to the
+   original, so on a SQLCipher database every statement issued through it
+   failed. The adapter now uses explicit `BEGIN IMMEDIATE`/`COMMIT`/`ROLLBACK`
+   on the one keyed connection, and a test asserts no second connection is ever
+   opened.
+3. **No Web Crypto on Hermes.** `@kvitto/shared` reads `globalThis.crypto` at
+   module load to generate ids, which Hermes does not provide. Added
+   `expo-crypto` and a polyfill installed from a new app entry point
+   (`apps/ios/index.js`) that loads before anything imports shared code. Only
+   the CSPRNG is polyfilled; `sha256Hex` already falls back to a pure-JS SHA-256
+   and a hand-rolled `subtle` would have risked corrupting blob ids.
+4. **Every tab controller re-rendered forever.** `getSnapshot()` built a fresh
+   object on each call in the receipts, purchases, and collections controllers.
+   `useSyncExternalStore` compares snapshots with `Object.is` on every render,
+   so mounting any tab produced "Maximum update depth exceeded". Snapshots are
+   now built once per change and invalidated by `emit()`.
+
+Two more real bugs fixed while in there:
+
+- **The SQLCipher key was drawn from `Math.random()`**, which is not a CSPRNG.
+  A predictable key makes encrypting the database at rest close to pointless.
+  It now comes from `crypto.getRandomValues` and refuses to generate a key at
+  all when no cryptographic source is present.
+- **Concurrent transactions could interleave.** `BEGIN IMMEDIATE` is awaited, so
+  two concurrent callers could both pass the depth check and issue a second
+  `BEGIN`, whose failed `ROLLBACK` would discard the other's work. Top-level
+  transactions are now queued; a mutation test confirms the queue is what
+  prevents it.
+
+Also learned: the app must be built **with code signing** even for the
+simulator. `CODE_SIGNING_ALLOWED=NO`, which this document's resume commands
+used, produces a binary with no entitlements at all, and SecureStore then fails
+with "A required entitlement isn't present". The resume commands below are
+updated.
+
+- Verification evidence:
+  - `npm run typecheck:ios`: passed.
+  - `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed.
+  - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
+  - `xcodebuild build` (Debug and Release) and `xcodebuild test` on
+    iPhone 17 Pro / iOS 26.5: BUILD/TEST SUCCEEDED, 14 native tests, 0 failures.
+  - Release app installed and launched on a clean iPhone 17 simulator: the boot
+    sequence completes, the five-tab shell renders, and the Receipts screen
+    shows its header, search field, and filter toggle. No JS exceptions in the
+    system log.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+**Known defect, not fixed:** the Receipts list stays on "Loading receipts..."
+and never resolves. The app is idle while this happens - no exceptions, no busy
+loop, roughly 250 log lines total - so `ReceiptsFeatureController.refresh()`
+appears to await a query promise that never settles. This reproduces only
+against expo-sqlite; the same controller resolves normally against the
+better-sqlite3 test adapter, so the next step is to instrument the adapter's
+read path on device rather than to keep reasoning about it. The three fixes
+above were each confirmed by the error moving on to the next one, so this is a
+distinct fifth problem rather than a leftover of them.
 
 ### 2026-09-17: VisionCamera integration, live preview, and capture
 
@@ -69,7 +142,7 @@ The native iOS rewrite is committed on `main`.
   real bridge over fake permissions.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 41 suites, 144 tests passed.
+  - `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: VisionCamera 5.2.3, NitroModules 0.37.1, NitroImage 0.15.2,
@@ -148,7 +221,7 @@ The native iOS rewrite is committed on `main`.
   and removing the Wi-Fi-only gate each fail their tests.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 41 suites, 144 tests passed.
+  - `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: passed with `ExpoNetwork` integrated.
@@ -474,7 +547,7 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 41 suites, 144 tests passed
+- `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed
@@ -486,8 +559,9 @@ The following checks have passed during implementation:
   SecureStore autolinked
 - Debug simulator `xcodebuild build`: passed
 - Release simulator `xcodebuild build`: passed with embedded `main.jsbundle`
-- Standalone Release app installed and launched on iPhone 17e, iOS 26.5
-- Simulator screenshot confirmed all five tabs and the Receipts screen render
+- Standalone Release app installed and launched on iPhone 17, iOS 26.5
+- Simulator screenshot confirmed the five-tab shell and Receipts screen chrome
+  render; the Receipts list itself is still stuck loading
 - Hosted app XCTest passed
 - Native XCTest: 14 passed, 0 failed, 0 skipped
 - Final native build after Expo SQLite/SQLCipher additions exited successfully
@@ -591,14 +665,16 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
+1. Find why the Receipts list never finishes loading against expo-sqlite, and
+  add a device-level smoke check so a non-rendering app cannot pass again.
+2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
-2. Expose native ZIP and run web/native archive interoperability.
-3. Implement `BGTask` registration and bounded background sync.
-4. Add Maestro flows and real-server integration.
-5. Perform physical-device camera/background/security/performance gates,
+3. Expose native ZIP and run web/native archive interoperability.
+4. Implement `BGTask` registration and bounded background sync.
+5. Add Maestro flows and real-server integration.
+6. Perform physical-device camera/background/security/performance gates,
   including SQLCipher-key recovery and large-data query profiling.
-6. Run the complete CI matrix and begin release hardening.
+7. Run the complete CI matrix and begin release hardening.
 
 ## Resume Commands
 
@@ -614,16 +690,19 @@ npm run ios:bundle
 
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 cd apps/ios/ios && pod install && cd ../../..
+# Code signing must stay ON, even for the simulator: without it the app has no
+# entitlements and SecureStore fails with "A required entitlement isn't present".
+SIGNING="CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=-"
 xcodebuild build \
   -workspace apps/ios/ios/KvittoAppiOS.xcworkspace \
   -scheme KvittoAppiOS \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
-  CODE_SIGNING_ALLOWED=NO
+  $SIGNING
 xcodebuild test \
   -workspace apps/ios/ios/KvittoAppiOS.xcworkspace \
   -scheme KvittoAppiOS \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
-  CODE_SIGNING_ALLOWED=NO
+  $SIGNING
 ```
 
 Before resuming, run `git status` and preserve any uncommitted changes.

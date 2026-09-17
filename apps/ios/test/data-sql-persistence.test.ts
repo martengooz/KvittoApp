@@ -4,10 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Receipt } from '@kvitto/shared/domain';
 
-import { InMemoryDatabaseKeyStore } from '../src/data/keychain';
+import { generateDatabaseKey, InMemoryDatabaseKeyStore } from '../src/data/keychain';
 import { IosDataRepository, type ReceiptListCursor } from '../src/data/repository';
 import { SqliteTestAdapter } from './support/sqlite-test-adapter';
-import { startDataFoundation } from '../src/data/startup';
+import {
+  DATABASE_KEY_NAME,
+  SECURE_STORE_KEY_PATTERN,
+  startDataFoundation,
+} from '../src/data/startup';
+import { SECURE_CREDENTIAL_KEY_NAMES } from '../src/data/secure-credentials';
 
 const scratchDirs: string[] = [];
 
@@ -233,5 +238,58 @@ describe('direct SQL repository persistence', () => {
     await repo.updateReceipt('bad', { status: 'confirmed' });
     expect((await repo.queryReceipts({ needsReview: true }, 10)).items).toEqual([]);
     db.close();
+  });
+});
+
+describe('SecureStore key names', () => {
+  test('every key the app stores is one SecureStore will accept', () => {
+    // SecureStore rejects anything outside alphanumerics, ".", "-" and "_".
+    // A rejected name fails at startup, before the database can be opened, so
+    // this is checked here rather than discovered on a device.
+    const keys = [DATABASE_KEY_NAME, ...SECURE_CREDENTIAL_KEY_NAMES];
+    for (const key of keys) {
+      expect(key).toMatch(SECURE_STORE_KEY_PATTERN);
+      expect(key).not.toContain(':');
+    }
+  });
+});
+
+describe('database key generation', () => {
+  test('draws from the platform CSPRNG, not Math.random', () => {
+    const calls: number[] = [];
+    const original = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      value: {
+        getRandomValues<T extends Uint8Array>(array: T): T {
+          calls.push(array.length);
+          for (let index = 0; index < array.length; index += 1) array[index] = index % 256;
+          return array;
+        },
+      },
+      configurable: true,
+    });
+
+    try {
+      const key = generateDatabaseKey(64);
+      expect(key).toMatch(/^[0-9a-f]{64}$/);
+      expect(calls).toEqual([32]);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true });
+    }
+  });
+
+  test('refuses to produce a key without a cryptographic random source', () => {
+    const original = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+    try {
+      expect(() => generateDatabaseKey(64)).toThrow('cryptographic random source');
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true });
+    }
+  });
+
+  test('rejects a length that cannot be expressed as whole hex bytes', () => {
+    expect(() => generateDatabaseKey(0)).toThrow('even, positive length');
+    expect(() => generateDatabaseKey(9)).toThrow('even, positive length');
   });
 });

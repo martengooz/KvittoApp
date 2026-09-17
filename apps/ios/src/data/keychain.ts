@@ -29,11 +29,23 @@ export class InMemoryDatabaseKeyStore implements DatabaseKeyStore {
   }
 }
 
+/**
+ * Generates the SQLCipher database key as hex, from the platform CSPRNG.
+ *
+ * `Math.random()` is not a CSPRNG: a key drawn from it is predictable, which
+ * would make encrypting the database at rest close to pointless.
+ */
 export function generateDatabaseKey(length = 64): string {
-  const alphabet = '0123456789abcdef';
-  let out = '';
-  for (let i = 0; i < length; i += 1) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)] ?? '0';
+  if (length <= 0 || length % 2 !== 0) {
+    throw new Error(`A hex database key needs an even, positive length, not ${length}.`);
   }
-  return out;
+
+  const random = (globalThis as { crypto?: { getRandomValues?: <T extends Uint8Array>(array: T) => T } }).crypto
+    ?.getRandomValues;
+  if (!random) {
+    throw new Error('A cryptographic random source is required to create the database key.');
+  }
+
+  const bytes = random.call((globalThis as { crypto: object }).crypto, new Uint8Array(length / 2));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }

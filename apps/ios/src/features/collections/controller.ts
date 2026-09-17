@@ -119,10 +119,23 @@ export class CollectionsFeatureController {
   }
 
   private emit(): void {
+    this.snapshot = null;
     for (const listener of this.listeners) listener();
   }
 
+  private snapshot: CollectionsControllerState | null = null;
+
+  /**
+   * `useSyncExternalStore` compares snapshots with `Object.is` on every
+   * render, so a freshly built object each call re-renders forever. The
+   * snapshot is therefore built once per change and invalidated by `emit`.
+   */
   getSnapshot(): CollectionsControllerState {
+    this.snapshot ??= this.buildSnapshot();
+    return this.snapshot;
+  }
+
+  private buildSnapshot(): CollectionsControllerState {
     return {
       loading: this.loading,
       byMonth: this.byMonth,

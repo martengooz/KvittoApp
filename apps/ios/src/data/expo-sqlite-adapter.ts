@@ -25,10 +25,13 @@ export interface ExpoSqliteAdapterOpenInput {
 }
 
 /**
- * Production SQLite adapter. Every statement runs against the database directly;
- * while a repository transaction is open they are routed through that one
- * exclusive transaction handle so reads and writes see the same snapshot and
- * roll back together.
+ * Production SQLite adapter. Every statement runs on one connection, the one
+ * `PRAGMA key` was applied to.
+ *
+ * Transactions are explicit `BEGIN IMMEDIATE`/`COMMIT` rather than expo-sqlite's
+ * `withExclusiveTransactionAsync`, because that helper opens a second native
+ * connection (`useNewConnection: true`). A second connection to a SQLCipher
+ * database has no key, so every statement issued through it fails.
  */
 export class ExpoSqliteAdapter implements SqliteLikeAdapter {
   private readonly diagnostics: SqliteDiagnostics = {
@@ -39,9 +42,10 @@ export class ExpoSqliteAdapter implements SqliteLikeAdapter {
     migrations: [],
   };
 
-  private activeTransaction: SQLiteDatabase | null = null;
-
   private transactionDepth = 0;
+
+  /** Serializes top-level transactions; see `transaction`. */
+  private transactionQueue: Promise<void> = Promise.resolve();
 
   private constructor(private readonly db: SQLiteDatabase) {}
 
@@ -55,24 +59,20 @@ export class ExpoSqliteAdapter implements SqliteLikeAdapter {
     return this.diagnostics;
   }
 
-  private get target(): SQLiteDatabase {
-    return this.activeTransaction ?? this.db;
-  }
-
   async execute(sql: string): Promise<void> {
-    await this.target.execAsync(sql);
+    await this.db.execAsync(sql);
   }
 
   async run(sql: string, params: SqlParam[] = []): Promise<void> {
-    await this.target.runAsync(sql, ...params);
+    await this.db.runAsync(sql, ...params);
   }
 
   async selectFirst<T>(sql: string, params: SqlParam[] = []): Promise<T | null> {
-    return (await this.target.getFirstAsync<T>(sql, ...params)) ?? null;
+    return (await this.db.getFirstAsync<T>(sql, ...params)) ?? null;
   }
 
   async selectAll<T>(sql: string, params: SqlParam[] = []): Promise<T[]> {
-    return this.target.getAllAsync<T>(sql, ...params);
+    return this.db.getAllAsync<T>(sql, ...params);
   }
 
   async tableExists(name: string): Promise<boolean> {
@@ -141,8 +141,18 @@ export class ExpoSqliteAdapter implements SqliteLikeAdapter {
     }
   }
 
+  /**
+   * Runs `work` inside one transaction on the single keyed connection.
+   *
+   * Top-level calls are queued rather than interleaved: `BEGIN IMMEDIATE` is
+   * awaited, so without a queue two concurrent callers could both get past the
+   * depth check and issue a second `BEGIN`, which SQLite rejects and whose
+   * `ROLLBACK` would discard the other caller's work. A call made from inside
+   * `work` joins the open transaction instead, because SQLite has no real
+   * nesting and an inner failure has to abort the whole unit of work anyway.
+   */
   async transaction<T>(work: () => Promise<T>): Promise<T> {
-    if (this.activeTransaction) {
+    if (this.transactionDepth > 0) {
       this.transactionDepth += 1;
       try {
         return await work();
@@ -151,16 +161,26 @@ export class ExpoSqliteAdapter implements SqliteLikeAdapter {
       }
     }
 
-    let result: T;
+    const run = this.transactionQueue.then(() => this.runTransaction(work));
+    // Failures must not poison the queue for later callers.
+    this.transactionQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async runTransaction<T>(work: () => Promise<T>): Promise<T> {
+    await this.db.execAsync('BEGIN IMMEDIATE');
+    this.transactionDepth = 1;
     try {
-      await this.db.withExclusiveTransactionAsync(async (transaction) => {
-        this.activeTransaction = transaction;
-        this.transactionDepth = 1;
-        result = await work();
-      });
-      return result!;
+      const result = await work();
+      await this.db.execAsync('COMMIT');
+      return result;
+    } catch (error) {
+      await this.db.execAsync('ROLLBACK');
+      throw error;
     } finally {
-      this.activeTransaction = null;
       this.transactionDepth = 0;
     }
   }

@@ -120,7 +120,19 @@ export class ReceiptsFeatureController {
     };
   }
 
+  private snapshot: ReceiptsControllerState | null = null;
+
+  /**
+   * `useSyncExternalStore` compares snapshots with `Object.is` on every
+   * render, so a freshly built object each call re-renders forever. The
+   * snapshot is therefore built once per change and invalidated by `emit`.
+   */
   getSnapshot(): ReceiptsControllerState {
+    this.snapshot ??= this.buildSnapshot();
+    return this.snapshot;
+  }
+
+  private buildSnapshot(): ReceiptsControllerState {
     return {
       list: {
         rows: this.rows.map((receipt) => this.toRowVm(receipt, this.details?.tags ?? [], this.details?.categories ?? [])),
@@ -138,6 +150,7 @@ export class ReceiptsFeatureController {
   }
 
   private emit(): void {
+    this.snapshot = null;
     for (const listener of this.listeners) listener();
   }
 

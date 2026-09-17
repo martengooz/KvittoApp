@@ -4,6 +4,9 @@ const PAIRING_TOKEN_KEY = 'settings.credentials.pairingToken';
 const AI_API_KEY = 'settings.credentials.aiApiKey';
 const COMPANY_API_KEY = 'settings.credentials.companyApiKey';
 
+/** Every SecureStore key this module owns, so their names can be checked. */
+export const SECURE_CREDENTIAL_KEY_NAMES = [PAIRING_TOKEN_KEY, AI_API_KEY, COMPANY_API_KEY] as const;
+
 export interface SecureStoreWriteOptions {
   keychainAccessible?: string | number;
 }

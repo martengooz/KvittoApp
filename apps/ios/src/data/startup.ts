@@ -30,7 +30,17 @@ export interface DataStartupInput {
   hooks?: Partial<StartupHooks>;
 }
 
-const DEFAULT_KEY_NAME = 'ios:data:sqlcipher-key';
+/**
+ * SecureStore rejects any key that is not alphanumeric plus `.`, `-`, `_`, so
+ * this name uses dots rather than colons. A colon here fails at startup, before
+ * the database can be opened.
+ */
+export const DATABASE_KEY_NAME = 'ios.data.sqlcipher-key';
+
+/** The characters SecureStore accepts in a key name. */
+export const SECURE_STORE_KEY_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+const DEFAULT_KEY_NAME = DATABASE_KEY_NAME;
 
 export class DataStartupError extends Error {
   readonly code: string;

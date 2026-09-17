@@ -63,6 +63,7 @@ export class PurchasesFeatureController {
   }
 
   private emit(): void {
+    this.snapshot = null;
     for (const listener of this.listeners) listener();
   }
 
@@ -71,7 +72,19 @@ export class PurchasesFeatureController {
     return { ...this.filter, query: this.queryInput.trim() };
   }
 
+  private snapshot: PurchasesControllerState | null = null;
+
+  /**
+   * `useSyncExternalStore` compares snapshots with `Object.is` on every
+   * render, so a freshly built object each call re-renders forever. The
+   * snapshot is therefore built once per change and invalidated by `emit`.
+   */
   getSnapshot(): PurchasesControllerState {
+    this.snapshot ??= this.buildSnapshot();
+    return this.snapshot;
+  }
+
+  private buildSnapshot(): PurchasesControllerState {
     const vms = this.rows.map((row) => ({
       id: row.item.id,
       name: row.item.name,
