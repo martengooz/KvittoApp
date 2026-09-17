@@ -1,15 +1,19 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { LoadingState } from '../../src/ui/controls';
 import { ReceiptsFeatureScreen } from '../../src/features/receipts/view';
 import { useAppServices } from '../../src/app/services';
 
 export default function ReceiptsRoute() {
   const { composition } = useAppServices();
+  const router = useRouter();
 
   return (
     <>
       <Stack.Screen options={{ title: 'Receipts', headerLargeTitle: true }} />
-      {composition ? <ReceiptsFeatureScreen repository={composition.tabs.receipts.repository} /> : <LoadingState message="Loading receipts services..." />}
+      {composition ? <ReceiptsFeatureScreen
+          repository={composition.tabs.receipts.repository}
+          onOpenReceipt={(receiptId) => router.push(`/receipt/${receiptId}`)}
+        /> : <LoadingState message="Loading receipts services..." />}
     </>
   );
 }

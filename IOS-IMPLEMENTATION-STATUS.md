@@ -30,6 +30,79 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Handoff gap audit, SF Symbols, FlashList, and a real receipt detail route
+
+Audited the working app against `IOS-HANDOFF.md` section 15 (UI Feature
+Inventory). The largest gap was that **all nine pushed/modal routes were
+placeholder skeletons** rendering `RouteSkeletonScreen`, and nothing in the app
+navigated to them - there was no `router.push` or `Link` anywhere.
+
+Closed in this pass:
+
+- **SF Symbols are real.** The wrapper reached for `react-native-sfsymbols`,
+  which was never installed, so every symbol fell back to a letter - that is why
+  the tab bar read "R P S C G". It now uses `expo-symbols`, keeping the text
+  fallback for symbols a given iOS version does not have. The tab bar renders
+  `doc.text`, `cart`, `camera.viewfinder`, `tray.full`, and `gearshape`.
+- **FlashList replaces FlatList** in the receipts, purchases, and collections
+  lists, which section 15 requires. Jest needed `@shopify/flash-list` added to
+  `transformIgnorePatterns`; it ships ESM.
+- **The receipt detail route is real.** `app/receipt/[receiptId].tsx` now renders
+  a controller-backed screen with provenance, editable merchant/date/notes,
+  save, mark-reviewed, delete, links to extraction and OCR, and the line items.
+  Tapping a row in the receipts list pushes it. The list keeps its in-place
+  selection when no navigation callback is supplied, so the screen stays
+  testable without a navigator.
+- **Rendering one receipt no longer loads every item in the database.**
+  `loadDetails` called `listAllLive(repository, 'items')` and filtered in
+  JavaScript, which section 15 explicitly forbids. Added
+  `repository.listReceiptItems(receiptId)`, which reads through the existing
+  `(receiptId, deletedAt, lineNo)` index.
+
+Tests added (`test/feature-receipt-detail.test.tsx`, 6 tests): the detail screen
+renders provenance and items in line order, reports a missing or deleted receipt
+instead of spinning, handles a receipt with no items, follows repository changes
+without remounting, and the indexed item lookup returns only that receipt's live
+items in line order. These render real screens through `react-test-renderer`
+against a seeded SQLite database.
+
+- Verification evidence:
+  - `npm run typecheck:ios`: passed.
+  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
+  - `xcodebuild test` on iPhone 17 Pro / iOS 26.5: 14 native tests, 0 failures.
+  - Release build installed and launched: tab bar shows real SF Symbols, and
+    `kvittoapp:///receipt/does-not-exist` pushes the detail route, which reports
+    "Receipt unavailable" with a working back button. No JS exceptions.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+**Known cosmetic defect:** two SF Symbols (the Receipts and Scan icons) also
+render at the top edge of the window, above the status bar, on the tabs screen.
+They are correct in the tab bar itself. Removing the wrapping `View` inside
+`tabBarIcon` did not change it, so this looks like an expo-router `Tabs` and
+iOS 26 tab bar interaction with native symbol views rather than something the
+wrapper controls. Not chased further.
+
+### Remaining gaps against the handoff
+
+Measured against `IOS-HANDOFF.md`, not against the packet table:
+
+1. **Eight pushed/modal routes are still placeholders**: receipt edit,
+   extraction, OCR, filters, categories, tags, pairing scanner, debug log, and
+   the archive preflight/result pair.
+2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
+   for haptics.
+3. **No swipe actions, sheets, or alerts.** Section 15 lists them; the screens
+   use plain buttons.
+4. **Live VisionCamera frame processing** (auto-capture) - needs Nitro/nitrogen.
+5. **Background work**: `BGContinuedProcessingTask` and bounded background sync.
+6. **Native ZIP bridge** and web/native archive interoperability.
+7. **Maestro E2E flows**, real-server convergence, the physical-device matrix,
+   Instruments performance budgets, and the accessibility/appearance matrix
+   (sections 18-20).
+8. **A device smoke check in CI** - still the highest-value item, because the
+   full suite passed twice while the app was unusable.
+
 ### 2026-09-17: The app loads its data - runaway render loop fixed
 
 The "Loading receipts..." hang from the previous entry was not a SQLite problem.
@@ -76,7 +149,7 @@ Device verification, on a Release build installed on iPhone 17 Pro / iOS 26.5:
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
+  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `npm run lint`: 10 errors, all pre-existing.
 
@@ -138,7 +211,7 @@ updated.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
+  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `xcodebuild build` (Debug and Release) and `xcodebuild test` on
     iPhone 17 Pro / iOS 26.5: BUILD/TEST SUCCEEDED, 14 native tests, 0 failures.
@@ -192,7 +265,7 @@ far faster than they could complete.
   real bridge over fake permissions.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
+  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: VisionCamera 5.2.3, NitroModules 0.37.1, NitroImage 0.15.2,
@@ -271,7 +344,7 @@ far faster than they could complete.
   and removing the Wi-Fi-only gate each fail their tests.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
+  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: passed with `ExpoNetwork` integrated.
@@ -597,7 +670,7 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed
+- `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed
@@ -626,11 +699,11 @@ The following checks have passed during implementation:
 | 4. Blob storage | Mostly complete | Content-addressed store, verified downloads, and upload-state reset are covered by native tests. Reference-safe cleanup remains. |
 | 5. Sync transport/identity | Implemented and tested | Manual and automatic sync, pair/unpair with blob upload reset. A real-server app run remains. |
 | 6. Native Vision module | Partial | Still processing/OCR compile and native fixture tests execute; the live VisionCamera frame plugin remains. |
-| 7. App shell/UI | Implemented | Needs accessibility and appearance screenshot matrix. |
+| 7. App shell/UI | Implemented | Real SF Symbols via expo-symbols. Needs the remaining pushed/modal routes, haptics, swipe actions, and the accessibility/appearance matrix. |
 | 8. Archive/PWA export | Mostly complete | PWA streaming ZIP exists; cross-platform interoperability still needs end-to-end validation. |
 | 9. Sync engine | Implemented and composed | Automatic triggers, real connectivity, and blob download persistence are wired and tested. Background execution and a real-server app run remain. |
 | 10. Durable jobs | Partial | Repository-backed durable queue/store, strict multi-kind foreground handlers, and lifecycle service are composed; native background bridge behavior (BGTask) remains. |
-| 11. Receipt/purchase/collection | Implemented foundation | Needs full UI E2E, large-data profiling, and final interaction polish. |
+| 11. Receipt/purchase/collection | Implemented | FlashList lists, indexed per-receipt item reads, and a real pushed receipt detail route. Needs E2E, large-data profiling, and interaction polish. |
 | 12. Scan feature | Partial | Workflow, camera adapter, VisionCamera preview, capture, torch, and zoom are implemented and build. The frame processor plugin, device auto-capture, and any hardware verification remain. |
 | 13. AI/company | Implemented foundation | Needs production credential/job wiring and optional provider smoke tests. |
 | 14. Native migration/settings | Partial | Orchestration exists; native ZIP bridge and complete Files/share UX remain. |
@@ -717,14 +790,16 @@ through the camera bridge. What remains:
 
 1. Add a device-level smoke check to CI. The whole suite passed while the app
   was unusable; nothing but running it would have caught that.
-2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
+2. Replace the eight remaining placeholder routes, starting with receipt edit
+  and filters, and add haptics and swipe actions.
+3. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
-3. Expose native ZIP and run web/native archive interoperability.
-4. Implement `BGTask` registration and bounded background sync.
-5. Add Maestro flows and real-server integration.
-6. Perform physical-device camera/background/security/performance gates,
+4. Expose native ZIP and run web/native archive interoperability.
+5. Implement `BGTask` registration and bounded background sync.
+6. Add Maestro flows and real-server integration.
+7. Perform physical-device camera/background/security/performance gates,
   including SQLCipher-key recovery and large-data query profiling.
-7. Run the complete CI matrix and begin release hardening.
+8. Run the complete CI matrix and begin release hardening.
 
 ## Resume Commands
 

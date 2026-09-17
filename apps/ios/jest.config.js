@@ -9,6 +9,6 @@ module.exports = {
     '^react/(.*)$': '<rootDir>/node_modules/react/$1',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(react-native|@react-native|expo(nent)?|@expo(nent)?/.*|expo-router|@expo/.*|react-navigation|@react-navigation/.*|unimodules|sentry-expo|native-base|react-native-svg))',
+    'node_modules/(?!(react-native|@react-native|expo(nent)?|@expo(nent)?/.*|expo-router|@expo/.*|react-navigation|@react-navigation/.*|unimodules|sentry-expo|native-base|react-native-svg|@shopify/flash-list))',
   ],
 };

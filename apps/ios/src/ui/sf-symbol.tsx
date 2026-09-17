@@ -1,32 +1,53 @@
-import type { ReactElement } from 'react';
+import type { ComponentType } from 'react';
 import { StyleSheet, Text, View, type ColorValue } from 'react-native';
 import { colorToken } from './tokens';
 
-type NativeSymbolModule = {
-  SFSymbol: (props: {
-    name: string;
-    weight?: 'regular' | 'semibold' | 'bold';
-    scale?: 'small' | 'medium' | 'large';
-    color?: ColorValue;
-    style?: object;
-  }) => ReactElement;
-};
+type SymbolViewComponent = ComponentType<{
+  name: string;
+  size?: number;
+  tintColor?: ColorValue;
+  weight?: 'regular' | 'semibold' | 'bold';
+  resizeMode?: 'scaleAspectFit';
+  accessibilityRole?: 'image';
+  accessibilityLabel?: string;
+  fallback?: React.ReactNode;
+  style?: object;
+}>;
 
-let nativeSymbols: NativeSymbolModule | null = null;
+/**
+ * `expo-symbols` reaches for a native module at import time, so it is resolved
+ * lazily. Off-device (host tests, tooling) the wrapper falls back to text rather
+ * than failing to import.
+ */
+let symbolView: SymbolViewComponent | null | undefined;
 
-try {
-  nativeSymbols = require('react-native-sfsymbols') as NativeSymbolModule;
-} catch {
-  nativeSymbols = null;
+function resolveSymbolView(): SymbolViewComponent | null {
+  if (symbolView !== undefined) return symbolView;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    symbolView = (require('expo-symbols') as { SymbolView: SymbolViewComponent }).SymbolView;
+  } catch {
+    symbolView = null;
+  }
+  return symbolView;
 }
 
 export type SFSymbolProps = {
   name: string;
+  /** Shown when the symbol cannot be rendered, and used as the accessible name. */
   fallbackText: string;
   size?: number;
   color?: ColorValue;
   accessibilityLabel?: string;
 };
+
+function SymbolFallback({ text, size, color }: { text: string; size: number; color: ColorValue }) {
+  return (
+    <Text allowFontScaling maxFontSizeMultiplier={1.4} style={[styles.fallback, { fontSize: size, color: String(color) }]}>
+      {text}
+    </Text>
+  );
+}
 
 export function SFSymbol({
   name,
@@ -35,24 +56,31 @@ export function SFSymbol({
   color = String(colorToken('textSecondary')),
   accessibilityLabel,
 }: SFSymbolProps) {
-  if (nativeSymbols?.SFSymbol) {
+  const SymbolView = resolveSymbolView();
+  const label = accessibilityLabel ?? fallbackText;
+
+  if (!SymbolView) {
     return (
-      <View accessibilityRole="image" accessibilityLabel={accessibilityLabel ?? fallbackText}>
-        <nativeSymbols.SFSymbol name={name} color={color} style={{ width: size, height: size }} />
+      <View accessibilityRole="image" accessibilityLabel={label}>
+        <SymbolFallback text={fallbackText} size={size} color={color} />
       </View>
     );
   }
 
+  // Rendered without a wrapping View: a tab bar icon slot lays out the element
+  // it is given, and an extra container leaves the native symbol unpositioned.
   return (
-    <Text
+    <SymbolView
+      name={name}
+      size={size}
+      tintColor={color}
+      resizeMode="scaleAspectFit"
+      style={{ width: size, height: size }}
       accessibilityRole="image"
-      accessibilityLabel={accessibilityLabel ?? fallbackText}
-      allowFontScaling
-      maxFontSizeMultiplier={1.4}
-      style={[styles.fallback, { fontSize: size, color: String(color) }]}
-    >
-      {fallbackText}
-    </Text>
+      accessibilityLabel={label}
+      // A symbol missing from this iOS version still renders something legible.
+      fallback={<SymbolFallback text={fallbackText} size={size} color={color} />}
+    />
   );
 }
 

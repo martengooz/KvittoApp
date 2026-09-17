@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  FlatList,
   Pressable,
   StyleSheet,
   Switch,
   TextInput,
   View,
 } from 'react-native';
+
+import { FlashList } from '@shopify/flash-list';
 
 import type { IosDataRepository } from '../../data/repository';
 import { ScreenScaffold, PrimaryButton } from '../../ui/controls';
@@ -16,9 +17,15 @@ import { useReceiptsFeatureController, type ReceiptEditorState } from './control
 
 export type ReceiptsFeatureScreenProps = {
   repository: IosDataRepository;
+  /**
+   * Supplied by the route to push the receipt detail screen. Without it the
+   * list falls back to selecting in place, which keeps the screen usable (and
+   * testable) without a navigator.
+   */
+  onOpenReceipt?: (receiptId: string) => void;
 };
 
-export function ReceiptsFeatureScreen({ repository }: ReceiptsFeatureScreenProps) {
+export function ReceiptsFeatureScreen({ repository, onOpenReceipt }: ReceiptsFeatureScreenProps) {
   const { state, queryInput, actions } = useReceiptsFeatureController(repository);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
 
@@ -60,7 +67,7 @@ export function ReceiptsFeatureScreen({ repository }: ReceiptsFeatureScreenProps
       {state.list.rows.length === 0 && !state.list.loading ? (
         <BodyText accessibilityRole="summary">{state.list.emptyMessage}</BodyText>
       ) : (
-        <FlatList
+        <FlashList
           accessibilityLabel="Receipts list"
           accessibilityHint="Double tap a row to open receipt details"
           data={state.list.rows}
@@ -75,6 +82,10 @@ export function ReceiptsFeatureScreen({ repository }: ReceiptsFeatureScreenProps
               accessibilityRole="button"
               accessibilityLabel={item.accessibilityLabel}
               onPress={() => {
+                if (onOpenReceipt) {
+                  onOpenReceipt(item.id);
+                  return;
+                }
                 void actions.selectReceipt(item.id);
               }}
               style={styles.row}

@@ -230,7 +230,7 @@ export class ReceiptsFeatureController {
       listAllLive(this.repository, 'categories'),
       listAllLive(this.repository, 'tags'),
       listAllLive(this.repository, 'receiptTags'),
-      listAllLive(this.repository, 'items'),
+      this.repository.listReceiptItems(receipt.id),
     ]);
 
     const tagIds = receiptTags.filter((row) => row.receiptId === receipt.id).map((row) => row.tagId);
@@ -246,10 +246,7 @@ export class ReceiptsFeatureController {
         categoryId: receipt.categoryId,
         tagIds,
       },
-      items: items
-        .filter((item) => item.receiptId === receipt.id && item.deletedAt === 0)
-        .sort((a, b) => a.lineNo - b.lineNo)
-        .map((item) => ({ id: item.id, name: item.name, totalPrice: item.totalPrice })),
+      items: items.map((item) => ({ id: item.id, name: item.name, totalPrice: item.totalPrice })),
       categories,
       tags,
       provenance: {

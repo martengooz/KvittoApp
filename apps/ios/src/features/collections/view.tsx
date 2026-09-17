@@ -1,4 +1,5 @@
-import { FlatList, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import type { IosDataRepository } from '../../data/repository';
 import { ScreenScaffold } from '../../ui/controls';
@@ -39,7 +40,7 @@ function SummaryList({ title, rows }: SummaryListProps) {
       {rows.length === 0 ? (
         <CaptionText>No summary rows.</CaptionText>
       ) : (
-        <FlatList
+        <FlashList
           accessibilityLabel={`${title} list`}
           data={rows}
           keyExtractor={(item) => item.key}

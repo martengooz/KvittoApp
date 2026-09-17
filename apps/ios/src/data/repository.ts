@@ -602,6 +602,23 @@ export class IosDataRepository implements CanonicalRepositoryPort {
     return this.get('receipts', id);
   }
 
+  /**
+   * Live items for one receipt, in line order, read through the
+   * `(receiptId, deletedAt, lineNo)` index. Rendering a receipt must not pull
+   * every item in the database into JavaScript to filter it there.
+   */
+  async listReceiptItems(receiptId: ID): Promise<ReceiptItem[]> {
+    const rows = await this.db.selectAll<PayloadRow>(
+      `SELECT c.payload AS payload
+       FROM ${TABLE_ITEM_PROJECTIONS} ip
+       JOIN ${TABLE_CANONICAL_ENTITIES} c ON c.kind = 'items' AND c.id = ip.id
+       WHERE ip.receiptId = ? AND ip.deletedAt = 0
+       ORDER BY ip.lineNo ASC, ip.id ASC`,
+      [receiptId],
+    );
+    return rows.map((row) => parsePayload<'items'>(row));
+  }
+
   async seedDefaultCategoriesOnce(): Promise<void> {
     const seeded = await this.getKeyValue('categories:seeded');
     if (seeded) return;

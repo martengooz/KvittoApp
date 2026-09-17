@@ -1,4 +1,5 @@
-import { FlatList, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useState } from 'react';
 
 import type { IosDataRepository } from '../../data/repository';
@@ -41,7 +42,7 @@ export function PurchasesFeatureScreen({ repository }: PurchasesFeatureScreenPro
       {state.rows.length === 0 && !state.loading ? (
         <BodyText accessibilityRole="summary">No matching purchase rows.</BodyText>
       ) : (
-        <FlatList
+        <FlashList
           accessibilityLabel="Global purchases list"
           accessibilityHint="Shows item rows without loading image blobs"
           data={state.rows}
