@@ -30,6 +30,62 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: A real ZIP reader, and the header quirk it has to survive
+
+`NativeArchiveZipEngine.swift` was a single `notImplemented` throw, and
+`packages/archive`'s `zip-adapter.ts` a matching stub, so the archive work had
+its preflight, limits, hashing and merge rules but no way to open a file. The
+reader is now real.
+
+**The interop detail that decides whether this works at all.** The web writer
+(`apps/web/src/migration/archive-export-browser-core.ts`) sets the
+data-descriptor flag on every entry, which means local file headers carry
+**zero** for the CRC and both sizes; the true values live only in the central
+directory and in a descriptor after the payload. A reader that trusts local
+headers gets a zero-length entry from every archive the web produces, and does
+so silently. This engine reads the central directory. The round-trip tests only
+pass because of that - their fixtures have zeroed local headers, exactly like a
+real export.
+
+What it does:
+
+- Parses the end-of-central-directory record from the file tail, then the
+  central directory.
+- Refuses Zip64 by name rather than half-supporting it. The web writer never
+  emits one, and a partly-understood container is worse than a rejected one.
+- Supports stored (0) and deflate (8). Deflate goes through Apple's
+  `Compression` framework in streaming chunks - `COMPRESSION_ZLIB` is raw
+  DEFLATE, which is what `CompressionStream('deflate-raw')` produces. Nothing
+  loads a whole entry into memory.
+- Verifies CRC-32 and the declared uncompressed size on extraction, and
+  **deletes the partial output before throwing**, so a failed extraction cannot
+  leave a plausible-looking file behind.
+- Enforces import requirement 2 at the index, before any caller sees a path:
+  no absolute paths, no `..`, no backslash separators, no drive letters.
+
+Exposed through the Expo module as `readArchiveIndex` and
+`extractArchiveEntry`, with matching TypeScript contracts.
+
+Verified:
+  - `xcodebuild test` on the simulator: **26 Swift tests, 0 failures**, 12 of
+    them new. This is the first time this session that native code has been
+    covered by tests rather than only compiled - the XCTest target runs on a
+    simulator, so it needs no physical device.
+  - The new tests build ZIPs the way the web writer does, including the zeroed
+    local headers, so they fail if the reader stops matching the writer it has
+    to interoperate with.
+  - Covered: deflate round-trip, stored round-trip, empty entry, multi-entry
+    order, traversal, absolute path, backslash path, CRC mismatch on a flipped
+    byte, non-ZIP input, unsupported method, per-entry limit.
+  - `npx jest`: 52 suites, 264 tests, passed.
+  - `xcodebuild build` Release: succeeded. `npm run ios:smoke`: 21 routes.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Not done: the **writer**. Export still has no ZIP sink on iOS. And nothing in
+the app calls the reader yet - the archive preflight and result routes are still
+placeholders, and wiring them means driving `packages/archive`'s preflight over
+these entries. That is the next piece, and it does not need a device.
+
 ### 2026-09-17: A bounded background sweep
 
 Section 11 asks for `BGProcessingTask` or Expo BackgroundTask for
@@ -1374,7 +1430,10 @@ through the camera bridge. What remains:
   natively), declare the identifier and `UIBackgroundModes` in `Info.plist`,
   and have the handler build a `JobBackgroundWindow` from the OS deadline and
   flip the expiration flag from the OS expiration handler. Needs a device.
-  Without hardware, the native ZIP bridge is the largest remaining item.
+  Without hardware, the next piece is the archive import flow: the ZIP reader
+  now exists and is tested, so what remains is driving `packages/archive`'s
+  preflight over its entries and replacing the archive preflight/result
+  placeholder routes. The ZIP writer is also still missing.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.

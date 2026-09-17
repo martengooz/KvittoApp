@@ -91,6 +91,15 @@ export interface FrameAnalysisCompactResult {
   durationMs: number;
 }
 
+/** One entry in a `.kvitto` archive, read from its central directory. */
+export interface ArchiveEntryIndex {
+  path: string;
+  uncompressedSize: number;
+  compressedSize: number;
+  /** ZIP method: 0 stored, 8 deflate. Nothing else can be extracted. */
+  method: number;
+}
+
 export interface StoreBlobRequest {
   sourceUri: string;
   mimeType: string;
@@ -120,6 +129,17 @@ export interface KvittoNativeFacade {
   resetBlobUploadState(): Promise<number>;
   /** Writes a milestone to the unified log, which survives a Release build. */
   /** True only on a simulator; gates debug-only sample-data actions. */
+  /**
+   * Lists an archive's entries. Paths are validated against traversal and
+   * absolute paths before they are returned, so a hostile archive is rejected
+   * before any caller sees a path it might join onto a directory.
+   */
+  readArchiveIndex(fileUri: string): Promise<ArchiveEntryIndex[]>;
+  /**
+   * Extracts one entry, verifying its CRC-32 and declared size. On mismatch the
+   * partial output is deleted rather than left behind. Returns bytes written.
+   */
+  extractArchiveEntry(fileUri: string, path: string, destinationUri: string): Promise<number>;
   isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
   /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */

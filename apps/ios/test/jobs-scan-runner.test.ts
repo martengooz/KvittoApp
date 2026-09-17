@@ -118,6 +118,14 @@ class NativeStub implements KvittoNativeFacade {
     return 0;
   }
 
+  readArchiveIndex(): Promise<never[]> {
+    return Promise.resolve([]);
+  }
+
+  extractArchiveEntry(): Promise<number> {
+    return Promise.resolve(0);
+  }
+
   isSimulator(): boolean {
     return true;
   }

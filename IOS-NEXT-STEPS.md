@@ -360,12 +360,25 @@ and risk notes.
    swipe-away cannot be observed on a simulator, and background entitlements
    added blind can break launch where you cannot see it.
 
-7. **Native ZIP + archive interop.** The Swift ZIP reader/writer isn't
-   exposed through the Expo module yet. Once it is: import a real
-   web-produced `.kvitto` archive on-device, re-export it, and validate
-   round-trips, tampering, rollback, repeated import, and conflicts against
-   real files and the real SQLite/blob stores (`packages/archive` already has
-   the schema/validation logic from the PWA side).
+7. **Archive import flow.** The ZIP reader is done and tested:
+   `NativeArchiveZipEngine.swift` parses the central directory, streams stored
+   and deflate entries through Apple's `Compression` framework, verifies CRC-32
+   and size, and rejects traversal/absolute/backslash paths. Exposed as
+   `readArchiveIndex` / `extractArchiveEntry`. 12 XCTest cases cover it.
+
+   **Read this before touching it.** The web writer sets the data-descriptor
+   flag, so local file headers carry **zero** for the CRC and both sizes — the
+   real values are only in the central directory. A reader that trusts local
+   headers silently returns empty entries for every real archive. The tests'
+   fixtures reproduce that, so they will catch a regression.
+
+   What is left, none of which needs a device:
+   - Drive `packages/archive`'s preflight over the entries the reader returns,
+     and replace the `archive/preflight.tsx` and `archive/result.tsx`
+     placeholder routes.
+   - The **ZIP writer** for export: there is no sink on iOS yet.
+   - Round-trip a real web-produced `.kvitto` against the real SQLite and blob
+     stores — repeated import, tampering, rollback, conflicts.
 
 8. **Maestro E2E, physical-device matrix, performance budgets.** None of
    this has run yet. Section 18-20 of the handoff spell out what's needed:

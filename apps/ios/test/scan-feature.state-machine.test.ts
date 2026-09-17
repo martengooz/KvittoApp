@@ -124,6 +124,8 @@ function makeNative(processImpl?: (input: { forcedQuad?: NormalizedQuad | null }
     listBlobMetadataPendingUpload: async () => [],
     deleteBlobMetadata: async () => true,
     resetBlobUploadState: async () => 0,
+    readArchiveIndex: () => Promise.resolve([]),
+    extractArchiveEntry: () => Promise.resolve(0),
     isSimulator: () => true,
     logDiagnostic: () => undefined,
     makeScratchFileUri: (prefix: string, extension: string) => `file:///scratch/${prefix}.${extension}`,

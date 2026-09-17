@@ -6,6 +6,7 @@ import os
 public final class KvittoNativeModule: Module {
   private let cancellationRegistry = CancellationRegistry()
   private let frameAdapter = VisionFrameAnalysisAdapter()
+  private let archiveZipEngine = NativeArchiveZipEngine()
   private let orientationNormalizer = ImageOrientationNormalizer()
   private let processor = ReceiptImageProcessor()
   private let textRecognizer = VisionTextRecognizer()
@@ -44,6 +45,31 @@ public final class KvittoNativeModule: Module {
     AsyncFunction("hashFileSha256") { (fileUri: String) -> String in
       let fileURL = try self.requireFileURL(fileUri)
       return try SHA256Hasher.hashFile(at: fileURL)
+    }
+
+    // Archive import. The engine reads the central directory rather than local
+    // headers, because the web writer zeroes the latter; see the engine.
+    AsyncFunction("readArchiveIndex") { (fileUri: String) async throws -> [[String: Any]] in
+      let fileURL = try self.requireFileURL(fileUri)
+      return try self.archiveZipEngine.openIndex(fileURL: fileURL).map { entry in
+        [
+          "path": entry.path,
+          "uncompressedSize": entry.uncompressedSize,
+          "compressedSize": entry.compressedSize,
+          "method": Int(entry.method),
+        ]
+      }
+    }
+
+    AsyncFunction("extractArchiveEntry") { (fileUri: String, path: String, destinationUri: String) async throws -> Int in
+      let fileURL = try self.requireFileURL(fileUri)
+      let destinationURL = try self.requireFileURL(destinationUri)
+      let entries = try self.archiveZipEngine.openIndex(fileURL: fileURL)
+      guard let entry = entries.first(where: { $0.path == path }) else {
+        throw NativeArchiveZipEngineError.malformed("no such entry: \(path)")
+      }
+      try self.archiveZipEngine.extract(entry: entry, from: fileURL, to: destinationURL)
+      return Int(entry.uncompressedSize)
     }
 
     AsyncFunction("computeBlobShardPath") { (sha256Id: String) -> String in

@@ -1,6 +1,7 @@
 import { requireNativeModule } from 'expo-modules-core';
 
 import type {
+  ArchiveEntryIndex,
   BlobMetadataRecord,
   FileBackedDescriptor,
   FrameAnalysisCompactResult,
@@ -25,6 +26,8 @@ interface KvittoNativeBinding {
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
+  readArchiveIndex(fileUri: string): Promise<ArchiveEntryIndex[]>;
+  extractArchiveEntry(fileUri: string, path: string, destinationUri: string): Promise<number>;
   /** True only on a simulator; gates debug-only sample-data actions. */
   isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
@@ -95,6 +98,12 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     resetBlobUploadState() {
       return binding.resetBlobUploadState();
+    },
+    readArchiveIndex(fileUri) {
+      return binding.readArchiveIndex(fileUri);
+    },
+    extractArchiveEntry(fileUri, path, destinationUri) {
+      return binding.extractArchiveEntry(fileUri, path, destinationUri);
     },
     isSimulator() {
       return binding.isSimulator();
