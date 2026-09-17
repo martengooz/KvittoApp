@@ -69,8 +69,10 @@ warnings.
   - Screenshot confirmed the modal renders with all 20 seeded categories.
   - `npm run lint`: 10 errors, all pre-existing.
 
-Placeholder routes remaining: five - receipt edit, categories, tags, pairing
-scanner, debug log, and the archive preflight/result pair.
+Placeholder routes remaining: seven files - receipt edit, categories, tags,
+pairing scanner, debug log, archive preflight, and archive result. Verify with
+`grep -rln "RouteSkeletonScreen" apps/ios/app` rather than trusting a count
+written by hand; an earlier revision of this entry said "five" and was wrong.
 
 ### 2026-09-17: Extraction and OCR routes are real
 
@@ -105,8 +107,8 @@ loading and not-found paths rather than a placeholder.
     renders its not-found state.
   - `npm run lint`: 10 errors, all pre-existing.
 
-Placeholder routes remaining: six - receipt edit, filters, categories, tags,
-pairing scanner, debug log, and the archive preflight/result pair.
+Placeholder routes remaining: eight files - receipt edit, filters, categories,
+tags, pairing scanner, debug log, archive preflight, and archive result.
 
 ### 2026-09-17: Device smoke check in CI, proven against both past failures
 
@@ -219,9 +221,10 @@ wrapper controls. Not chased further.
 
 Measured against `IOS-HANDOFF.md`, not against the packet table:
 
-1. **Five pushed/modal routes are still placeholders**: receipt edit,
-   categories, tags, pairing scanner, debug log, and the archive
-   preflight/result pair. (Detail, extraction, OCR and filters are done.)
+1. **Seven pushed/modal route files are still placeholders**: receipt edit,
+   categories, tags, pairing scanner, debug log, archive preflight, archive
+   result. (Receipt detail, extraction, OCR and filters are done.) Confirm with
+   `grep -rln "RouteSkeletonScreen" apps/ios/app`.
 2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
    for haptics.
 3. **No swipe actions, sheets, or alerts.** Section 15 lists them; the screens
