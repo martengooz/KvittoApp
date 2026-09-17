@@ -14,9 +14,13 @@ import { ScreenScaffold, PrimaryButton } from '../../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../../ui/typography';
 import { colorToken } from '../../ui/tokens';
 import { useReceiptsFeatureController, type ReceiptEditorState } from './controller';
+import { countActiveFilters, type ReceiptFilterStore } from './filter-store';
 
 export type ReceiptsFeatureScreenProps = {
   repository: IosDataRepository;
+  /** Shared with the filters modal; see `filter-store.ts`. */
+  filterStore?: ReceiptFilterStore;
+  onOpenFilters?: () => void;
   /**
    * Supplied by the route to push the receipt detail screen. Without it the
    * list falls back to selecting in place, which keeps the screen usable (and
@@ -25,8 +29,13 @@ export type ReceiptsFeatureScreenProps = {
   onOpenReceipt?: (receiptId: string) => void;
 };
 
-export function ReceiptsFeatureScreen({ repository, onOpenReceipt }: ReceiptsFeatureScreenProps) {
-  const { state, queryInput, actions } = useReceiptsFeatureController(repository);
+export function ReceiptsFeatureScreen({
+  repository,
+  filterStore,
+  onOpenFilters,
+  onOpenReceipt,
+}: ReceiptsFeatureScreenProps) {
+  const { state, queryInput, actions } = useReceiptsFeatureController(repository, 50, filterStore ?? null);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
 
   const selected = useMemo(
@@ -50,6 +59,18 @@ export function ReceiptsFeatureScreen({ repository, onOpenReceipt }: ReceiptsFea
           onChangeText={actions.setQuery}
           style={styles.searchInput}
         />
+        {onOpenFilters ? (
+          <View style={styles.filterRow}>
+            <PrimaryButton
+              label={
+                countActiveFilters(state.list.activeFilters) > 0
+                  ? `Filters (${countActiveFilters(state.list.activeFilters)})`
+                  : 'Filters'
+              }
+              onPress={onOpenFilters}
+            />
+          </View>
+        ) : null}
         <View style={styles.filterRow}>
           <CaptionText>Needs review only</CaptionText>
           <Switch

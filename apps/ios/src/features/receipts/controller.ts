@@ -3,6 +3,7 @@ import type { Category, ID, Receipt, ReceiptItem, ReceiptStatus, Tag } from '@kv
 import { emptyMerchant } from '@kvitto/shared/domain';
 
 import { receiptNeedsReview, type IosDataRepository, type ReceiptFilter, type ReceiptListCursor } from '../../data/repository';
+import type { ReceiptFilterStore } from './filter-store';
 
 export interface ReceiptListRowViewModel {
   id: ID;
@@ -109,8 +110,30 @@ export class ReceiptsFeatureController {
   private details: ReceiptDetailsViewModel | null = null;
   private lastDeletedReceiptId: ID | null = null;
 
-  constructor(private readonly repository: IosDataRepository, pageSize = 50) {
+  private readonly filterStore: ReceiptFilterStore | null;
+
+  private detachFilterStore: (() => void) | null = null;
+
+  constructor(
+    private readonly repository: IosDataRepository,
+    pageSize = 50,
+    filterStore: ReceiptFilterStore | null = null,
+  ) {
     this.pageSize = pageSize;
+    this.filterStore = filterStore;
+    if (filterStore) {
+      this.filter = filterStore.getFilter();
+      this.detachFilterStore = filterStore.subscribe((next) => {
+        this.filter = next;
+        void this.refresh();
+      });
+    }
+  }
+
+  /** Detaches from the shared filter store; safe to call more than once. */
+  dispose(): void {
+    this.detachFilterStore?.();
+    this.detachFilterStore = null;
   }
 
   subscribe(listener: () => void): () => void {
@@ -204,6 +227,12 @@ export class ReceiptsFeatureController {
   }
 
   async setFilter(partial: Partial<ReceiptFilter>): Promise<void> {
+    // With a shared store the write goes there, and its notification is what
+    // updates this controller, so the modal and the list cannot disagree.
+    if (this.filterStore) {
+      this.filterStore.setFilter(partial);
+      return;
+    }
     this.filter = { ...this.filter, ...partial };
     await this.refresh();
   }
@@ -359,11 +388,20 @@ export class ReceiptsFeatureController {
   }
 }
 
-export function useReceiptsFeatureController(repository: IosDataRepository, pageSize = 50) {
+export function useReceiptsFeatureController(
+  repository: IosDataRepository,
+  pageSize = 50,
+  filterStore: ReceiptFilterStore | null = null,
+) {
   const [inputQuery, setInputQuery] = useState('');
   const deferredQuery = useDeferredValue(inputQuery);
 
-  const controller = useMemo(() => new ReceiptsFeatureController(repository, pageSize), [repository, pageSize]);
+  const controller = useMemo(
+    () => new ReceiptsFeatureController(repository, pageSize, filterStore),
+    [repository, pageSize, filterStore],
+  );
+
+  useEffect(() => () => controller.dispose(), [controller]);
 
   const state = useSyncExternalStore(
     useCallback((listener) => controller.subscribe(listener), [controller]),

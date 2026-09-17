@@ -12,6 +12,8 @@ export default function ReceiptsRoute() {
       <Stack.Screen options={{ title: 'Receipts', headerLargeTitle: true }} />
       {composition ? <ReceiptsFeatureScreen
           repository={composition.tabs.receipts.repository}
+          filterStore={composition.tabs.receipts.filters}
+          onOpenFilters={() => router.push('/filters')}
           onOpenReceipt={(receiptId) => router.push(`/receipt/${receiptId}`)}
         /> : <LoadingState message="Loading receipts services..." />}
     </>

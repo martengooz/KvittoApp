@@ -30,6 +30,48 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Filters modal, and the shared filter store it needed
+
+The filters route was the awkward placeholder: the filter lived inside the
+receipts controller, which is created inside the receipts screen's hook, so a
+modal route could not reach it, and a per-screen controller would lose the
+filter every time the list unmounted.
+
+`src/features/receipts/filter-store.ts` now owns it. It is created once at boot,
+exposed on the composition as `tabs.receipts.filters`, and both the list and the
+modal talk to it. `ReceiptsFeatureController` takes it optionally, seeds from it,
+refreshes on its notifications, and routes its own `setFilter` through it so the
+two cannot disagree. The controller has a `dispose()` that detaches, and the
+hook calls it on unmount.
+
+An explicit `undefined` in a patch deletes the key rather than leaving it
+present-and-undefined, because `{ needsReview: undefined }` reaching the SQL
+layer is not the same thing as no filter at all.
+
+`app/filters.tsx` renders a real modal: purchase date range, total range, status
+chips, category chips read live from the repository, and needs-review. It opens
+showing what is already applied, counts them, refuses to apply an inverted
+amount or date range (saying which), and offers Clear all. The receipts list
+gained a Filters button showing the active count.
+
+Tests (`test/feature-receipt-filters.test.tsx`, 9 tests): undefined clears a
+field; subscribers see real changes once and never a no-op; empty arrays, empty
+strings and false do not count as active; a store write refreshes the list and a
+disposed controller stops following it; `setFilter` routes through the store;
+and the screen renders applied filters, category chips, and both inverted-range
+warnings.
+
+- Verification evidence:
+  - `npm run typecheck:ios`, `npm run typecheck`: passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
+  - `npm test`, `npm run ios:bundle`: passed.
+  - `npm run ios:smoke`: passed, 9 routes including `/filters`, idle CPU 1-2%.
+  - Screenshot confirmed the modal renders with all 20 seeded categories.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Placeholder routes remaining: five - receipt edit, categories, tags, pairing
+scanner, debug log, and the archive preflight/result pair.
+
 ### 2026-09-17: Extraction and OCR routes are real
 
 The receipt detail screen added earlier links onward to extraction and OCR, and
@@ -56,7 +98,7 @@ loading and not-found paths rather than a placeholder.
 
 - Verification evidence:
   - `npm run typecheck:ios`, `npm run typecheck`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm test`, `npm run ios:bundle`: passed.
   - `npm run ios:smoke`: passed, all 8 routes, idle CPU 1-2%.
   - Screenshot confirmed the OCR route pushes with a "Receipt" back title and
@@ -115,7 +157,7 @@ smoke check consumes.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm run typecheck`, `npm test`: passed.
   - `npm run ios:smoke`: passed on the fixed build, failed on each reintroduced bug.
   - `npm run lint`: 10 errors, all pre-existing.
@@ -158,7 +200,7 @@ against a seeded SQLite database.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `xcodebuild test` on iPhone 17 Pro / iOS 26.5: 14 native tests, 0 failures.
   - Release build installed and launched: tab bar shows real SF Symbols, and
@@ -177,9 +219,9 @@ wrapper controls. Not chased further.
 
 Measured against `IOS-HANDOFF.md`, not against the packet table:
 
-1. **Six pushed/modal routes are still placeholders**: receipt edit, filters,
+1. **Five pushed/modal routes are still placeholders**: receipt edit,
    categories, tags, pairing scanner, debug log, and the archive
-   preflight/result pair. (Extraction and OCR are done.)
+   preflight/result pair. (Detail, extraction, OCR and filters are done.)
 2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
    for haptics.
 3. **No swipe actions, sheets, or alerts.** Section 15 lists them; the screens
@@ -241,7 +283,7 @@ Device verification, on a Release build installed on iPhone 17 Pro / iOS 26.5:
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `npm run lint`: 10 errors, all pre-existing.
 
@@ -303,7 +345,7 @@ updated.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `xcodebuild build` (Debug and Release) and `xcodebuild test` on
     iPhone 17 Pro / iOS 26.5: BUILD/TEST SUCCEEDED, 14 native tests, 0 failures.
@@ -357,7 +399,7 @@ far faster than they could complete.
   real bridge over fake permissions.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: VisionCamera 5.2.3, NitroModules 0.37.1, NitroImage 0.15.2,
@@ -436,7 +478,7 @@ far faster than they could complete.
   and removing the Wi-Fi-only gate each fail their tests.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: passed with `ExpoNetwork` integrated.
@@ -762,7 +804,7 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed
+- `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed
@@ -880,8 +922,8 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Replace the eight remaining placeholder routes, starting with receipt edit
-  and filters, and add haptics and swipe actions.
+1. Replace the remaining placeholder routes, starting with categories and tags,
+  and add haptics and swipe actions.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.

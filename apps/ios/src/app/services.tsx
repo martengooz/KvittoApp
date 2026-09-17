@@ -28,6 +28,7 @@ import type {
   ScanStagedDescriptor,
   ScanStagingPort,
 } from '../features/scan/types';
+import { createReceiptFilterStore, type ReceiptFilterStore } from '../features/receipts/filter-store';
 import { SettingsFeatureController, type SecureCredentialsPort } from '../features/settings';
 import { createBlobFilePort, createBlobRoleRegistry } from '../sync/blob-files';
 import { createSyncConfigStore } from '../sync/config';
@@ -48,7 +49,7 @@ import type { JobRecord, JobState } from '@kvitto/client-core/ports';
 import { bootFailed, bootReady, initialBootState, type BootState } from './boot-state';
 
 export interface TabFeatureServices {
-  receipts: { repository: IosDataRepository };
+  receipts: { repository: IosDataRepository; filters: ReceiptFilterStore };
   purchases: { repository: IosDataRepository };
   scan: { controller: ScanFeatureController; camera: ScanCameraBridge; native: KvittoNativeFacade };
   collections: { repository: IosDataRepository };
@@ -309,13 +310,18 @@ function createRepositoryIdentityStateStore(repository: IosDataRepository): Iden
 
 export function composeTabFeatureServices(input: {
   repository: IosDataRepository;
+  receiptFilters?: ReceiptFilterStore;
   scanController: ScanFeatureController;
   scanCamera: ScanCameraBridge;
   native: KvittoNativeFacade;
   settingsController: SettingsFeatureController;
 }): TabFeatureServices {
   return {
-    receipts: { repository: input.repository },
+    receipts: {
+      repository: input.repository,
+      // Shared so the filters modal and the list agree; see filter-store.ts.
+      filters: input.receiptFilters ?? createReceiptFilterStore(),
+    },
     purchases: { repository: input.repository },
     scan: { controller: input.scanController, camera: input.scanCamera, native: input.native },
     collections: { repository: input.repository },
