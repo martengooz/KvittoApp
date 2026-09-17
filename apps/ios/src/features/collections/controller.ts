@@ -222,8 +222,12 @@ export function useCollectionsFeatureController(repository: IosDataRepository) {
     };
   }, [controller, repository]);
 
+  // Memoized for the same reason as the receipts hook: a fresh function re-runs
+  // any effect that depends on it, on every render.
+  const refresh = useCallback(() => controller.refresh(), [controller]);
+
   return {
     state,
-    refresh: () => controller.refresh(),
+    refresh,
   };
 }

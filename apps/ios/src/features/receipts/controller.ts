@@ -409,11 +409,13 @@ export function useReceiptsFeatureController(repository: IosDataRepository, page
     [controller],
   );
 
-  return {
-    controller,
-    state,
-    queryInput: inputQuery,
-    actions: {
+  /**
+   * Memoized so callers can safely list `actions` in an effect's dependencies.
+   * A fresh object here re-runs those effects on every render, and any effect
+   * that then touches the controller drives an unbounded refresh loop.
+   */
+  const actions = useMemo(
+    () => ({
       setQuery,
       setNeedsReviewOnly,
       loadNextPage: () => controller.loadNextPage(),
@@ -422,6 +424,14 @@ export function useReceiptsFeatureController(repository: IosDataRepository, page
       markReviewed: (receiptId: ID) => controller.markReviewed(receiptId),
       deleteReceipt: (receiptId: ID) => controller.deleteReceipt(receiptId),
       undoDelete: () => controller.undoDelete(),
-    },
+    }),
+    [controller, setQuery, setNeedsReviewOnly],
+  );
+
+  return {
+    controller,
+    state,
+    queryInput: inputQuery,
+    actions,
   };
 }

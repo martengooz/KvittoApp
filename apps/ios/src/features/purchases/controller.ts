@@ -205,9 +205,10 @@ export function usePurchasesFeatureController(repository: IosDataRepository, pag
     void controller.setSearchQuery(deferredQuery);
   }, [controller, deferredQuery]);
 
-  return {
-    state,
-    actions: {
+  // Memoized for the same reason as the receipts hook: a fresh object re-runs
+  // any effect that depends on it, on every render.
+  const actions = useMemo(
+    () => ({
       setQuery: (query: string) => {
         startTransition(() => {
           setInputQuery(query);
@@ -216,6 +217,12 @@ export function usePurchasesFeatureController(repository: IosDataRepository, pag
       selectSearchName: (searchName: string | null) => controller.selectSearchName(searchName),
       setIncludeDiscounts: (includeDiscounts: boolean) => controller.setFilter({ includeDiscounts }),
       loadNextPage: () => controller.loadNextPage(),
-    },
+    }),
+    [controller],
+  );
+
+  return {
+    state,
+    actions,
   };
 }

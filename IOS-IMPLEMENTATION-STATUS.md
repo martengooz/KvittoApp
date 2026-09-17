@@ -14,8 +14,8 @@ contracts, archive rules, production-facing SQLite/SecureStore adapters, native
 Vision/storage source, feature controllers, and an integrated five-tab shell.
 
 The app builds and launches as a standalone Release application on an iOS 26.5
-simulator, completes its boot sequence, and renders the five-tab shell. The
-Receipts list itself does not finish loading yet (see the 2026-09-17 entry).
+simulator, completes its boot sequence, and all five tabs render and load their
+data.
 
 Repository reads and writes now execute as direct SQL against SQLite; the
 in-memory state mirror and full-table rewrite are gone. Sync runs automatically
@@ -29,6 +29,61 @@ E2E/performance/accessibility work.
 The native iOS rewrite is committed on `main`.
 
 ## Progress Log
+
+### 2026-09-17: The app loads its data - runaway render loop fixed
+
+The "Loading receipts..." hang from the previous entry was not a SQLite problem.
+Instrumenting the adapter on device showed **11,337 receipt queries issued and
+only 218 completed**: one runaway loop was saturating the single SQLite
+connection, so every other screen's queries queued behind it and nothing in the
+app could load. That is why Settings appeared broken too.
+
+The loop, found by logging a stack from the fourth `refresh()` call:
+
+- `useReceiptsFeatureController` returned `actions` as a fresh object literal on
+  every render.
+- The receipts screen held `useEffect(() => actions.setNeedsReviewOnly(...),
+  [actions, needsReviewOnly])`.
+- So the effect re-ran on every render, each run called `setFilter`, which
+  called `refresh()`, which emitted, which re-rendered - unbounded.
+
+Fixes:
+
+- `actions` in the receipts and purchases hooks, and `refresh` in the
+  collections hook, are memoized on the controller. Callers can now list them in
+  an effect's dependencies, which is what the lint rules ask for, without
+  driving a loop.
+- Added `test/feature-hook-stability.test.tsx`, which renders the same effect
+  shape the screen used and asserts the identity holds and the effect settles
+  after one run. With the memoization removed the test does not merely fail, it
+  reproduces the original runaway loop and aborts the process.
+- Pinned React resolution in the iOS jest config. The workspace hoists React
+  19.3.0 to the repo root while the app pins 19.2.3, so without a
+  `moduleNameMapper` any test that renders a hook sees two dispatchers and every
+  hook call fails.
+
+Device verification, on a Release build installed on iPhone 17 Pro / iOS 26.5:
+
+- **Receipts** shows "No receipts yet." instead of hanging.
+- **Settings** renders fully, including all eight startup diagnostic steps
+  (`keychain-key-ready` through `durable-jobs-restored`), image processing, and
+  sync toggles.
+- **Collections** renders its four summary sections.
+- **Purchases** and **Scan** render; Scan correctly reports "No camera is
+  available on this device" with the photo-library fallback, which is the right
+  answer on a simulator.
+- Zero JavaScript exceptions in the system log across navigating every tab.
+
+- Verification evidence:
+  - `npm run typecheck:ios`: passed.
+  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
+  - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Note on running it: `npm run ios` works, but it must be invoked through the
+workspace script. Running `npx expo run:ios` from the repository root does not
+find the native project and starts scaffolding a fresh one, editing the root
+`package.json` on the way.
 
 ### 2026-09-17: The app actually runs - four startup bugs found by running it
 
@@ -83,7 +138,7 @@ updated.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed.
+  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `xcodebuild build` (Debug and Release) and `xcodebuild test` on
     iPhone 17 Pro / iOS 26.5: BUILD/TEST SUCCEEDED, 14 native tests, 0 failures.
@@ -93,15 +148,10 @@ updated.
     system log.
   - `npm run lint`: 10 errors, all pre-existing.
 
-**Known defect, not fixed:** the Receipts list stays on "Loading receipts..."
-and never resolves. The app is idle while this happens - no exceptions, no busy
-loop, roughly 250 log lines total - so `ReceiptsFeatureController.refresh()`
-appears to await a query promise that never settles. This reproduces only
-against expo-sqlite; the same controller resolves normally against the
-better-sqlite3 test adapter, so the next step is to instrument the adapter's
-read path on device rather than to keep reasoning about it. The three fixes
-above were each confirmed by the error moving on to the next one, so this is a
-distinct fifth problem rather than a leftover of them.
+**Resolved by the next entry above.** The Receipts list hang turned out to be a
+render loop in the receipts hook, not a SQLite problem. The guess recorded here
+that the query promise "never settles" was wrong: the queries were being issued
+far faster than they could complete.
 
 ### 2026-09-17: VisionCamera integration, live preview, and capture
 
@@ -142,7 +192,7 @@ distinct fifth problem rather than a leftover of them.
   real bridge over fake permissions.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed.
+  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: VisionCamera 5.2.3, NitroModules 0.37.1, NitroImage 0.15.2,
@@ -221,7 +271,7 @@ distinct fifth problem rather than a leftover of them.
   and removing the Wi-Fi-only gate each fail their tests.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed.
+  - `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: passed with `ExpoNetwork` integrated.
@@ -547,7 +597,7 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 42 suites, 155 tests passed
+- `npm run test:ios -- --runInBand`: 43 suites, 158 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed
@@ -560,8 +610,8 @@ The following checks have passed during implementation:
 - Debug simulator `xcodebuild build`: passed
 - Release simulator `xcodebuild build`: passed with embedded `main.jsbundle`
 - Standalone Release app installed and launched on iPhone 17, iOS 26.5
-- Simulator screenshot confirmed the five-tab shell and Receipts screen chrome
-  render; the Receipts list itself is still stuck loading
+- Simulator screenshots confirmed all five tabs render and load their data, with
+  no JavaScript exceptions in the system log
 - Hosted app XCTest passed
 - Native XCTest: 14 passed, 0 failed, 0 skipped
 - Final native build after Expo SQLite/SQLCipher additions exited successfully
@@ -665,8 +715,8 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Find why the Receipts list never finishes loading against expo-sqlite, and
-  add a device-level smoke check so a non-rendering app cannot pass again.
+1. Add a device-level smoke check to CI. The whole suite passed while the app
+  was unusable; nothing but running it would have caught that.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.
