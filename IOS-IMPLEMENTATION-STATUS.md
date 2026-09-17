@@ -30,6 +30,73 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: The last placeholder routes
+
+`grep -rln "RouteSkeletonScreen" apps/ios/app` now returns nothing. All eleven
+pushed/modal routes are real screens.
+
+**Archive import.** `src/archive/native-entry-source.ts` presents a `.kvitto`
+file as the `ArchiveEntrySource` that `packages/archive` already expects, so the
+preflight rules written for the web run here unchanged rather than being
+reimplemented. Entries are extracted to scratch files one at a time and streamed
+back in 256KB chunks: a receipt image can be several megabytes and an archive
+can hold thousands, so nothing materialises a whole archive - or a whole entry -
+in JavaScript memory. The scratch copy is deleted in a `finally`, so abandoning
+the stream (which is what a rejected import does) does not leave the archive
+unpacked in the caches directory. Three tests cover that: normal read, early
+break, and extraction failure.
+
+This needed one new native function, `readFileChunkBase64`, rather than a new
+`expo-file-system` dependency.
+
+The preflight screen reports what importing *would* do and changes nothing,
+which is requirement 6 of section 14. The result screen says plainly that
+applying an archive is not implemented yet, rather than offering an Import
+button that would do nothing - a working-looking control that silently does
+nothing is worse than an honest sentence. The report travels between the two
+routes through a module value, not a route parameter, because it contains every
+issue found including file paths and a route parameter would put that in
+navigation history.
+
+**Pairing.** `src/features/pairing/payload.ts` parses the pairing code as either
+a `kvitto://pair?...` URL or the JSON behind it. Two decisions worth keeping:
+
+- **http is refused, not warned about.** The pairing token is a bearer
+  credential sent to that host on every sync; over http it is handed to anyone
+  on the network.
+- **No rejection reason echoes the input.** An error is shown on screen and may
+  be copied into a bug report, and a bearer token must not travel with it.
+  There is a test that pushes a recognisable token through every rejection path
+  and asserts it appears in none of them.
+
+Manual entry is a first-class path rather than a fallback: a simulator has no
+camera, a code can arrive in a message, and a camera-only screen would be both
+unusable here and untestable. Live scanning is not wired, and the screen says
+so. The token is cleared from component state once stored.
+
+Verified:
+  - `npx jest`: 54 suites, **289 tests**, passed. 25 are new.
+  - `npm test` (monorepo): all suites passed.
+  - `xcodebuild build` Release: succeeded.
+  - `npm run ios:smoke`: passed, **24 routes**, idle CPU 1-2%.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+### What is left, and what it needs
+
+Nothing further can be closed out from this machine. The remainder splits in two:
+
+**Needs a physical device.** Auto-capture's frame processor (see the earlier
+entry for what VisionCamera 5 actually requires), background task registration,
+the camera and QR scanning paths, and the physical-device matrix. A simulator
+has no camera, and background expiration and swipe-away cannot be observed on
+one.
+
+**Possible here, not done.** The ZIP *writer* for export, applying a validated
+archive to the live database and blob store, and Maestro E2E flows. Applying an
+archive is the largest: `packages/archive` has the merge plan, but the
+transactional apply, blob staging and rollback against the real stores is a
+substantial piece in its own right.
+
 ### 2026-09-17: A real ZIP reader, and the header quirk it has to survive
 
 `NativeArchiveZipEngine.swift` was a single `notImplemented` throw, and

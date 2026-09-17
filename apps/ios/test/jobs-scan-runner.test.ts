@@ -118,6 +118,10 @@ class NativeStub implements KvittoNativeFacade {
     return 0;
   }
 
+  readFileChunkBase64(): Promise<string> {
+    return Promise.resolve('');
+  }
+
   readArchiveIndex(): Promise<never[]> {
     return Promise.resolve([]);
   }

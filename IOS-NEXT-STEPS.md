@@ -20,12 +20,9 @@ receipt images. The camera preview, capture, torch, and zoom work through
 VisionCamera, but only host-tested — nothing camera-related has run on real
 hardware, since a simulator has no camera.
 
-Of the eleven pushed/modal route files under `apps/ios/app`, eight are real: receipt
-detail, edit, extraction, OCR, filters, categories, tags, and debug. Three route files still render
-`RouteSkeletonScreen` placeholders (see "What is left" below) — check with
-`grep -rn "RouteSkeletonScreen" apps/ios/app` before trusting any older count
-in the status doc, which has described this number inconsistently across
-entries as the work progressed.
+All eleven pushed/modal route files under `apps/ios/app` are real screens —
+`grep -rln "RouteSkeletonScreen" apps/ios/app` returns nothing. The device
+smoke check drives 24 routes.
 
 This was not always true. Earlier checkpoints in `IOS-IMPLEMENTATION-STATUS.md`
 claimed a working launch and got it wrong twice — once because the app never
@@ -205,31 +202,17 @@ repeat them.
 Ordered roughly by the project's own recommended resume order, with effort
 and risk notes.
 
-1. **Three placeholder routes** still render `RouteSkeletonScreen`:
-   - `apps/ios/app/pairing/scanner.tsx`
-   - `apps/ios/app/archive/preflight.tsx`
-   - `apps/ios/app/archive/result.tsx`
+1. **Applying a validated archive** — the largest item that does not need
+   hardware. Reading and preflighting a `.kvitto` is done: the Swift ZIP reader,
+   `src/archive/native-entry-source.ts`, and the preflight screen. What is
+   missing is the apply: a transactional entity write, blob staging outside the
+   live directory, moving blobs into place only on success, and removing staged
+   files on failure (section 14, requirements 7-10). `packages/archive` has the
+   merge plan already. The result screen currently says applying is not
+   implemented rather than offering a button that does nothing — keep that
+   honesty if you land it in stages.
 
-   All three depend on work further down this list (the pairing flow, native
-   ZIP), so they are sequenced after it rather than picked up next. The eight
-   finished screens are a good template: controller-free, reading straight from
-   the repository, real not-found/loading states, tests that render the actual
-   screen via `react-test-renderer` against a seeded database, and an entry in
-   the smoke check's route list.
-
-   Three conventions the recent screens settled on, worth keeping:
-
-   - A destructive action confirms in place and names its consequence. There is
-     still no `Alert` in this app, and "Delete 'Fika'? Used by 1 receipt and 0
-     items. Deleting clears it from them" is more useful than "Are you sure?".
-   - A value that looks wrong is *reported*, never silently corrected — an
-     inverted filter range, a line whose quantity times unit price misses its
-     total, items that do not add up to the receipt total. A receipt records
-     what was printed; rewriting it to be self-consistent destroys the evidence
-     that it was not.
-   - Editing a receipt has exactly one owner, the edit modal. The detail screen
-     shows those fields read-only. It used to edit some of them inline, which
-     is how the two would have drifted apart.
+   Also missing: the **ZIP writer** for export. There is no sink on iOS yet.
 
 2. **Checking populated screens on device — read this before adding a screen.**
    The simulator has no camera, so for a long time the device had no receipts
@@ -360,25 +343,22 @@ and risk notes.
    swipe-away cannot be observed on a simulator, and background entitlements
    added blind can break launch where you cannot see it.
 
-7. **Archive import flow.** The ZIP reader is done and tested:
+7. **Archive reading is done — the notes that matter if you touch it.**
    `NativeArchiveZipEngine.swift` parses the central directory, streams stored
    and deflate entries through Apple's `Compression` framework, verifies CRC-32
-   and size, and rejects traversal/absolute/backslash paths. Exposed as
-   `readArchiveIndex` / `extractArchiveEntry`. 12 XCTest cases cover it.
+   and size, and rejects traversal/absolute/backslash paths. 12 XCTest cases
+   cover it, run by `xcodebuild test` on a simulator — no device needed.
 
-   **Read this before touching it.** The web writer sets the data-descriptor
-   flag, so local file headers carry **zero** for the CRC and both sizes — the
-   real values are only in the central directory. A reader that trusts local
-   headers silently returns empty entries for every real archive. The tests'
-   fixtures reproduce that, so they will catch a regression.
+   The web writer sets the data-descriptor flag, so local file headers carry
+   **zero** for the CRC and both sizes; the real values are only in the central
+   directory. A reader that trusts local headers silently returns empty entries
+   for every real archive. The test fixtures reproduce that, so they catch a
+   regression.
 
-   What is left, none of which needs a device:
-   - Drive `packages/archive`'s preflight over the entries the reader returns,
-     and replace the `archive/preflight.tsx` and `archive/result.tsx`
-     placeholder routes.
-   - The **ZIP writer** for export: there is no sink on iOS yet.
-   - Round-trip a real web-produced `.kvitto` against the real SQLite and blob
-     stores — repeated import, tampering, rollback, conflicts.
+   On the JS side, `src/archive/native-entry-source.ts` streams entries in
+   256KB chunks through scratch files and deletes each one in a `finally` —
+   abandoning the stream, which is what a rejected import does, must not leave
+   the archive unpacked in the caches directory.
 
 8. **Maestro E2E, physical-device matrix, performance budgets.** None of
    this has run yet. Section 18-20 of the handoff spell out what's needed:

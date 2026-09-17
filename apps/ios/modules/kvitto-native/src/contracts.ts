@@ -140,6 +140,8 @@ export interface KvittoNativeFacade {
    * partial output is deleted rather than left behind. Returns bytes written.
    */
   extractArchiveEntry(fileUri: string, path: string, destinationUri: string): Promise<number>;
+  /** Reads `length` bytes from `offset` as base64; `''` at end of file. */
+  readFileChunkBase64(fileUri: string, offset: number, length: number): Promise<string>;
   isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
   /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */

@@ -13,6 +13,7 @@
     "smoke:ios": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "@kvitto/archive": "*",
     "@kvitto/client-core": "*",
     "@kvitto/shared": "*",
     "@shopify/flash-list": "^2.3.2",

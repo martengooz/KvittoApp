@@ -72,6 +72,18 @@ public final class KvittoNativeModule: Module {
       return Int(entry.uncompressedSize)
     }
 
+    // Reads part of a file as base64. Archive entries are extracted to scratch
+    // files and streamed back in chunks, so a large blob never has to exist in
+    // JavaScript memory all at once. Returns "" at end of file.
+    AsyncFunction("readFileChunkBase64") { (fileUri: String, offset: Double, length: Double) async throws -> String in
+      let fileURL = try self.requireFileURL(fileUri)
+      let handle = try FileHandle(forReadingFrom: fileURL)
+      defer { try? handle.close() }
+      try handle.seek(toOffset: UInt64(max(0, offset)))
+      guard let data = try handle.read(upToCount: Int(max(0, length))), !data.isEmpty else { return "" }
+      return data.base64EncodedString()
+    }
+
     AsyncFunction("computeBlobShardPath") { (sha256Id: String) -> String in
       try BlobSharding.relativePath(for: sha256Id)
     }

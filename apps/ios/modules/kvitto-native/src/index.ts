@@ -28,6 +28,7 @@ interface KvittoNativeBinding {
   resetBlobUploadState(): Promise<number>;
   readArchiveIndex(fileUri: string): Promise<ArchiveEntryIndex[]>;
   extractArchiveEntry(fileUri: string, path: string, destinationUri: string): Promise<number>;
+  readFileChunkBase64(fileUri: string, offset: number, length: number): Promise<string>;
   /** True only on a simulator; gates debug-only sample-data actions. */
   isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
@@ -104,6 +105,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     extractArchiveEntry(fileUri, path, destinationUri) {
       return binding.extractArchiveEntry(fileUri, path, destinationUri);
+    },
+    readFileChunkBase64(fileUri, offset, length) {
+      return binding.readFileChunkBase64(fileUri, offset, length);
     },
     isSimulator() {
       return binding.isSimulator();

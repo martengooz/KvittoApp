@@ -1,13 +1,17 @@
-import { Stack } from 'expo-router';
-import { RouteSkeletonScreen } from '../../src/app/route-skeleton';
+import { Stack, useRouter } from 'expo-router';
+
+import { ArchiveResultScreen } from '../../src/archive/result-view';
+import { readPreflightReport } from '../../src/archive/last-report';
 
 export default function ArchiveResultRoute() {
+  const router = useRouter();
+
   return (
     <>
       <Stack.Screen options={{ title: 'Archive result' }} />
-      <RouteSkeletonScreen
-        title="Archive result"
-        summary="Archive result route is wired for post-import reporting with merge outcomes and follow-up actions."
+      <ArchiveResultScreen
+        report={readPreflightReport()}
+        onStartOver={() => router.replace('/archive/preflight')}
       />
     </>
   );
