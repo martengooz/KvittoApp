@@ -1,10 +1,11 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { LoadingState } from '../../src/ui/controls';
 import { SettingsFeatureScreen } from '../../src/app/settings-screen';
 import { useAppServices } from '../../src/app/services';
 
 export default function SettingsRoute() {
   const { composition } = useAppServices();
+  const router = useRouter();
 
   return (
     <>
@@ -13,6 +14,8 @@ export default function SettingsRoute() {
         <SettingsFeatureScreen
           controller={composition.tabs.settings.controller}
           startupSteps={composition.startup.steps}
+          onOpenCategories={() => router.push('/categories')}
+          onOpenTags={() => router.push('/tags')}
         />
       ) : (
         <LoadingState message="Loading settings services..." />

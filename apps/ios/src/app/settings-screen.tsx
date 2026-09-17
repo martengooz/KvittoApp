@@ -9,6 +9,9 @@ import { colorToken } from '../ui/tokens';
 export type SettingsFeatureScreenProps = {
   controller: SettingsFeatureController;
   startupSteps: string[];
+  /** Navigation is owned by the route, so the screen stays renderable in tests. */
+  onOpenCategories?: () => void;
+  onOpenTags?: () => void;
 };
 
 function toErrorMessage(error: unknown): string {
@@ -16,7 +19,12 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export function SettingsFeatureScreen({ controller, startupSteps }: SettingsFeatureScreenProps) {
+export function SettingsFeatureScreen({
+  controller,
+  startupSteps,
+  onOpenCategories,
+  onOpenTags,
+}: SettingsFeatureScreenProps) {
   const [snapshot, setSnapshot] = useState<SettingsControllerSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +74,17 @@ export function SettingsFeatureScreen({ controller, startupSteps }: SettingsFeat
           <CaptionText key={step}>{step}</CaptionText>
         ))}
       </View>
+
+      {onOpenCategories || onOpenTags ? (
+        <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Taxonomy settings">
+          <TitleText>Taxonomy</TitleText>
+          <CaptionText>Categories and tags are shared by every receipt on this device.</CaptionText>
+          <View style={styles.toggleRow}>
+            {onOpenCategories ? <PrimaryButton label="Categories" onPress={onOpenCategories} /> : null}
+            {onOpenTags ? <PrimaryButton label="Tags" onPress={onOpenTags} /> : null}
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Image settings">
         <TitleText>Image processing</TitleText>

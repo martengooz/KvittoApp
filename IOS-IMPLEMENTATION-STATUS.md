@@ -30,6 +30,73 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Categories and tags are editable
+
+Both taxonomy routes were placeholders, and nothing in the app linked to them at
+all, so the seeded categories could be filtered on but never renamed, recoloured
+or added to.
+
+`src/features/taxonomy/taxonomy-view.tsx` is one screen serving both. Categories
+and tags differ only in whether a row carries an emoji glyph and in what
+deleting one costs, which is not enough to justify two files that drift apart,
+so the screen takes a `kind` and branches in the two places that actually
+differ.
+
+The work that needed care was deletion, not the form. A receipt and an item each
+hold a `categoryId`, and a `receiptTags` row holds a `tagId`. Tombstoning the
+row those point at would leave a dangling reference that renders as a blank
+category forever and is invisible until someone looks. `deleteCategory` and
+`deleteTag` now clear every reference in the same transaction as the tombstone,
+and return the counts so the screen can say what it is about to change.
+
+Two details in the repository worth knowing:
+
+- The clearing writes go through the private `writeEntity`, not `upsert`.
+  `upsert` notifies subscribers on every call, so clearing a category used by
+  two hundred receipts would wake every subscriber two hundred times *during*
+  the transaction, each one reading a half-applied database. One event is
+  emitted after the transaction commits. A test asserts exactly one event for a
+  three-receipt delete.
+- A new category's `sortOrder` is one past the highest existing one, so adding
+  one does not reshuffle an order the user arranged.
+
+Deletion is two-step in the UI. There is no `Alert` in this app yet, and a
+destructive action needs a confirmation, so it lives in the row and spells out
+the consequence: "Delete 'Fika'? Used by 1 receipt and 0 items. Deleting clears
+it from them; the receipts themselves are kept." That is more honest than an
+Alert's "Are you sure?" and needs no API that does not exist yet.
+
+Validation is at the field: a `#rrggbb` colour and a non-blank, case-insensitively
+unique name, both blocking Save rather than failing at the write.
+
+Entry points: Settings grew a Taxonomy card. Navigation stays in the route and
+arrives as `onOpenCategories` / `onOpenTags` props, matching how the receipts
+list reaches `/filters`, which keeps `SettingsFeatureScreen` renderable in tests
+without a router.
+
+Verified:
+  - `npm run -w apps/ios typecheck`: clean.
+  - `npx jest --config apps/ios/jest.config.js`: 48 suites, 204 tests, passed.
+    24 are new (13 repository, 11 screen).
+  - `npm run ios:smoke`: passed, 11 routes including `/categories` and `/tags`,
+    idle CPU 1%.
+  - Screenshot confirmed the list renders 19 categories with swatches, glyphs
+    and usage counts.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Not verified on device: the two-step delete could not be driven, because
+`simctl` cannot tap and neither `idb` nor `fbsimctl` is installed here. The
+confirm and delete paths are covered by the screen tests, which press the real
+controls and then assert against the database.
+
+Correction: an earlier entry said the filters modal rendered "all 20 seeded
+categories". `DEFAULT_CATEGORIES` has 19.
+
+Placeholder routes remaining: five files - receipt edit, pairing scanner, debug
+log, archive preflight, and archive result. Verify with
+`grep -rln "RouteSkeletonScreen" apps/ios/app` rather than trusting a count
+written by hand.
+
 ### 2026-09-17: Filters modal, and the shared filter store it needed
 
 The filters route was the awkward placeholder: the filter lived inside the
@@ -69,10 +136,11 @@ warnings.
   - Screenshot confirmed the modal renders with all 20 seeded categories.
   - `npm run lint`: 10 errors, all pre-existing.
 
-Placeholder routes remaining: seven files - receipt edit, categories, tags,
-pairing scanner, debug log, archive preflight, and archive result. Verify with
-`grep -rln "RouteSkeletonScreen" apps/ios/app` rather than trusting a count
-written by hand; an earlier revision of this entry said "five" and was wrong.
+Placeholder routes remaining at the time of this entry: seven files - receipt
+edit, categories, tags, pairing scanner, debug log, archive preflight, and
+archive result. Verify with `grep -rln "RouteSkeletonScreen" apps/ios/app`
+rather than trusting a count written by hand; an earlier revision of this entry
+said "five" and was wrong. (Categories and tags have since been implemented.)
 
 ### 2026-09-17: Extraction and OCR routes are real
 
@@ -221,9 +289,9 @@ wrapper controls. Not chased further.
 
 Measured against `IOS-HANDOFF.md`, not against the packet table:
 
-1. **Seven pushed/modal route files are still placeholders**: receipt edit,
-   categories, tags, pairing scanner, debug log, archive preflight, archive
-   result. (Receipt detail, extraction, OCR and filters are done.) Confirm with
+1. **Five pushed/modal route files are still placeholders**: receipt edit,
+   pairing scanner, debug log, archive preflight, archive result. (Receipt
+   detail, extraction, OCR, filters, categories and tags are done.) Confirm with
    `grep -rln "RouteSkeletonScreen" apps/ios/app`.
 2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
    for haptics.
@@ -925,7 +993,7 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Replace the remaining placeholder routes, starting with categories and tags,
+1. Replace the remaining placeholder routes, starting with receipt edit,
   and add haptics and swipe actions.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.

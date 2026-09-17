@@ -41,6 +41,8 @@ const ROUTES = [
   '/receipt/smoke-missing-id/extraction',
   '/receipt/smoke-missing-id/ocr',
   '/filters',
+  '/categories',
+  '/tags',
 ];
 const SCHEME = 'kvittoapp';
 

@@ -10,12 +10,14 @@ import {
   seedCategoryId,
   tokenizeQuery,
   type AnyEntity,
+  type Category,
   type EntityKind,
   type EntityMap,
   type ID,
   type Receipt,
   type ReceiptItem,
   type SyncMeta,
+  type Tag,
 } from '@kvitto/shared/domain';
 import type {
   CanonicalRecord,
@@ -639,6 +641,193 @@ export class IosDataRepository implements CanonicalRepositoryPort {
       });
     }
     await this.setKeyValue('categories:seeded', String(now));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Taxonomy: categories and tags
+  //
+  // Both are small, user-editable sets, so they are read whole and sorted in
+  // JavaScript rather than paged. What needs care is deletion: a receipt or an
+  // item holds a `categoryId`, and a `receiptTags` row holds a `tagId`. Removing
+  // the row those point at would leave a dangling reference that renders as a
+  // blank category forever, so the references are cleared in the same
+  // transaction as the tombstone.
+  // ---------------------------------------------------------------------------
+
+  /** Every live category, in the order they should be shown. */
+  async listCategories(): Promise<Category[]> {
+    const rows = await this.db.selectAll<PayloadRow>(
+      `SELECT payload FROM ${TABLE_CANONICAL_ENTITIES} WHERE kind = 'categories' AND deletedAt = 0`,
+    );
+    return rows
+      .map((row) => parsePayload<'categories'>(row))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'sv'));
+  }
+
+  /** Every live tag, alphabetically. Tags have no explicit order. */
+  async listTags(): Promise<Tag[]> {
+    const rows = await this.db.selectAll<PayloadRow>(
+      `SELECT payload FROM ${TABLE_CANONICAL_ENTITIES} WHERE kind = 'tags' AND deletedAt = 0`,
+    );
+    return rows
+      .map((row) => parsePayload<'tags'>(row))
+      .sort((a, b) => a.name.localeCompare(b.name, 'sv'));
+  }
+
+  /** How much would break if this category were deleted. */
+  async countCategoryUsage(categoryId: ID): Promise<{ receipts: number; items: number }> {
+    const receipts = await this.db.selectFirst<{ count: number }>(
+      `SELECT count(*) AS count FROM ${TABLE_RECEIPT_PROJECTIONS} WHERE categoryId = ? AND deletedAt = 0`,
+      [categoryId],
+    );
+    const items = await this.db.selectFirst<{ count: number }>(
+      `SELECT count(*) AS count FROM ${TABLE_ITEM_PROJECTIONS} WHERE categoryId = ? AND deletedAt = 0`,
+      [categoryId],
+    );
+    return { receipts: receipts?.count ?? 0, items: items?.count ?? 0 };
+  }
+
+  /** Live links pointing at one tag. Links have no projection table. */
+  private async listLinksForTag(tagId: ID): Promise<CanonicalRecord<'receiptTags'>[]> {
+    const rows = await this.db.selectAll<PayloadRow>(
+      `SELECT payload FROM ${TABLE_CANONICAL_ENTITIES} WHERE kind = 'receiptTags' AND deletedAt = 0`,
+    );
+    return rows.map((row) => parsePayload<'receiptTags'>(row)).filter((link) => link.tagId === tagId);
+  }
+
+  async countTagUsage(tagId: ID): Promise<{ receipts: number }> {
+    const links = await this.listLinksForTag(tagId);
+    return { receipts: new Set(links.map((link) => link.receiptId)).size };
+  }
+
+  /**
+   * Creates or renames a category. `id` absent means create.
+   *
+   * A new category sorts after every existing one instead of at 0, so adding
+   * one does not silently reshuffle the list the user already arranged.
+   */
+  async saveCategory(input: {
+    id?: ID;
+    name: string;
+    color: string;
+    icon?: string | null;
+    scope?: Category['scope'];
+    parentId?: ID | null;
+  }): Promise<Category> {
+    const name = input.name.trim();
+    if (name.length === 0) throw new Error('A category needs a name.');
+
+    const now = this.now();
+    const existing = input.id ? await this.get('categories', input.id) : null;
+
+    const next: Category = existing
+      ? {
+          ...existing,
+          name,
+          color: input.color,
+          icon: input.icon === undefined ? existing.icon : input.icon,
+          scope: input.scope ?? existing.scope,
+          parentId: input.parentId === undefined ? existing.parentId : input.parentId,
+          updatedAt: now,
+          dirty: 1,
+        }
+      : {
+          ...newMeta(now),
+          id: input.id ?? newId(),
+          name,
+          color: input.color,
+          icon: input.icon ?? null,
+          parentId: input.parentId ?? null,
+          scope: input.scope ?? 'both',
+          sortOrder: (await this.listCategories()).reduce((max, row) => Math.max(max, row.sortOrder + 1), 0),
+        };
+
+    await this.upsert('categories', next);
+    this.emit(['categories'], 'mutation');
+    return next;
+  }
+
+  async saveTag(input: { id?: ID; name: string; color: string }): Promise<Tag> {
+    const name = input.name.trim();
+    if (name.length === 0) throw new Error('A tag needs a name.');
+
+    const now = this.now();
+    const existing = input.id ? await this.get('tags', input.id) : null;
+
+    const next: Tag = existing
+      ? { ...existing, name, color: input.color, updatedAt: now, dirty: 1 }
+      : { ...newMeta(now), id: input.id ?? newId(), name, color: input.color };
+
+    await this.upsert('tags', next);
+    this.emit(['tags'], 'mutation');
+    return next;
+  }
+
+  /**
+   * Tombstones a category and clears it from every receipt and item that used
+   * it, so nothing is left pointing at a deleted row.
+   *
+   * Writes go through `writeEntity` rather than `upsert` because `upsert`
+   * notifies on every call: clearing a category used by two hundred receipts
+   * would otherwise wake every subscriber two hundred times mid-transaction,
+   * each one reading a half-applied database. One event is emitted at the end.
+   */
+  async deleteCategory(id: ID): Promise<{ receipts: number; items: number } | null> {
+    const current = await this.get('categories', id);
+    if (!current || current.deletedAt !== 0) return null;
+
+    const now = this.now();
+    let receipts = 0;
+    let items = 0;
+
+    await this.runInTransaction(async () => {
+      await this.writeEntity('categories', { ...current, deletedAt: now, updatedAt: now, dirty: 1 });
+
+      const receiptIds = await this.db.selectAll<{ id: ID }>(
+        `SELECT id FROM ${TABLE_RECEIPT_PROJECTIONS} WHERE categoryId = ?`,
+        [id],
+      );
+      for (const row of receiptIds) {
+        const receipt = await this.get('receipts', row.id);
+        if (!receipt) continue;
+        await this.writeEntity('receipts', { ...receipt, categoryId: null, updatedAt: now, dirty: 1 });
+        receipts += 1;
+      }
+
+      const itemIds = await this.db.selectAll<{ id: ID }>(
+        `SELECT id FROM ${TABLE_ITEM_PROJECTIONS} WHERE categoryId = ?`,
+        [id],
+      );
+      for (const row of itemIds) {
+        const item = await this.get('items', row.id);
+        if (!item) continue;
+        await this.writeEntity('items', { ...item, categoryId: null, updatedAt: now, dirty: 1 });
+        items += 1;
+      }
+    });
+
+    this.emit(['categories', 'receipts', 'items'], 'tombstone');
+    return { receipts, items };
+  }
+
+  /** Tombstones a tag and every link that attached it to a receipt. */
+  async deleteTag(id: ID): Promise<{ links: number } | null> {
+    const current = await this.get('tags', id);
+    if (!current || current.deletedAt !== 0) return null;
+
+    const now = this.now();
+    let links = 0;
+
+    await this.runInTransaction(async () => {
+      await this.writeEntity('tags', { ...current, deletedAt: now, updatedAt: now, dirty: 1 });
+      for (const link of await this.listLinksForTag(id)) {
+        await this.writeEntity('receiptTags', { ...link, deletedAt: now, updatedAt: now, dirty: 1 });
+        links += 1;
+      }
+    });
+
+    this.emit(['tags', 'receiptTags'], 'tombstone');
+    return { links };
   }
 
   async createReceipt(overrides: Partial<Receipt> = {}): Promise<Receipt> {

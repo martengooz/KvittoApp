@@ -20,8 +20,8 @@ receipt images. The camera preview, capture, torch, and zoom work through
 VisionCamera, but only host-tested — nothing camera-related has run on real
 hardware, since a simulator has no camera.
 
-Of the eleven pushed/modal route files under `apps/ios/app`, four are real: receipt
-detail, extraction, OCR, and filters. Seven route files still render
+Of the eleven pushed/modal route files under `apps/ios/app`, six are real: receipt
+detail, extraction, OCR, filters, categories, and tags. Five route files still render
 `RouteSkeletonScreen` placeholders (see "What is left" below) — check with
 `grep -rn "RouteSkeletonScreen" apps/ios/app` before trusting any older count
 in the status doc, which has described this number inconsistently across
@@ -205,24 +205,29 @@ repeat them.
 Ordered roughly by the project's own recommended resume order, with effort
 and risk notes.
 
-1. **Seven placeholder routes** still render `RouteSkeletonScreen`:
+1. **Five placeholder routes** still render `RouteSkeletonScreen`:
    - `apps/ios/app/receipt/[receiptId]/edit.tsx` (receipt editing)
-   - `apps/ios/app/categories.tsx`
-   - `apps/ios/app/tags.tsx`
    - `apps/ios/app/pairing/scanner.tsx`
    - `apps/ios/app/debug/log.tsx`
    - `apps/ios/app/archive/preflight.tsx`
    - `apps/ios/app/archive/result.tsx`
 
-   Detail, extraction, OCR, and filters were done in this recent batch of
-   work and are a good template: controller-free screens read straight from
-   the repository, real not-found/loading states, tests that render the
-   actual screen via `react-test-renderer` against a seeded database, and an
-   entry added to the smoke check's route list. Categories and tags are
-   probably the easiest next (similar shape to filters' category-chip list);
-   archive preflight/result and the pairing scanner depend on work further
+   Detail, extraction, OCR, filters, categories and tags are done and are a
+   good template: controller-free screens read straight from the repository,
+   real not-found/loading states, tests that render the actual screen via
+   `react-test-renderer` against a seeded database, and an entry added to the
+   smoke check's route list. Receipt edit is the natural next one — it is
+   self-contained and the repository already exposes everything it needs.
+   Archive preflight/result and the pairing scanner depend on work further
    down this list (native ZIP, pairing flow) and are more naturally sequenced
    after it.
+
+   Note on taxonomy, since it is easy to reintroduce: deleting a category or
+   tag must clear the references held by receipts, items and `receiptTags`
+   rows in the same transaction as the tombstone, or those rows are left
+   pointing at a row that no longer exists. `IosDataRepository.deleteCategory`
+   and `deleteTag` do this and return the counts; anything else that removes a
+   referenced entity needs the same treatment.
 
 2. **Haptics.** `ScanHapticsPort` in `src/app/services.tsx` is composed with
    a no-op (`impact() { return; }`). Section 15 of the handoff asks for

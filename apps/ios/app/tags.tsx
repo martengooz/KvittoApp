@@ -1,14 +1,20 @@
 import { Stack } from 'expo-router';
-import { RouteSkeletonScreen } from '../src/app/route-skeleton';
+
+import { LoadingState } from '../src/ui/controls';
+import { TaxonomyScreen } from '../src/features/taxonomy/taxonomy-view';
+import { useAppServices } from '../src/app/services';
 
 export default function TagsRoute() {
+  const { composition } = useAppServices();
+
   return (
     <>
       <Stack.Screen options={{ title: 'Tags' }} />
-      <RouteSkeletonScreen
-        title="Tags"
-        summary="Tag management route is present and reserved for receipts taxonomy editing using existing repositories."
-      />
+      {composition ? (
+        <TaxonomyScreen repository={composition.repository} kind="tags" />
+      ) : (
+        <LoadingState message="Loading tags..." />
+      )}
     </>
   );
 }

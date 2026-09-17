@@ -1,14 +1,20 @@
 import { Stack } from 'expo-router';
-import { RouteSkeletonScreen } from '../src/app/route-skeleton';
+
+import { LoadingState } from '../src/ui/controls';
+import { TaxonomyScreen } from '../src/features/taxonomy/taxonomy-view';
+import { useAppServices } from '../src/app/services';
 
 export default function CategoriesRoute() {
+  const { composition } = useAppServices();
+
   return (
     <>
       <Stack.Screen options={{ title: 'Categories' }} />
-      <RouteSkeletonScreen
-        title="Categories"
-        summary="Category management route is present and reserved for receipts taxonomy editing using existing repositories."
-      />
+      {composition ? (
+        <TaxonomyScreen repository={composition.repository} kind="categories" />
+      ) : (
+        <LoadingState message="Loading categories..." />
+      )}
     </>
   );
 }
