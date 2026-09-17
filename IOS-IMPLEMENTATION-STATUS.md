@@ -30,6 +30,63 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: A bounded background sweep
+
+Section 11 asks for `BGProcessingTask` or Expo BackgroundTask for
+"opportunistic bounded synchronization". The durable job store and the
+foreground drain have been there for a while; what was missing was the part
+that makes background work different from foreground work, and a way to trigger
+it.
+
+`src/jobs/background-runner.ts` is the first half. It is deliberately not the
+foreground runner with a timer bolted on, because the two have different failure
+modes:
+
+- A foreground drain may stop whenever it likes, and the user is watching.
+- A background window is **revocable**. Being killed mid-job is the one outcome
+  that costs something: a claimed job whose process died has to wait for its
+  claim to lapse before anything retries it.
+
+So the sweep never starts a job it does not expect to finish. It measures what
+jobs have actually cost *in this window*, and refuses to start another unless
+that much time plus a reserve is still available. A window too small for any job
+runs nothing at all rather than starting one that will be killed. That guard is
+the load-bearing part of the file: removing the `worstJobMs` term from the
+budget check fails three tests, which I verified by doing it.
+
+It also handles what the OS actually does:
+
+- **Expiration is polled, not awaited.** iOS calls an expiration handler on its
+  own thread; the adapter flips a flag and the sweep notices at its next
+  checkpoint. The job already in flight finishes; no further job starts.
+- **A window with no deadline still gets a budget.** `BGProcessingTask` often
+  reports none, which is not a licence to run until killed.
+- Every stop reason - `idle`, `budget`, `expired`, `max-jobs`, `stopped` -
+  leaves the remaining work retryable, as section 11 requires.
+
+`createScanDurableJobService` now builds one alongside the foreground runner,
+sharing the same `runOne` handlers, and exposes `sweepBackground(...)`. It is
+composed into `AppServiceComposition.jobs`.
+
+**Nothing calls it yet, and that is the honest state.** There is no background
+task registered: `expo-background-task` is not installed, and `Info.plist` has
+no `UIBackgroundModes` or `BGTaskSchedulerPermittedIdentifiers`. Registration is
+the remaining half and it is the half that needs a device - expiration,
+cancellation, termination and swipe-away behaviour cannot be observed on a
+simulator, and adding background entitlements blind is a good way to break
+launch without being able to see it.
+
+Verified:
+  - `npm run -w apps/ios typecheck`: clean.
+  - `npx jest --config apps/ios/jest.config.js`: 52 suites, 264 tests, passed.
+    12 are new, driven by a fake clock so the budget arithmetic is exact and
+    nothing sleeps.
+  - Mutation-checked the reserve guard: removing it fails 3 tests.
+  - `xcodebuild` Release: succeeded.
+  - `npm run ios:smoke`: passed, 21 routes. This change touches the boot
+    composition, so the app starting at all is the thing worth checking.
+  - `npm run lint`: 10 errors, all pre-existing.
+
 ### 2026-09-17: Auto-capture groundwork, and a correction to the plan for it
 
 I picked up the VisionCamera frame processor as the largest remaining item, and
@@ -1312,10 +1369,12 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Auto-capture's remaining work is native and needs a physical device to
-  verify; see the entry above for what VisionCamera 5 actually requires. Of the
-  work that can be done without hardware, BGTask background sync and the native
-  ZIP bridge are the largest.
+1. Register a background task so `jobs.sweepBackground(...)` is actually
+  called: install `expo-background-task` (or register `BGProcessingTask`
+  natively), declare the identifier and `UIBackgroundModes` in `Info.plist`,
+  and have the handler build a `JobBackgroundWindow` from the OS deadline and
+  flip the expiration flag from the OS expiration handler. Needs a device.
+  Without hardware, the native ZIP bridge is the largest remaining item.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.

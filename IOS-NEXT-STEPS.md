@@ -337,12 +337,28 @@ and risk notes.
    "it compiles" is how this project twice ended up with a green suite and an
    unusable app.
 
-6. **BGTask background work.** The periodic sync sweep only runs in the
-   foreground; `BGContinuedProcessingTask` registration and bounded
-   background sync are not implemented. Needs claim/progress persisted
-   against the real jobs table (`src/jobs`, already durable and tested in the
-   foreground), plus expiration/cancellation/termination/swipe-away testing —
-   all of which require a physical device.
+6. **Register a background task.** Half of this is done: `src/jobs/background-runner.ts`
+   drains durable jobs inside a revocable window and is covered by 12 tests on
+   a fake clock. `createScanDurableJobService` exposes it as
+   `sweepBackground(...)`, composed into `AppServiceComposition.jobs`.
+
+   **Nothing calls it.** There is no task registered — `expo-background-task`
+   is not installed and `Info.plist` has no `UIBackgroundModes` or
+   `BGTaskSchedulerPermittedIdentifiers`. What is left: register the task,
+   build a `JobBackgroundWindow` from the OS deadline, and flip the
+   `BackgroundExpiration` flag from the OS expiration handler.
+
+   Read `background-runner.ts` before changing it. The rule it exists to
+   enforce is that the sweep **never starts a job it does not expect to
+   finish** — it tracks what jobs have cost in this window and refuses to start
+   another without that much time plus a reserve. Being killed mid-job is the
+   expensive failure: the claim outlives the process and blocks a retry until
+   it lapses. Removing the `worstJobMs` term from the budget check fails three
+   tests.
+
+   Do the registration with a device. Expiration, cancellation, termination and
+   swipe-away cannot be observed on a simulator, and background entitlements
+   added blind can break launch where you cannot see it.
 
 7. **Native ZIP + archive interop.** The Swift ZIP reader/writer isn't
    exposed through the Expo module yet. Once it is: import a real

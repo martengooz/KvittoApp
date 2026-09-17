@@ -164,6 +164,11 @@ function makeComposition(): AppServiceComposition {
       },
       list: async () => [],
       cancel: async () => undefined,
+      sweepBackground: async () => ({
+        outcome: 'unsupported' as const,
+        summary: null,
+        pendingJobs: 0,
+      }),
       drainForeground: async () => ({
         outcome: 'unsupported',
         summary: null,

@@ -2,6 +2,11 @@ import type { JobRecord, JobState, JobStorePort } from '@kvitto/client-core/port
 
 import type { ScanJobQueuePort } from '../features/scan/types';
 import { createForegroundJobRunner, type ForegroundDrainSummary, type ForegroundRunResult } from './foreground-runner';
+import {
+  createBackgroundJobRunner,
+  type BackgroundSweepOptions,
+  type BackgroundSweepSummary,
+} from './background-runner';
 
 export type ScanDurableJobKind = 'image-processing' | 'ocr';
 
@@ -35,12 +40,23 @@ export interface ForegroundDrainOutcome {
   pendingJobs: number;
 }
 
+export interface BackgroundSweepOutcome {
+  outcome: 'processed' | 'idle' | 'unsupported';
+  summary: BackgroundSweepSummary | null;
+  pendingJobs: number;
+}
+
 export interface ScanDurableJobService {
   queue: ScanJobQueuePort;
   enqueue(job: ScanDurableJobInput): Promise<JobRecord>;
   list(state?: JobState): Promise<JobRecord[]>;
   cancel(id: string): Promise<void>;
   drainForeground(maxJobsPerForegroundWindow: number): Promise<ForegroundDrainOutcome>;
+  /**
+   * Drains inside an OS-granted background window. Nothing calls this until a
+   * background task is registered; see IOS-NEXT-STEPS.md.
+   */
+  sweepBackground(options: BackgroundSweepOptions): Promise<BackgroundSweepOutcome>;
   stop(): void;
   start(): void;
   isActive(): boolean;
@@ -84,6 +100,17 @@ export function createScanDurableJobService(options: ScanDurableJobServiceOption
       store: { durable: true, persistence: 'sqlcipher', description: 'ios-kv-job-store' },
       runOne: options.runOne,
       logger,
+    })
+    : null;
+
+  // Shares `runOne` with the foreground drain: the same handlers, run under a
+  // revocable time budget instead of at the user's pace.
+  const backgroundRunner = options.runOne
+    ? createBackgroundJobRunner({
+      store: { durable: true, persistence: 'sqlcipher', description: 'ios-kv-job-store' },
+      runOne: options.runOne,
+      logger,
+      now: () => clock.now(),
     })
     : null;
 
@@ -163,6 +190,19 @@ export function createScanDurableJobService(options: ScanDurableJobServiceOption
     };
   }
 
+  async function sweepBackground(sweep: BackgroundSweepOptions): Promise<BackgroundSweepOutcome> {
+    if (!backgroundRunner) {
+      return { outcome: 'unsupported', summary: null, pendingJobs: (await options.store.list('pending')).length };
+    }
+
+    const summary = await backgroundRunner.sweep(sweep);
+    return {
+      outcome: summary.processed === 0 ? 'idle' : 'processed',
+      summary,
+      pendingJobs: (await options.store.list('pending')).length,
+    };
+  }
+
   return {
     queue: {
       enqueue: (job) => enqueue(job).then(() => undefined),
@@ -171,11 +211,14 @@ export function createScanDurableJobService(options: ScanDurableJobServiceOption
     list,
     cancel,
     drainForeground,
+    sweepBackground,
     stop() {
       foregroundRunner?.stop();
+      backgroundRunner?.stop();
     },
     start() {
       foregroundRunner?.start();
+      backgroundRunner?.start();
     },
     isActive() {
       return foregroundRunner?.isActive() ?? true;

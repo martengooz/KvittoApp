@@ -44,6 +44,8 @@ import {
   createRepositoryBackedJobStore,
   createScanDurableJobService,
   createScanDurableRunOne,
+  type BackgroundSweepOptions,
+  type BackgroundSweepOutcome,
   type ForegroundDrainOutcome,
 } from '../jobs';
 import type { JobRecord, JobState } from '@kvitto/client-core/ports';
@@ -68,6 +70,12 @@ export interface AppServiceComposition {
     list(state?: JobState): Promise<JobRecord[]>;
     cancel(id: string): Promise<void>;
     drainForeground(maxJobsPerForegroundWindow: number): Promise<ForegroundDrainOutcome>;
+    /**
+     * Drains inside an OS-granted background window. Composed and tested, but
+     * nothing calls it yet: no background task is registered. See
+     * IOS-NEXT-STEPS.md for what that needs.
+     */
+    sweepBackground(options: BackgroundSweepOptions): Promise<BackgroundSweepOutcome>;
     stop(): void;
     start(): void;
     isActive(): boolean;
