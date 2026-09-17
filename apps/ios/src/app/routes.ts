@@ -82,6 +82,12 @@ export const PUSHED_MODAL_ROUTE_CONTRACTS: ReadonlyArray<RouteSkeletonContract> 
     controller: 'settings',
   },
   {
+    route: 'archive/export',
+    presentation: 'card',
+    title: 'Export archive',
+    controller: 'settings',
+  },
+  {
     route: 'archive/preflight',
     presentation: 'card',
     title: 'Archive preflight',

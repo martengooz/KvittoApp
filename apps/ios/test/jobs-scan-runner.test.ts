@@ -106,6 +106,10 @@ class NativeStub implements KvittoNativeFacade {
     return;
   }
 
+  async listAllBlobMetadata(): Promise<BlobMetadataRecord[]> {
+    return [];
+  }
+
   async listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]> {
     return [...this.metadata.values()].slice(0, limit);
   }
@@ -116,6 +120,14 @@ class NativeStub implements KvittoNativeFacade {
 
   async resetBlobUploadState(): Promise<number> {
     return 0;
+  }
+
+  writeFileChunkBase64(): Promise<number> {
+    return Promise.resolve(0);
+  }
+
+  writeArchive(): Promise<number> {
+    return Promise.resolve(0);
   }
 
   readFileChunkBase64(): Promise<string> {

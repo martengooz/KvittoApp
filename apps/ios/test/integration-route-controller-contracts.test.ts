@@ -15,6 +15,7 @@ const EXPECTED_ROUTES = [
   'tags',
   'pairing/scanner',
   'debug/log',
+  'archive/export',
   'archive/preflight',
   'archive/result',
 ] as const;

@@ -2,6 +2,7 @@ import { requireNativeModule } from 'expo-modules-core';
 
 import type {
   ArchiveEntryIndex,
+  ArchiveWriteEntry,
   BlobMetadataRecord,
   FileBackedDescriptor,
   FrameAnalysisCompactResult,
@@ -24,11 +25,14 @@ interface KvittoNativeBinding {
   putBlobMetadata(record: BlobMetadataRecord): Promise<BlobMetadataRecord>;
   markBlobUploaded(sha256Id: string): Promise<void>;
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
+  listAllBlobMetadata(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
   readArchiveIndex(fileUri: string): Promise<ArchiveEntryIndex[]>;
   extractArchiveEntry(fileUri: string, path: string, destinationUri: string): Promise<number>;
   readFileChunkBase64(fileUri: string, offset: number, length: number): Promise<string>;
+  writeFileChunkBase64(fileUri: string, base64: string, append: boolean): Promise<number>;
+  writeArchive(destinationUri: string, entries: ArchiveWriteEntry[]): Promise<number>;
   /** True only on a simulator; gates debug-only sample-data actions. */
   isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
@@ -94,6 +98,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     listBlobMetadataPendingUpload(limit) {
       return binding.listBlobMetadataPendingUpload(limit);
     },
+    listAllBlobMetadata(limit) {
+      return binding.listAllBlobMetadata(limit);
+    },
     deleteBlobMetadata(sha256Id) {
       return binding.deleteBlobMetadata(sha256Id);
     },
@@ -108,6 +115,12 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     readFileChunkBase64(fileUri, offset, length) {
       return binding.readFileChunkBase64(fileUri, offset, length);
+    },
+    writeFileChunkBase64(fileUri, base64, append) {
+      return binding.writeFileChunkBase64(fileUri, base64, append);
+    },
+    writeArchive(destinationUri, entries) {
+      return binding.writeArchive(destinationUri, entries);
     },
     isSimulator() {
       return binding.isSimulator();

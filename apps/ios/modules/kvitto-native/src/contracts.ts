@@ -100,6 +100,11 @@ export interface ArchiveEntryIndex {
   method: number;
 }
 
+export interface ArchiveWriteEntry {
+  path: string;
+  sourceFileUri: string;
+}
+
 export interface StoreBlobRequest {
   sourceUri: string;
   mimeType: string;
@@ -125,6 +130,8 @@ export interface KvittoNativeFacade {
   putBlobMetadata(record: BlobMetadataRecord): Promise<BlobMetadataRecord>;
   markBlobUploaded(sha256Id: string): Promise<void>;
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
+  /** Every blob on the device. Export needs the whole set. */
+  listAllBlobMetadata(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
   /** Writes a milestone to the unified log, which survives a Release build. */
@@ -142,6 +149,14 @@ export interface KvittoNativeFacade {
   extractArchiveEntry(fileUri: string, path: string, destinationUri: string): Promise<number>;
   /** Reads `length` bytes from `offset` as base64; `''` at end of file. */
   readFileChunkBase64(fileUri: string, offset: number, length: number): Promise<string>;
+  /** Appends (or creates with) base64 content. Returns bytes written. */
+  writeFileChunkBase64(fileUri: string, base64: string, append: boolean): Promise<number>;
+  /**
+   * Writes a `.kvitto` archive from files already on disk. Paths are validated
+   * with the same rules the reader enforces, so an archive this app writes is
+   * one it would accept. Returns the entry count.
+   */
+  writeArchive(destinationUri: string, entries: ArchiveWriteEntry[]): Promise<number>;
   isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
   /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */

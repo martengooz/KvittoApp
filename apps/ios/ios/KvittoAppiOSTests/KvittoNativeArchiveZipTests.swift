@@ -322,3 +322,147 @@ final class KvittoNativeArchiveZipTests: XCTestCase {
         XCTAssertThrowsError(try engine.openIndex(fileURL: url))
     }
 }
+
+/// The writer is checked against the reader, because a round trip through the
+/// two is the only evidence that matters: an archive this app produces has to
+/// be one it would accept, and the reader is already covered against the real
+/// web writer's byte layout.
+final class KvittoNativeArchiveZipWriterTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func source(_ name: String, _ data: Data) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try data.write(to: url)
+        return url
+    }
+
+    func testRoundTripsThroughItsOwnReader() throws {
+        let manifest = Data(#"{"version":1}"#.utf8)
+        let ndjson = Data((0..<300).map { "{\"id\":\"r-\($0)\"}" }.joined(separator: "\n").utf8)
+        let blob = Data((0..<20_000).map { UInt8($0 % 251) })
+
+        let entries = [
+            NativeArchiveWriteEntry(path: "manifest.json", sourceURL: try source("m.json", manifest)),
+            NativeArchiveWriteEntry(path: "entities/receipts.ndjson", sourceURL: try source("r.ndjson", ndjson)),
+            NativeArchiveWriteEntry(path: "blobs/abc", sourceURL: try source("b.bin", blob)),
+        ]
+        let archive = directory.appendingPathComponent("out.kvitto")
+
+        try NativeArchiveZipWriter().write(entries: entries, to: archive)
+
+        let engine = NativeArchiveZipEngine()
+        let index = try engine.openIndex(fileURL: archive)
+        XCTAssertEqual(index.map(\.path), ["manifest.json", "entities/receipts.ndjson", "blobs/abc"])
+
+        for (entry, expected) in zip(index, [manifest, ndjson, blob]) {
+            XCTAssertEqual(entry.uncompressedSize, Int64(expected.count))
+            let destination = directory.appendingPathComponent("extracted-\(entry.uncompressedSize)")
+            try engine.extract(entry: entry, from: archive, to: destination)
+            XCTAssertEqual(try Data(contentsOf: destination), expected)
+        }
+    }
+
+    func testWritesSizesIntoLocalHeadersRatherThanDataDescriptors() throws {
+        let payload = Data("hello".utf8)
+        let archive = directory.appendingPathComponent("out.kvitto")
+        try NativeArchiveZipWriter().write(
+            entries: [NativeArchiveWriteEntry(path: "a.txt", sourceURL: try source("a.txt", payload))],
+            to: archive
+        )
+
+        let bytes = try Data(contentsOf: archive)
+        // Local header: flags at 6, uncompressed size at 22.
+        let flags = UInt16(bytes[6]) | (UInt16(bytes[7]) << 8)
+        XCTAssertEqual(flags & 0x0008, 0, "the writer should not set the data-descriptor flag")
+
+        var uncompressed: UInt32 = 0
+        for offset in (22..<26).reversed() {
+            uncompressed = (uncompressed << 8) | UInt32(bytes[offset])
+        }
+        XCTAssertEqual(uncompressed, UInt32(payload.count))
+    }
+
+    func testRoundTripsAnEmptyEntry() throws {
+        let archive = directory.appendingPathComponent("out.kvitto")
+        try NativeArchiveZipWriter().write(
+            entries: [NativeArchiveWriteEntry(path: "entities/tags.ndjson", sourceURL: try source("t", Data()))],
+            to: archive
+        )
+
+        let engine = NativeArchiveZipEngine()
+        let entry = try XCTUnwrap(try engine.openIndex(fileURL: archive).first)
+        XCTAssertEqual(entry.uncompressedSize, 0)
+        let destination = directory.appendingPathComponent("empty")
+        try engine.extract(entry: entry, from: archive, to: destination)
+        XCTAssertEqual(try Data(contentsOf: destination).count, 0)
+    }
+
+    func testRefusesUnsafePathsOnTheWayOut() throws {
+        let archive = directory.appendingPathComponent("out.kvitto")
+        let payload = try source("p", Data("x".utf8))
+
+        for path in ["../escape", "/absolute", "blobs\\win", "C:/drive"] {
+            XCTAssertThrowsError(
+                try NativeArchiveZipWriter().write(
+                    entries: [NativeArchiveWriteEntry(path: path, sourceURL: payload)],
+                    to: archive
+                ),
+                "should refuse \(path)"
+            )
+        }
+    }
+
+    func testRefusesDuplicatePaths() throws {
+        let payload = try source("p", Data("x".utf8))
+        XCTAssertThrowsError(
+            try NativeArchiveZipWriter().write(
+                entries: [
+                    NativeArchiveWriteEntry(path: "a.txt", sourceURL: payload),
+                    NativeArchiveWriteEntry(path: "a.txt", sourceURL: payload),
+                ],
+                to: directory.appendingPathComponent("out.kvitto")
+            )
+        ) { error in
+            XCTAssertEqual(error as? NativeArchiveZipWriterError, .duplicatePath("a.txt"))
+        }
+    }
+
+    func testLeavesNoPartialArchiveWhenAnEntryIsMissing() throws {
+        let archive = directory.appendingPathComponent("out.kvitto")
+        let good = try source("good", Data("ok".utf8))
+
+        XCTAssertThrowsError(
+            try NativeArchiveZipWriter().write(
+                entries: [
+                    NativeArchiveWriteEntry(path: "a.txt", sourceURL: good),
+                    NativeArchiveWriteEntry(
+                        path: "b.txt",
+                        sourceURL: directory.appendingPathComponent("does-not-exist")
+                    ),
+                ],
+                to: archive
+            )
+        )
+
+        // A truncated archive looks complete to most readers, so a failed
+        // export must not leave one behind.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: archive.path))
+    }
+
+    func testWritesAnArchiveWithNoEntries() throws {
+        let archive = directory.appendingPathComponent("empty.kvitto")
+        try NativeArchiveZipWriter().write(entries: [], to: archive)
+
+        XCTAssertEqual(try NativeArchiveZipEngine().openIndex(fileURL: archive).count, 0)
+    }
+}

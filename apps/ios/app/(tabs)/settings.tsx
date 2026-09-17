@@ -16,6 +16,9 @@ export default function SettingsRoute() {
           startupSteps={composition.startup.steps}
           onOpenCategories={() => router.push('/categories')}
           onOpenTags={() => router.push('/tags')}
+          onOpenExport={() => router.push('/archive/export')}
+          onOpenImport={() => router.push('/archive/preflight')}
+          onOpenPairing={() => router.push('/pairing/scanner')}
         />
       ) : (
         <LoadingState message="Loading settings services..." />

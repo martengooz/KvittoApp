@@ -103,6 +103,19 @@ actor BlobMetadataStore {
     }
   }
 
+  /// Every blob on the device, oldest first. Export needs the whole set, not
+  /// just what is waiting to upload.
+  func listAll(limit: Int) throws -> [BlobMetadataRecord] {
+    let entries = try fileManager.contentsOfDirectory(at: metadataDirectory, includingPropertiesForKeys: nil)
+    var all: [BlobMetadataRecord] = []
+    for entry in entries {
+      let data = try Data(contentsOf: entry)
+      all.append(try JSONDecoder().decode(BlobMetadataRecord.self, from: data))
+    }
+    all.sort { $0.createdAt < $1.createdAt }
+    return all.count <= limit ? all : Array(all.prefix(limit))
+  }
+
   func listPendingUpload(limit: Int) throws -> [BlobMetadataRecord] {
     let entries = try fileManager.contentsOfDirectory(at: metadataDirectory, includingPropertiesForKeys: nil)
     var pending: [BlobMetadataRecord] = []

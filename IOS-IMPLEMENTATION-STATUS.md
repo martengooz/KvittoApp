@@ -30,6 +30,97 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Archive export, end to end
+
+The ZIP writer was the last thing on the "possible without a device" list that
+had no implementation at all. It is done, and so is the export that uses it.
+
+`NativeArchiveZipWriter.swift` deflates entries in streaming chunks through
+Apple's `Compression` framework. Unlike the reader it does **not** use data
+descriptors: it knows each entry's size and CRC once written and patches the
+local header, since seeking back on a local file is cheap. Writing real sizes
+into local headers makes the result readable by the widest range of tools,
+including ones that ignore the central directory. A failed write deletes the
+partial archive, because a truncated archive looks complete to most readers.
+
+It enforces the same path rules the reader does, so an archive this app produces
+is one it would accept.
+
+**The writer is tested against the reader.** A round trip through both is the
+only evidence that matters, and the reader is already covered against the real
+web writer's byte layout. One test also asserts the writer does *not* set the
+data-descriptor flag and does write the true size at offset 22, so the two
+halves cannot silently drift into the same blind spot.
+
+`src/archive/export.ts` builds the archive: manifest, redacted settings, an
+NDJSON stream per entity kind, blob metadata, and the blobs. Three things worth
+keeping:
+
+- **Blobs are passed as file URIs, never read into JavaScript.** The writer
+  takes files, so exporting a few thousand receipt images is not a memory
+  problem.
+- **An excluded kind still gets an empty stream.** A missing entity stream is a
+  preflight error, so omitting `secrets` would produce an archive this app would
+  reject. The rows are dropped; the stream is not.
+- **`btoa` alone is not enough.** It only accepts Latin-1, so UTF-8 is widened
+  by hand first - otherwise every non-ASCII merchant name throws. There is a
+  test with "Kött & Bröd åäö".
+
+Secrets are dropped by `shouldExportEntityKind` and `redactSettings`, the same
+implementations the web export uses, so the two cannot diverge. The redaction
+test includes one allowed field so it cannot pass just because redaction emptied
+the object.
+
+Export needed one more native function, `listAllBlobMetadata`: the blob store
+could only list what was pending upload, and an export that silently omitted
+every receipt image would be a data-loss trap.
+
+The export screen carries the warning section 14 requires - sensitive contents,
+v1 archives not password-protected - both on the screen and in the
+confirmation, because a screen can be skimmed and a confirmation cannot. Two
+tests assert the warning is a *gate*: declining writes nothing, and the prompt
+names the risk rather than asking "are you sure".
+
+Settings now links export, import and pairing, so all of it is reachable.
+
+Verified:
+  - `xcodebuild test`: **33 Swift tests**, 0 failures (19 archive: 12 reader,
+    7 writer).
+  - `npx jest`: 55 suites, **300 tests**, passed.
+  - `npm test` (monorepo): all suites passed.
+  - `xcodebuild build` Release: succeeded. `npm run ios:smoke`: **25 routes**.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+### What I cannot build here
+
+This is the honest boundary, not a to-do list I ran out of time on.
+
+**Needs a physical device — cannot be verified at all on this machine.**
+  - Auto-capture's frame processor. A simulator has no camera, so
+    `useCameraDevice` returns nothing, the preview never mounts and an `onFrame`
+    worklet never runs. See the earlier entry for what VisionCamera 5 actually
+    requires; the dependency is installed and the plan corrected.
+  - Background task registration. Expiration, cancellation, termination and
+    swipe-away cannot be observed on a simulator, and background entitlements
+    added blind can break launch invisibly. The sweep itself is built and tested.
+  - QR scanning for pairing. The parsing and the manual path are done and
+    tested; only the camera path is missing.
+  - Anything needing a tap or a drag: `simctl` cannot do either, and neither
+    `idb` nor `fbsimctl` is installed. So the swipe gesture, the native alerts,
+    and every Save button are covered by host tests only. **Installing `idb`
+    would close this whole category** and is the highest-value thing available.
+  - The physical-device matrix and Instruments performance budgets.
+
+**Possible here, deliberately not attempted.**
+  - **Applying a validated archive.** The last substantial piece. Reading and
+    preflighting are done; the apply needs a transactional entity write, blob
+    staging outside the live directory, promotion only on success, and staged-file
+    cleanup on failure (section 14, requirements 7-10). `packages/archive` has
+    the merge plan. I stopped rather than half-build it, because a partly-working
+    import that writes some rows and leaves others is worse than one that
+    honestly does nothing - which is what the result screen says today.
+  - Maestro E2E flows, which would need the same tap tooling as above.
+
 ### 2026-09-17: The last placeholder routes
 
 `grep -rln "RouteSkeletonScreen" apps/ios/app` now returns nothing. All eleven

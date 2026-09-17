@@ -7,6 +7,7 @@ public final class KvittoNativeModule: Module {
   private let cancellationRegistry = CancellationRegistry()
   private let frameAdapter = VisionFrameAnalysisAdapter()
   private let archiveZipEngine = NativeArchiveZipEngine()
+  private let archiveZipWriter = NativeArchiveZipWriter()
   private let orientationNormalizer = ImageOrientationNormalizer()
   private let processor = ReceiptImageProcessor()
   private let textRecognizer = VisionTextRecognizer()
@@ -84,6 +85,41 @@ public final class KvittoNativeModule: Module {
       return data.base64EncodedString()
     }
 
+    // Appends base64 to a file, so JavaScript can stage generated content
+    // (NDJSON streams, the manifest) without holding it all in memory.
+    AsyncFunction("writeFileChunkBase64") { (fileUri: String, base64: String, append: Bool) async throws -> Int in
+      let fileURL = try self.requireFileURL(fileUri)
+      guard let data = Data(base64Encoded: base64) else {
+        throw NativeArchiveZipWriterError.writeFailed("not valid base64")
+      }
+      if !append || !FileManager.default.fileExists(atPath: fileURL.path) {
+        try? FileManager.default.createDirectory(
+          at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try data.write(to: fileURL)
+        return data.count
+      }
+      let handle = try FileHandle(forWritingTo: fileURL)
+      defer { try? handle.close() }
+      try handle.seekToEnd()
+      try handle.write(contentsOf: data)
+      return data.count
+    }
+
+    // Archive export. Each entry's body comes from a file already on disk, so
+    // a thousand receipt images never pass through JavaScript.
+    AsyncFunction("writeArchive") { (destinationUri: String, entries: [[String: String]]) async throws -> Int in
+      let destinationURL = try self.requireFileURL(destinationUri)
+      let mapped: [NativeArchiveWriteEntry] = try entries.map { entry in
+        guard let path = entry["path"], let sourceUri = entry["sourceFileUri"] else {
+          throw NativeArchiveZipWriterError.writeFailed("an entry is missing path or sourceFileUri")
+        }
+        return NativeArchiveWriteEntry(path: path, sourceURL: try self.requireFileURL(sourceUri))
+      }
+      try self.archiveZipWriter.write(entries: mapped, to: destinationURL)
+      return mapped.count
+    }
+
     AsyncFunction("computeBlobShardPath") { (sha256Id: String) -> String in
       try BlobSharding.relativePath(for: sha256Id)
     }
@@ -133,6 +169,12 @@ public final class KvittoNativeModule: Module {
     AsyncFunction("markBlobUploaded") { (sha256Id: String) async throws -> Void in
       let now = Int(Date().timeIntervalSince1970 * 1000)
       try await self.metadataStore.markUploaded(sha256Id, uploadedAt: now)
+    }
+
+    // Export needs every blob, not just the ones waiting to upload.
+    AsyncFunction("listAllBlobMetadata") { (limit: Int) async throws -> [[String: Any]] in
+      let rows = try await self.metadataStore.listAll(limit: max(0, limit))
+      return rows.map(self.encodeRecord)
     }
 
     AsyncFunction("listBlobMetadataPendingUpload") { (limit: Int) async throws -> [[String: Any]] in

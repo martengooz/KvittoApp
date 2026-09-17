@@ -36,9 +36,12 @@ function nativeMock(): KvittoNativeFacade {
     markBlobUploaded: async () => {
       stored = { ...stored, pendingUpload: false, uploadedAt: 20 };
     },
+    listAllBlobMetadata: () => Promise.resolve([]),
     listBlobMetadataPendingUpload: async () => (stored.pendingUpload ? [stored] : []),
     deleteBlobMetadata: async () => true,
     resetBlobUploadState: async () => 0,
+    writeFileChunkBase64: () => Promise.resolve(0),
+    writeArchive: () => Promise.resolve(0),
     readFileChunkBase64: () => Promise.resolve(''),
     readArchiveIndex: () => Promise.resolve([]),
     extractArchiveEntry: () => Promise.resolve(0),

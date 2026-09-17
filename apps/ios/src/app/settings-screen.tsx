@@ -12,6 +12,9 @@ export type SettingsFeatureScreenProps = {
   /** Navigation is owned by the route, so the screen stays renderable in tests. */
   onOpenCategories?: () => void;
   onOpenTags?: () => void;
+  onOpenExport?: () => void;
+  onOpenImport?: () => void;
+  onOpenPairing?: () => void;
 };
 
 function toErrorMessage(error: unknown): string {
@@ -24,6 +27,9 @@ export function SettingsFeatureScreen({
   startupSteps,
   onOpenCategories,
   onOpenTags,
+  onOpenExport,
+  onOpenImport,
+  onOpenPairing,
 }: SettingsFeatureScreenProps) {
   const [snapshot, setSnapshot] = useState<SettingsControllerSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +80,20 @@ export function SettingsFeatureScreen({
           <CaptionText key={step}>{step}</CaptionText>
         ))}
       </View>
+
+      {onOpenExport || onOpenImport || onOpenPairing ? (
+        <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Data and devices">
+          <TitleText>Data and devices</TitleText>
+          <CaptionText>
+            An archive holds every receipt on this device and is not encrypted.
+          </CaptionText>
+          <View style={styles.toggleRow}>
+            {onOpenExport ? <PrimaryButton label="Export archive" onPress={onOpenExport} /> : null}
+            {onOpenImport ? <PrimaryButton label="Import archive" onPress={onOpenImport} /> : null}
+          </View>
+          {onOpenPairing ? <PrimaryButton label="Pair device" onPress={onOpenPairing} /> : null}
+        </View>
+      ) : null}
 
       {onOpenCategories || onOpenTags ? (
         <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Taxonomy settings">

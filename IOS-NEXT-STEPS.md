@@ -202,17 +202,21 @@ repeat them.
 Ordered roughly by the project's own recommended resume order, with effort
 and risk notes.
 
-1. **Applying a validated archive** — the largest item that does not need
-   hardware. Reading and preflighting a `.kvitto` is done: the Swift ZIP reader,
-   `src/archive/native-entry-source.ts`, and the preflight screen. What is
-   missing is the apply: a transactional entity write, blob staging outside the
-   live directory, moving blobs into place only on success, and removing staged
-   files on failure (section 14, requirements 7-10). `packages/archive` has the
-   merge plan already. The result screen currently says applying is not
-   implemented rather than offering a button that does nothing — keep that
-   honesty if you land it in stages.
+1. **Applying a validated archive** — the one substantial piece left that
+   needs no hardware. Reading, preflighting and *writing* are all done: the
+   Swift reader and writer (round-tripped against each other, 19 XCTest cases),
+   `src/archive/native-entry-source.ts`, `src/archive/export.ts`, and the
+   export and import screens.
 
-   Also missing: the **ZIP writer** for export. There is no sink on iOS yet.
+   What is missing is the apply: a transactional entity write, blob staging
+   outside the live directory, promoting blobs only on success, and removing
+   staged files on failure (section 14, requirements 7-10). `packages/archive`
+   has the merge plan already.
+
+   The result screen currently says applying is not implemented rather than
+   offering a button that does nothing. **Keep that if you land this in
+   stages** — a partly-working import that writes some rows and leaves others
+   is worse than one that honestly does nothing.
 
 2. **Checking populated screens on device — read this before adding a screen.**
    The simulator has no camera, so for a long time the device had no receipts

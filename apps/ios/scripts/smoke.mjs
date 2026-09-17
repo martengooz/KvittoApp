@@ -65,6 +65,7 @@ const ROUTES = [
   '/categories',
   '/tags',
   '/debug/log',
+  '/archive/export',
   '/archive/preflight',
   '/archive/result',
   '/pairing/scanner',
