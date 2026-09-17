@@ -92,6 +92,7 @@ function makeNative(options: {
     listBlobMetadataPendingUpload: async () => [],
     deleteBlobMetadata: async () => true,
     resetBlobUploadState: async () => 0,
+    isSimulator: () => true,
     logDiagnostic: () => undefined,
     makeScratchFileUri: (prefix: string, extension: string) => `file:///scratch/${prefix}.${extension}`,
     deleteScratchFile: async () => true,

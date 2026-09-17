@@ -30,6 +30,70 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Sample data on device, and a smoke check that can finally see a populated screen
+
+The previous entry recorded a standing gap: the simulator has no camera and no
+seeding path, so the device had no receipts, and every receipt-dependent screen
+could only ever be checked in its empty state. The smoke check visited receipt
+routes with an id that does not exist and passed - proving only that the
+not-found branch renders.
+
+That is closed. `src/data/sample-data.ts` writes six receipts chosen to be
+awkward rather than tidy: confirmed, parsed, a draft with no lines, a failed
+one, a fuel receipt with a single fractional-quantity line, and one whose lines
+deliberately do not add up to its total, so the edit screen's warning has
+something real to warn about. Ids are deterministic and prefixed `sample:`,
+which makes seeding idempotent and clearing exact - `clearSampleData` cannot
+touch a real receipt however it got onto the device.
+
+`app/debug/log.tsx` is now a real screen: entity counts, startup steps, and the
+seed/clear actions.
+
+Three things about it are worth keeping.
+
+**The gate is the simulator, not a debug build.** The smoke check drives a
+*Release* build, so `__DEV__` would have made these actions unreachable exactly
+where they are needed. A new `isSimulator()` on the native module answers with
+`#if targetEnvironment(simulator)`; a real device never gets the controls,
+Release or not. A device that cannot answer - no native module - is treated as
+real.
+
+**Seeding is reachable by deep link.** `simctl` cannot tap, so a button alone
+would have left this as useless to automation as the camera was. `?seed=1`
+seeds on open, which is what lets the smoke check drive it.
+
+**The smoke check proves the seed happened.** The route logs
+`sample-data:seeded` to the unified log and the check fails if it does not
+appear before the populated routes. Without that, a seed that silently did
+nothing would leave every populated route rendering "not found" - and still
+passing. That is the same failure shape as the two this project has already
+been bitten by, so it is guarded rather than assumed. Two tests keep the
+hard-coded id and marker in `smoke.mjs` in step with the code; both were
+mutation-checked by breaking them and confirming they fail.
+
+The check now visits 21 routes: the old not-found pass, then a seed, then the
+list, purchases, collections and all four receipt routes with real data.
+
+Verified:
+  - `npm run -w apps/ios typecheck`: clean.
+  - `npx jest --config apps/ios/jest.config.js`: 50 suites, 239 tests, passed.
+  - `npm run ios:smoke`: passed, 21 routes, idle CPU 1-2%.
+  - Screenshots confirmed, **for the first time on device**, the receipts list
+    rendering real rows (dates, totals, statuses, sorted by purchase date) and
+    the populated edit screen with its status and category selections showing.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Still not driven on device: anything needing a tap - the two-step delete, the
+edit screen's Save. `simctl` cannot tap and neither `idb` nor `fbsimctl` is
+installed here. Those paths are covered by host tests that press the real
+controls against a real SQLite database. Installing `idb` would close this last
+gap.
+
+Placeholder routes remaining: three files - pairing scanner, archive preflight,
+and archive result. All three depend on work further down the list (the pairing
+flow, native ZIP). Verify with
+`grep -rln "RouteSkeletonScreen" apps/ios/app`.
+
 ### 2026-09-17: The receipt editor, and one receipt with one owner
 
 `receipt/[receiptId]/edit.tsx` was the last self-contained placeholder. Filling
@@ -361,9 +425,9 @@ wrapper controls. Not chased further.
 
 Measured against `IOS-HANDOFF.md`, not against the packet table:
 
-1. **Four pushed/modal route files are still placeholders**: pairing scanner,
-   debug log, archive preflight, archive result. (Receipt detail, edit,
-   extraction, OCR, filters, categories and tags are done.) Confirm with
+1. **Three pushed/modal route files are still placeholders**: pairing scanner,
+   archive preflight, archive result. (Receipt detail, edit, extraction, OCR,
+   filters, categories, tags and debug are done.) Confirm with
    `grep -rln "RouteSkeletonScreen" apps/ios/app`.
 2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
    for haptics.
@@ -1065,9 +1129,9 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Add a debug-only seed action so receipt-dependent screens can be checked on
-  device beyond their empty state, then replace the remaining placeholder
-  routes, and add haptics and swipe actions.
+1. Add haptics and swipe actions. The three remaining placeholder routes
+  (pairing scanner, archive preflight, archive result) all depend on work
+  further down this list, so they are not the next thing to pick up.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.

@@ -25,6 +25,8 @@ interface KvittoNativeBinding {
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
+  /** True only on a simulator; gates debug-only sample-data actions. */
+  isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
   makeScratchFileUri(prefix: string, fileExtension: string): string;
   deleteScratchFile(fileUri: string): Promise<boolean>;
@@ -93,6 +95,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     resetBlobUploadState() {
       return binding.resetBlobUploadState();
+    },
+    isSimulator() {
+      return binding.isSimulator();
     },
     logDiagnostic(category, message) {
       binding.logDiagnostic(category, message);

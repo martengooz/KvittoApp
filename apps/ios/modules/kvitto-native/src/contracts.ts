@@ -119,6 +119,8 @@ export interface KvittoNativeFacade {
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
   /** Writes a milestone to the unified log, which survives a Release build. */
+  /** True only on a simulator; gates debug-only sample-data actions. */
+  isSimulator(): boolean;
   logDiagnostic(category: string, message: string): void;
   /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */
   makeScratchFileUri(prefix: string, fileExtension: string): string;

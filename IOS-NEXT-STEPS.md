@@ -20,8 +20,8 @@ receipt images. The camera preview, capture, torch, and zoom work through
 VisionCamera, but only host-tested — nothing camera-related has run on real
 hardware, since a simulator has no camera.
 
-Of the eleven pushed/modal route files under `apps/ios/app`, seven are real: receipt
-detail, edit, extraction, OCR, filters, categories, and tags. Four route files still render
+Of the eleven pushed/modal route files under `apps/ios/app`, eight are real: receipt
+detail, edit, extraction, OCR, filters, categories, tags, and debug. Three route files still render
 `RouteSkeletonScreen` placeholders (see "What is left" below) — check with
 `grep -rn "RouteSkeletonScreen" apps/ios/app` before trusting any older count
 in the status doc, which has described this number inconsistently across
@@ -205,46 +205,58 @@ repeat them.
 Ordered roughly by the project's own recommended resume order, with effort
 and risk notes.
 
-1. **A debug-only seed action.** Not a handoff item, but it blocks verifying
-   everything else. The device smoke check visits receipt routes with an id
-   that does not exist, and the simulator has no camera, so no
-   receipt-dependent screen can be exercised on device past its empty state.
-   One "seed sample data" action fixes that for every such screen at once, and
-   `app/debug/log.tsx` below is the natural host. Cheap, and it raises the
-   ceiling on every check that follows.
-
-2. **Four placeholder routes** still render `RouteSkeletonScreen`:
+1. **Three placeholder routes** still render `RouteSkeletonScreen`:
    - `apps/ios/app/pairing/scanner.tsx`
-   - `apps/ios/app/debug/log.tsx`
    - `apps/ios/app/archive/preflight.tsx`
    - `apps/ios/app/archive/result.tsx`
 
-   Detail, edit, extraction, OCR, filters, categories and tags are done and
-   are a good template: controller-free screens read straight from the
-   repository, real not-found/loading states, tests that render the actual
-   screen via `react-test-renderer` against a seeded database, and an entry
-   added to the smoke check's route list. The four that remain all depend on
-   work further down this list (native ZIP, the pairing flow), so they are
-   naturally sequenced after it rather than picked up next.
+   All three depend on work further down this list (the pairing flow, native
+   ZIP), so they are sequenced after it rather than picked up next. The eight
+   finished screens are a good template: controller-free, reading straight from
+   the repository, real not-found/loading states, tests that render the actual
+   screen via `react-test-renderer` against a seeded database, and an entry in
+   the smoke check's route list.
 
-   Two conventions the recent screens settled on, worth keeping: a destructive
-   action confirms in place and names its consequence (there is still no
-   `Alert` in this app), and a value that looks wrong is *reported*, never
-   silently corrected — an inverted filter range, a line whose quantity times
-   unit price misses its total, items that do not add up to the receipt total.
-   A receipt is a record of what was printed; rewriting it to be self-consistent
-   destroys the evidence that it was not.
+   Three conventions the recent screens settled on, worth keeping:
 
-   Editing a receipt has exactly one owner: the edit modal. The detail screen
-   shows those fields read-only. It used to edit some of them inline, which is
-   how the two would have drifted apart.
+   - A destructive action confirms in place and names its consequence. There is
+     still no `Alert` in this app, and "Delete 'Fika'? Used by 1 receipt and 0
+     items. Deleting clears it from them" is more useful than "Are you sure?".
+   - A value that looks wrong is *reported*, never silently corrected — an
+     inverted filter range, a line whose quantity times unit price misses its
+     total, items that do not add up to the receipt total. A receipt records
+     what was printed; rewriting it to be self-consistent destroys the evidence
+     that it was not.
+   - Editing a receipt has exactly one owner, the edit modal. The detail screen
+     shows those fields read-only. It used to edit some of them inline, which
+     is how the two would have drifted apart.
 
-   Note on taxonomy, since it is easy to reintroduce: deleting a category or
-   tag must clear the references held by receipts, items and `receiptTags`
-   rows in the same transaction as the tombstone, or those rows are left
-   pointing at a row that no longer exists. `IosDataRepository.deleteCategory`
-   and `deleteTag` do this and return the counts; anything else that removes a
-   referenced entity needs the same treatment.
+2. **Checking populated screens on device — read this before adding a screen.**
+   The simulator has no camera, so for a long time the device had no receipts
+   and the smoke check could only ever prove that empty states render.
+
+   `kvittoapp:///debug/log?seed=1` now seeds six deliberately awkward sample
+   receipts (see `src/data/sample-data.ts`), and the smoke check drives it
+   before visiting receipt routes with real data. Ids are deterministic and
+   prefixed `sample:`, so seeding is idempotent and clearing is exact.
+
+   The gate is `isSimulator()` on the native module, not `__DEV__`: the smoke
+   check drives a **Release** build, so a debug-build gate would have made the
+   seeding unreachable precisely where it is needed. A real device never gets
+   these controls.
+
+   The seed is *proved*, not assumed — the route logs `sample-data:seeded` and
+   the check fails if it is missing before the populated routes. A seed that
+   silently did nothing would otherwise leave every populated route rendering
+   "not found" and still passing, which is the same failure shape this project
+   has already been bitten by twice. Two tests keep the id and marker in
+   `smoke.mjs` in step with the code.
+
+   **What still cannot be checked on device: anything needing a tap.** `simctl`
+   cannot tap, and neither `idb` nor `fbsimctl` is installed. Saving from the
+   edit screen and the two-step delete are covered only by host tests.
+   Installing `idb` would close this, and is probably the single highest-value
+   thing available to the next person.
 
 3. **Haptics.** `ScanHapticsPort` in `src/app/services.tsx` is composed with
    a no-op (`impact() { return; }`). Section 15 of the handoff asks for

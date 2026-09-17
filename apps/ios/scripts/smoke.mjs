@@ -22,14 +22,34 @@ const run = promisify(execFile);
 
 const BUNDLE_ID = 'com.kvitto.app.ios';
 const BOOT_READY = 'boot:ready';
+
+/**
+ * Logged by the debug route once `?seed=1` has written the sample receipts.
+ * Without it, a seed that silently did nothing would leave every populated
+ * route rendering its not-found state - and still passing every check here.
+ */
+const SAMPLE_SEEDED = 'sample-data:seeded';
 const BOOT_FAILED = 'boot:failed';
 const RENDER_FAILED = 'render:failed';
 const JS_ERROR_PREDICATE = 'facebook.react.log:javascript';
 
 /**
- * Routes the check visits, as `<scheme>:///<path>`. The pushed receipt routes
- * are visited with an id that does not exist, which exercises their real
- * loading and not-found paths rather than a placeholder.
+ * Deterministic id of a seeded sample receipt, from `src/data/sample-data.ts`.
+ * Kept in sync by the `sample data ids stay in step with the smoke check` test.
+ */
+const SAMPLE_RECEIPT_ID = 'sample:receipt:ica';
+const SAMPLE_PATH = `/receipt/${encodeURIComponent(SAMPLE_RECEIPT_ID)}`;
+
+/**
+ * Routes the check visits, as `<scheme>:///<path>`, in order.
+ *
+ * Receipt routes are visited twice over: once with an id that does not exist,
+ * which exercises the real not-found path, and once with a seeded sample
+ * receipt. Without the second pass a screen that renders nothing but its empty
+ * state would pass every check here - which is exactly how a green suite once
+ * coexisted with an app that could not start.
+ *
+ * `?seed=1` runs before the populated visits, and only works on a simulator.
  */
 const ROUTES = [
   '/',
@@ -44,6 +64,15 @@ const ROUTES = [
   '/filters',
   '/categories',
   '/tags',
+  '/debug/log',
+  '/debug/log?seed=1',
+  '/',
+  '/purchases',
+  '/collections',
+  SAMPLE_PATH,
+  `${SAMPLE_PATH}/edit`,
+  `${SAMPLE_PATH}/extraction`,
+  `${SAMPLE_PATH}/ocr`,
 ];
 const SCHEME = 'kvittoapp';
 
@@ -220,6 +249,17 @@ async function main() {
         );
       }
       console.log(`  ${route} ok${cpu === null ? '' : ` (idle cpu ${cpu.toFixed(0)}%)`}`);
+
+      // Seeding has to be confirmed before the routes that depend on it.
+      if (route.includes('seed=1') && !log.includes(SAMPLE_SEEDED)) {
+        stopStream();
+        fail(
+          `The debug route did not report ${SAMPLE_SEEDED}, so the sample receipts were ` +
+            'never written and every populated route after this one would only be ' +
+            'checking its empty state.',
+          log,
+        );
+      }
     }
 
     // A crash after the last navigation would otherwise go unnoticed.

@@ -118,6 +118,10 @@ class NativeStub implements KvittoNativeFacade {
     return 0;
   }
 
+  isSimulator(): boolean {
+    return true;
+  }
+
   logDiagnostic(): void {
     return;
   }

@@ -106,6 +106,19 @@ public final class KvittoNativeModule: Module {
       await self.metadataStore.delete(sha256Id)
     }
 
+    // Whether this build is running on a simulator. Debug-only affordances that
+    // write sample data are gated on this rather than on a debug build flag,
+    // because the automated smoke check drives a *Release* build on a simulator
+    // and would otherwise be unable to reach them - while a real device, Release
+    // or not, never can.
+    Function("isSimulator") { () -> Bool in
+      #if targetEnvironment(simulator)
+        return true
+      #else
+        return false
+      #endif
+    }
+
     // Release builds strip `console.log`, so milestones that automation needs to
     // observe (boot completing, boot failing) go to the unified log instead.
     Function("logDiagnostic") { (category: String, message: String) -> Void in
