@@ -26,8 +26,21 @@ const BOOT_FAILED = 'boot:failed';
 const RENDER_FAILED = 'render:failed';
 const JS_ERROR_PREDICATE = 'facebook.react.log:javascript';
 
-/** Routes the check visits, as `<scheme>:///<path>`. */
-const ROUTES = ['/', '/purchases', '/scan', '/collections', '/settings'];
+/**
+ * Routes the check visits, as `<scheme>:///<path>`. The pushed receipt routes
+ * are visited with an id that does not exist, which exercises their real
+ * loading and not-found paths rather than a placeholder.
+ */
+const ROUTES = [
+  '/',
+  '/purchases',
+  '/scan',
+  '/collections',
+  '/settings',
+  '/receipt/smoke-missing-id',
+  '/receipt/smoke-missing-id/extraction',
+  '/receipt/smoke-missing-id/ocr',
+];
 const SCHEME = 'kvittoapp';
 
 const BOOT_TIMEOUT_MS = 90_000;

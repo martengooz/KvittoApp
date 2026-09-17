@@ -30,6 +30,42 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Extraction and OCR routes are real
+
+The receipt detail screen added earlier links onward to extraction and OCR, and
+both of those landed on placeholder skeletons - a dead end introduced by that
+change. Both are now real, controller-free screens reading straight from the
+repository and following later edits:
+
+- **Extraction**: provider, model, completion time, duration, token usage, the
+  failure reason when the pass failed, and every normalisation warning.
+  Distinguishes "no extraction yet" (naming the receipt's status) from a
+  missing receipt.
+- **OCR**: engine, mean confidence, timing, every organisation number found
+  (marking repaired ones) and every candidate date with its confidence, plus the
+  verbatim recognised text in a scroll view. Calls out empty recognised text
+  rather than rendering a blank box.
+
+Tests (`test/feature-receipt-provenance.test.tsx`, 7 tests) render both screens
+against a seeded database and cover the populated, failed, not-yet-run, and
+missing-receipt paths for each.
+
+The smoke check now also walks `/receipt/<id>`, `/receipt/<id>/extraction` and
+`/receipt/<id>/ocr` with an id that does not exist, which exercises their real
+loading and not-found paths rather than a placeholder.
+
+- Verification evidence:
+  - `npm run typecheck:ios`, `npm run typecheck`: passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
+  - `npm test`, `npm run ios:bundle`: passed.
+  - `npm run ios:smoke`: passed, all 8 routes, idle CPU 1-2%.
+  - Screenshot confirmed the OCR route pushes with a "Receipt" back title and
+    renders its not-found state.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Placeholder routes remaining: six - receipt edit, filters, categories, tags,
+pairing scanner, debug log, and the archive preflight/result pair.
+
 ### 2026-09-17: Device smoke check in CI, proven against both past failures
 
 The highest-value gap was that the test suite had passed green twice while the
@@ -79,7 +115,7 @@ smoke check consumes.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
   - `npm run typecheck`, `npm test`: passed.
   - `npm run ios:smoke`: passed on the fixed build, failed on each reintroduced bug.
   - `npm run lint`: 10 errors, all pre-existing.
@@ -122,7 +158,7 @@ against a seeded SQLite database.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `xcodebuild test` on iPhone 17 Pro / iOS 26.5: 14 native tests, 0 failures.
   - Release build installed and launched: tab bar shows real SF Symbols, and
@@ -141,9 +177,9 @@ wrapper controls. Not chased further.
 
 Measured against `IOS-HANDOFF.md`, not against the packet table:
 
-1. **Eight pushed/modal routes are still placeholders**: receipt edit,
-   extraction, OCR, filters, categories, tags, pairing scanner, debug log, and
-   the archive preflight/result pair.
+1. **Six pushed/modal routes are still placeholders**: receipt edit, filters,
+   categories, tags, pairing scanner, debug log, and the archive
+   preflight/result pair. (Extraction and OCR are done.)
 2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
    for haptics.
 3. **No swipe actions, sheets, or alerts.** Section 15 lists them; the screens
@@ -205,7 +241,7 @@ Device verification, on a Release build installed on iPhone 17 Pro / iOS 26.5:
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `npm run lint`: 10 errors, all pre-existing.
 
@@ -267,7 +303,7 @@ updated.
 
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
   - `npm run ios:bundle`, `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `xcodebuild build` (Debug and Release) and `xcodebuild test` on
     iPhone 17 Pro / iOS 26.5: BUILD/TEST SUCCEEDED, 14 native tests, 0 failures.
@@ -321,7 +357,7 @@ far faster than they could complete.
   real bridge over fake permissions.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: VisionCamera 5.2.3, NitroModules 0.37.1, NitroImage 0.15.2,
@@ -400,7 +436,7 @@ far faster than they could complete.
   and removing the Wi-Fi-only gate each fail their tests.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: passed with `ExpoNetwork` integrated.
@@ -726,7 +762,7 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed
+- `npm run test:ios -- --runInBand`: 45 suites, 171 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed

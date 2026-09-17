@@ -1,14 +1,21 @@
-import { Stack } from 'expo-router';
-import { RouteSkeletonScreen } from '../../../src/app/route-skeleton';
+import { Stack, useLocalSearchParams } from 'expo-router';
+
+import { LoadingState } from '../../../src/ui/controls';
+import { ReceiptExtractionScreen } from '../../../src/features/receipts/provenance-view';
+import { useAppServices } from '../../../src/app/services';
 
 export default function ReceiptExtractionRoute() {
+  const { composition } = useAppServices();
+  const { receiptId } = useLocalSearchParams<{ receiptId: string }>();
+
   return (
     <>
-      <Stack.Screen options={{ title: 'Extraction details' }} />
-      <RouteSkeletonScreen
-        title="Extraction details"
-        summary="Extraction diagnostics route is wired for provider outputs and warning-level review decisions."
-      />
+      <Stack.Screen options={{ title: 'Extraction', headerBackTitle: 'Receipt' }} />
+      {composition && receiptId ? (
+        <ReceiptExtractionScreen repository={composition.tabs.receipts.repository} receiptId={receiptId} />
+      ) : (
+        <LoadingState message="Loading extraction services..." />
+      )}
     </>
   );
 }
