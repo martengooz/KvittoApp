@@ -13,6 +13,9 @@ import type { IosDataRepository } from '../../data/repository';
 import { ScreenScaffold, PrimaryButton } from '../../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../../ui/typography';
 import { colorToken } from '../../ui/tokens';
+import { nativeConfirm, type ConfirmPort } from '../../ui/confirm';
+import { haptic } from '../../ui/haptics';
+import { SwipeRow } from '../../ui/swipe-row';
 import { useReceiptsFeatureController, type ReceiptEditorState } from './controller';
 import { countActiveFilters, type ReceiptFilterStore } from './filter-store';
 
@@ -27,6 +30,8 @@ export type ReceiptsFeatureScreenProps = {
    * testable) without a navigator.
    */
   onOpenReceipt?: (receiptId: string) => void;
+  /** Swappable so tests can answer the swipe-to-delete prompt. */
+  confirm?: ConfirmPort;
 };
 
 export function ReceiptsFeatureScreen({
@@ -34,6 +39,7 @@ export function ReceiptsFeatureScreen({
   filterStore,
   onOpenFilters,
   onOpenReceipt,
+  confirm = nativeConfirm,
 }: ReceiptsFeatureScreenProps) {
   const { state, queryInput, actions } = useReceiptsFeatureController(repository, 50, filterStore ?? null);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
@@ -90,7 +96,7 @@ export function ReceiptsFeatureScreen({
       ) : (
         <FlashList
           accessibilityLabel="Receipts list"
-          accessibilityHint="Double tap a row to open receipt details"
+          accessibilityHint="Double tap a row to open receipt details. Swipe a row left for actions."
           data={state.list.rows}
           keyExtractor={(item) => item.id}
           onEndReachedThreshold={0.6}
@@ -99,29 +105,62 @@ export function ReceiptsFeatureScreen({
           }}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={item.accessibilityLabel}
-              onPress={() => {
-                if (onOpenReceipt) {
-                  onOpenReceipt(item.id);
-                  return;
-                }
-                void actions.selectReceipt(item.id);
-              }}
-              style={styles.row}
+            <SwipeRow
+              actions={[
+                // Offered only where it changes something, so a swipe never
+                // reveals an action that would do nothing.
+                ...(item.needsReview
+                  ? [
+                      {
+                        label: `Mark ${item.merchantName} reviewed`,
+                        onPress: () => {
+                          void actions.markReviewed(item.id).then(() => haptic('success'));
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: `Delete ${item.merchantName}`,
+                  destructive: true,
+                  onPress: () => {
+                    void (async () => {
+                      const confirmed = await confirm({
+                        title: 'Delete receipt?',
+                        message: `${item.merchantName} will be removed. You can undo this from the receipts list.`,
+                        confirmLabel: 'Delete receipt',
+                      });
+                      if (!confirmed) return;
+                      await actions.deleteReceipt(item.id);
+                      haptic('success');
+                    })();
+                  },
+                },
+              ]}
             >
-              <View style={styles.rowTop}>
-                <BodyText>{item.merchantName}</BodyText>
-                <CaptionText>{item.totalLabel}</CaptionText>
-              </View>
-              <CaptionText>{item.purchasedAtLabel}</CaptionText>
-              <CaptionText>
-                {item.status}
-                {item.needsReview ? ' • needs review' : ''}
-                {item.hasThumbnail ? ' • has thumbnail' : ' • no image loaded'}
-              </CaptionText>
-            </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={item.accessibilityLabel}
+                onPress={() => {
+                  if (onOpenReceipt) {
+                    onOpenReceipt(item.id);
+                    return;
+                  }
+                  void actions.selectReceipt(item.id);
+                }}
+                style={styles.row}
+              >
+                <View style={styles.rowTop}>
+                  <BodyText>{item.merchantName}</BodyText>
+                  <CaptionText>{item.totalLabel}</CaptionText>
+                </View>
+                <CaptionText>{item.purchasedAtLabel}</CaptionText>
+                <CaptionText>
+                  {item.status}
+                  {item.needsReview ? ' • needs review' : ''}
+                  {item.hasThumbnail ? ' • has thumbnail' : ' • no image loaded'}
+                </CaptionText>
+              </Pressable>
+            </SwipeRow>
           )}
           ListFooterComponent={
             state.list.loading ? <CaptionText accessibilityRole="progressbar">Loading receipts…</CaptionText> : null

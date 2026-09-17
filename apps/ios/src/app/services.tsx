@@ -39,6 +39,7 @@ import { createCredentialsAdapter, createIdentityStateStoreFromKeyValue, type Id
 import { createAppSyncService, type AppSyncService } from '../sync/service';
 import { ProtocolV2Transport } from '../sync/transport/client';
 import { createVisionCameraPermissionsPort } from './camera-platform';
+import { haptic } from '../ui/haptics';
 import {
   createRepositoryBackedJobStore,
   createScanDurableJobService,
@@ -273,8 +274,8 @@ function createScanController(
   const library = createPhotoLibraryPort(native);
 
   const haptics: ScanHapticsPort = {
-    impact() {
-      return;
+    impact(kind) {
+      haptic(kind);
     },
   };
 

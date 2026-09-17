@@ -30,6 +30,71 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Haptics, alerts, and swipe actions
+
+Section 15 of the handoff asks for haptics, sheets, alerts and swipe actions.
+Three of the four are in. Checking first was worth it: `useDeferredValue`,
+`startTransition` and Reduce Motion were already done, so only the feedback
+and gesture affordances were actually missing.
+
+**Haptics** were a no-op `ScanHapticsPort`. `src/ui/haptics.ts` wraps
+`expo-haptics` behind a vocabulary of outcomes - success, warning, error,
+selection, impact - so callers say what happened and one file decides how it
+feels. Every call is swallowed: a simulator has no Taptic Engine and a device
+can refuse in Low Power Mode, and letting that reject would turn decoration
+into a failed save. Fired on completed deletes, saves, and failures, not on
+every tap.
+
+**Alerts** closed a real gap rather than ticking a box. The detail screen's
+"Delete receipt" deleted on the first press with nothing asked. It now confirms
+through a native alert that names the receipt and counts the line items going
+with it. The prompt is awaited *outside* the screen's `run()` helper, because
+`run` sets its status label once the work resolves - inside it, declining would
+have reported "Deleted." for a receipt that still existed. There is a test for
+exactly that.
+
+`ConfirmPort` is injectable (`nativeConfirm`, `alwaysConfirm`, `neverConfirm`)
+because `Alert.alert` does nothing under `react-test-renderer`: a test that
+cannot answer the prompt could never reach the code past it.
+
+**Swipe actions** are on receipt rows: delete (confirmed) and, only where it
+would change something, mark reviewed. The revealed actions are ordinary
+`Pressable`s rather than gesture callbacks, so VoiceOver can reach them - it
+cannot perform a swipe - and so tests can press them. The swipe only decides
+whether the panel is visible. `GestureHandlerRootView` now wraps the whole app;
+it was missing entirely, so any gesture would have silently done nothing.
+
+One trap worth recording. `ReanimatedSwipeable` pulls in Reanimated, which
+boots a worklets runtime at import time and throws under Jest. Adding the first
+swipe action therefore made `features/receipts/view.tsx` impossible to import in
+a test - and nothing would have caught it, because **no test had ever rendered
+the receipts list**. `react-native-worklets` ships
+`jest/resolver.js`, which steers those imports away from their `.native` entry
+points; that is now in `jest.config.js`. The new test file renders the list for
+the first time.
+
+Verified:
+  - `npm run -w apps/ios typecheck`: clean.
+  - `npx jest --config apps/ios/jest.config.js`: 51 suites, 250 tests, passed.
+    11 are new.
+  - `npm run ios:smoke`: passed, 21 routes, idle CPU 1-2%. This matters more
+    than usual here: a broken `GestureHandlerRootView` would break every screen,
+    not just the list.
+  - Screenshot confirmed the list rows are unchanged by the swipe wrapper - a
+    plausible regression, since `Swipeable` wraps each row.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Not verified on device: the swipe gesture itself, and the alert. `simctl`
+cannot drag or tap, and neither `idb` nor `fbsimctl` is installed. The revealed
+actions and both confirm branches are covered by host tests that press the real
+controls against a real database; what is unproven on device is that the
+gesture reveals the panel and that the alert appears.
+
+Dependency added: `expo-haptics@~57.0.3`, installed via `npx expo install` from
+inside `apps/ios` (running it from the repo root scaffolds a stray `ios/`
+directory - see the earlier entry). `pod install` was run; skipping it is what
+made the crypto polyfill fail at runtime once before.
+
 ### 2026-09-17: Sample data on device, and a smoke check that can finally see a populated screen
 
 The previous entry recorded a standing gap: the simulator has no camera and no
@@ -1129,7 +1194,9 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Add haptics and swipe actions. The three remaining placeholder routes
+1. Sheets are the one part of section 15's control list still missing; the
+  screens use full routes and modals instead. After that, the VisionCamera
+  frame processor is the largest remaining item. The three placeholder routes
   (pairing scanner, archive preflight, archive result) all depend on work
   further down this list, so they are not the next thing to pick up.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and

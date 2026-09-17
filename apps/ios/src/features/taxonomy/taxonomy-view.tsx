@@ -6,6 +6,7 @@ import type { IosDataRepository } from '../../data/repository';
 import { ScreenScaffold, PrimaryButton } from '../../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../../ui/typography';
 import { colorToken } from '../../ui/tokens';
+import { haptic } from '../../ui/haptics';
 
 /**
  * A colour the app can actually render. Anything else is rejected at the edit
@@ -178,8 +179,10 @@ export function TaxonomyScreen({ repository, kind }: TaxonomyScreenProps) {
     try {
       if (isCategories) await repository.deleteCategory(id);
       else await repository.deleteTag(id);
+      haptic('success');
       setPending(null);
     } catch (cause: unknown) {
+      haptic('error');
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };

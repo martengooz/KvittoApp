@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Stack, type ErrorBoundaryProps } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { createKvittoNativeFacade } from '../../modules/kvitto-native/src';
 import { StatusBar } from 'expo-status-bar';
@@ -48,9 +49,16 @@ function RouterShell() {
 
 export function RootRouterLayout() {
   return (
-    <AppServicesProvider>
-      <RouterShell />
-    </AppServicesProvider>
+    /*
+     * Swipe actions on list rows are gesture-handler gestures, and those do
+     * nothing without this root view. It wraps the provider so every route is
+     * inside it, not just the ones that happen to use a gesture today.
+     */
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppServicesProvider>
+        <RouterShell />
+      </AppServicesProvider>
+    </GestureHandlerRootView>
   );
 }
 

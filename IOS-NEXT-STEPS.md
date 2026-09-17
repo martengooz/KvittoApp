@@ -258,16 +258,35 @@ and risk notes.
    Installing `idb` would close this, and is probably the single highest-value
    thing available to the next person.
 
-3. **Haptics.** `ScanHapticsPort` in `src/app/services.tsx` is composed with
-   a no-op (`impact() { return; }`). Section 15 of the handoff asks for
-   haptics throughout. Small, low-risk — wire `expo-haptics` (not yet a
-   dependency) into that port and into whatever else calls for tactile
-   feedback (delete, save, capture).
+3. **Sheets.** The last of section 15's control list still missing. Haptics,
+   alerts and swipe actions are done; the screens currently use full routes and
+   modals where a sheet would fit.
 
-4. **Swipe actions, sheets, and alerts.** Screens currently use plain
-   buttons. Section 15 lists these as expected native affordances. Moderate
-   effort, no architectural risk — this is UI work on top of the existing
-   controllers.
+4. **What still cannot be checked on device: anything needing a tap or a drag.**
+   `simctl` can open URLs and screenshot, but cannot tap, and neither `idb` nor
+   `fbsimctl` is installed. So the swipe gesture, the native delete alert, and
+   every Save button are covered only by host tests. Those tests press the real
+   controls against a real SQLite database, so they are not weak — but they
+   cannot see a gesture that fails to register or an alert that never appears.
+   Installing `idb` is probably the single highest-value thing available here.
+
+   Conventions the finished screens settled on, worth keeping:
+
+   - Haptics go through `src/ui/haptics.ts`, which takes an *outcome*
+     (`success`, `error`, `selection`…) rather than a generator, and swallows
+     every failure. Feedback is decoration; a simulator has no Taptic Engine and
+     a device can refuse in Low Power Mode, and that must never become a failed
+     save.
+   - Anything that prompts takes an injectable `ConfirmPort`
+     (`src/ui/confirm.ts`). `Alert.alert` does nothing under
+     `react-test-renderer`, so a screen that calls it directly is a screen whose
+     post-confirmation code no test can reach.
+   - Swipe actions are real `Pressable`s inside the revealed panel, never
+     gesture callbacks. VoiceOver cannot swipe.
+   - Adding a swipe pulls Reanimated's worklets into the import graph, which
+     throws under Jest. `jest.config.js` sets
+     `resolver: 'react-native-worklets/jest/resolver.js'` to handle that — if a
+     new screen suddenly fails to import in a test, this is why.
 
 5. **VisionCamera frame processor for auto-capture — the largest remaining
    piece.** `analyzeFrameCompact` currently reports `unsupported` with

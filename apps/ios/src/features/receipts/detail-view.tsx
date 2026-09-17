@@ -7,6 +7,8 @@ import type { IosDataRepository } from '../../data/repository';
 import { ScreenScaffold, PrimaryButton } from '../../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../../ui/typography';
 import { colorToken } from '../../ui/tokens';
+import { nativeConfirm, type ConfirmPort } from '../../ui/confirm';
+import { haptic } from '../../ui/haptics';
 import { ReceiptsFeatureController, type ReceiptEditorState } from './controller';
 
 export type ReceiptDetailScreenProps = {
@@ -18,6 +20,8 @@ export type ReceiptDetailScreenProps = {
   onOpenOcr?: () => void;
   /** Opens the edit modal, which is the only place these fields are written. */
   onEdit?: () => void;
+  /** Swappable so tests can answer the delete prompt; defaults to a real alert. */
+  confirm?: ConfirmPort;
 };
 
 /**
@@ -68,6 +72,7 @@ export function ReceiptDetailScreen({
   onOpenExtraction,
   onOpenOcr,
   onEdit,
+  confirm = nativeConfirm,
 }: ReceiptDetailScreenProps) {
   const { controller, details, loading } = useReceiptDetails(repository, receiptId);
   const [editor, setEditor] = useState<ReceiptEditorState | null>(null);
@@ -139,7 +144,10 @@ export function ReceiptDetailScreen({
         <PrimaryButton
           label="Mark reviewed"
           onPress={() => {
-            void run('Marked reviewed.', () => controller.markReviewed(receiptId));
+            void run('Marked reviewed.', async () => {
+              await controller.markReviewed(receiptId);
+              haptic('success');
+            });
           }}
         />
       </View>
@@ -148,10 +156,26 @@ export function ReceiptDetailScreen({
         <PrimaryButton
           label="Delete receipt"
           onPress={() => {
-            void run('Deleted.', async () => {
-              await controller.deleteReceipt(receiptId);
-              onDeleted?.();
-            });
+            // Deleting used to happen on the first press with nothing asked.
+            // The prompt is awaited outside `run` so declining does not report
+            // a deletion that never happened.
+            void (async () => {
+              const merchant = editor.merchantName || 'this receipt';
+              const confirmed = await confirm({
+                title: 'Delete receipt?',
+                message: `${merchant} and its ${details.items.length} line item${
+                  details.items.length === 1 ? '' : 's'
+                } will be removed. You can undo this from the receipts list.`,
+                confirmLabel: 'Delete receipt',
+              });
+              if (!confirmed) return;
+
+              await run('Deleted.', async () => {
+                await controller.deleteReceipt(receiptId);
+                haptic('success');
+                onDeleted?.();
+              });
+            })();
           }}
         />
         {onOpenExtraction ? <PrimaryButton label="Extraction" onPress={onOpenExtraction} /> : null}

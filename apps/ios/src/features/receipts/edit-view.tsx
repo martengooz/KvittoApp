@@ -6,6 +6,7 @@ import type { IosDataRepository } from '../../data/repository';
 import { ScreenScaffold, PrimaryButton } from '../../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../../ui/typography';
 import { colorToken } from '../../ui/tokens';
+import { haptic } from '../../ui/haptics';
 
 const STATUSES: Receipt['status'][] = ['draft', 'parsed', 'confirmed', 'failed'];
 
@@ -147,8 +148,10 @@ export function ReceiptEditScreen({ repository, receiptId, onDone }: ReceiptEdit
         categoryId: draft.categoryId,
       });
       await repository.setReceiptTags(receiptId, draft.tagIds);
+      haptic('success');
       onDone?.();
     } catch (cause: unknown) {
+      haptic('error');
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSaving(false);
