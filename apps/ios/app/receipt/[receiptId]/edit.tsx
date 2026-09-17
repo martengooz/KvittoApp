@@ -1,14 +1,28 @@
-import { Stack } from 'expo-router';
-import { RouteSkeletonScreen } from '../../../src/app/route-skeleton';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+
+import { LoadingState } from '../../../src/ui/controls';
+import { ReceiptEditScreen } from '../../../src/features/receipts/edit-view';
+import { useAppServices } from '../../../src/app/services';
 
 export default function ReceiptEditRoute() {
+  const { composition } = useAppServices();
+  const { receiptId } = useLocalSearchParams<{ receiptId: string }>();
+  const router = useRouter();
+
   return (
     <>
       <Stack.Screen options={{ title: 'Edit receipt', presentation: 'modal' }} />
-      <RouteSkeletonScreen
-        title="Edit receipt"
-        summary="Modal edit route is wired for receipt field editing with controller-backed save and review actions."
-      />
+      {composition && receiptId ? (
+        <ReceiptEditScreen
+          repository={composition.tabs.receipts.repository}
+          receiptId={receiptId}
+          onDone={() => {
+            if (router.canGoBack()) router.back();
+          }}
+        />
+      ) : (
+        <LoadingState message="Loading receipt services..." />
+      )}
     </>
   );
 }

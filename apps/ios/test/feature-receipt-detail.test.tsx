@@ -102,6 +102,47 @@ describe('receipt detail screen', () => {
     db.close();
   });
 
+  test('detail shows the fields but does not edit them', async () => {
+    const db = new SqliteTestAdapter();
+    const repository = new IosDataRepository(db, () => 1000);
+    await seed(repository, { notes: 'Lunch med kund' });
+
+    const renderer = await render(<ReceiptDetailScreen repository={repository} receiptId="r-1" />);
+
+    expect(textOf(renderer)).toContain('Lunch med kund');
+    // Editing lives in the modal; two screens writing one receipt drift apart.
+    expect(
+      renderer.root.findAll((node) => typeof node.props?.onChangeText === 'function'),
+    ).toHaveLength(0);
+
+    await act(async () => renderer.unmount());
+    db.close();
+  });
+
+  test('the Edit button hands navigation back to the route', async () => {
+    const db = new SqliteTestAdapter();
+    const repository = new IosDataRepository(db, () => 1000);
+    await seed(repository);
+
+    let opened = 0;
+    const renderer = await render(
+      <ReceiptDetailScreen repository={repository} receiptId="r-1" onEdit={() => (opened += 1)} />,
+    );
+
+    const button = renderer.root.findAll(
+      (node) =>
+        node.props?.accessibilityLabel === 'Edit receipt' && typeof node.props?.onPress === 'function',
+    );
+    await act(async () => {
+      (button[button.length - 1]!.props as { onPress: () => void }).onPress();
+    });
+
+    expect(opened).toBe(1);
+
+    await act(async () => renderer.unmount());
+    db.close();
+  });
+
   test('a receipt that does not exist reports it instead of hanging on a spinner', async () => {
     const db = new SqliteTestAdapter();
     const repository = new IosDataRepository(db, () => 1000);

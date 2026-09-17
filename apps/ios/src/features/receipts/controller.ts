@@ -311,35 +311,9 @@ export class ReceiptsFeatureController {
       return;
     }
 
-    await this.syncReceiptTags(editor.id, editor.tagIds);
+    await this.repository.setReceiptTags(editor.id, editor.tagIds);
     await this.refresh();
     await this.selectReceipt(editor.id);
-  }
-
-  private async syncReceiptTags(receiptId: ID, wantedTagIds: ID[]): Promise<void> {
-    const links = await listAllLive(this.repository, 'receiptTags');
-    const existing = links.filter((row) => row.receiptId === receiptId);
-    const existingByTag = new Map(existing.map((row) => [row.tagId, row]));
-    const wanted = new Set(wantedTagIds);
-
-    for (const row of existing) {
-      if (!wanted.has(row.tagId)) {
-        await this.repository.tombstone('receiptTags', row.id, Date.now());
-      }
-    }
-
-    for (const tagId of wanted) {
-      if (existingByTag.has(tagId)) continue;
-      await this.repository.upsert('receiptTags', {
-        id: `rt:${receiptId}:${tagId}`,
-        receiptId,
-        tagId,
-        updatedAt: Date.now(),
-        deletedAt: 0,
-        rev: 0,
-        dirty: 1,
-      });
-    }
   }
 
   async markReviewed(receiptId: ID): Promise<void> {

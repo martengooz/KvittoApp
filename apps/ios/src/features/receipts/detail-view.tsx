@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
 import type { ID } from '@kvitto/shared/domain';
@@ -16,6 +16,8 @@ export type ReceiptDetailScreenProps = {
   onDeleted?: () => void;
   onOpenExtraction?: () => void;
   onOpenOcr?: () => void;
+  /** Opens the edit modal, which is the only place these fields are written. */
+  onEdit?: () => void;
 };
 
 /**
@@ -65,6 +67,7 @@ export function ReceiptDetailScreen({
   onDeleted,
   onOpenExtraction,
   onOpenOcr,
+  onEdit,
 }: ReceiptDetailScreenProps) {
   const { controller, details, loading } = useReceiptDetails(repository, receiptId);
   const [editor, setEditor] = useState<ReceiptEditorState | null>(null);
@@ -120,37 +123,19 @@ export function ReceiptDetailScreen({
         <CaptionText>{`Extraction warnings: ${details.provenance.extractionWarningCount}`}</CaptionText>
       </View>
 
-      <View style={styles.card}>
-        <CaptionText>Merchant</CaptionText>
-        <TextInput
-          accessibilityLabel="Merchant name"
-          value={editor.merchantName}
-          onChangeText={(merchantName) => setEditor((current) => (current ? { ...current, merchantName } : current))}
-          style={styles.input}
-        />
+      {/*
+        Read-only on purpose. Editing lives in the edit modal: two screens
+        writing the same receipt is how they drift apart.
+      */}
+      <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Receipt details">
         <CaptionText>Purchased at</CaptionText>
-        <TextInput
-          accessibilityLabel="Purchase date time"
-          value={editor.purchasedAt}
-          onChangeText={(purchasedAt) => setEditor((current) => (current ? { ...current, purchasedAt } : current))}
-          style={styles.input}
-        />
+        <BodyText>{editor.purchasedAt || 'Not recorded'}</BodyText>
         <CaptionText>Notes</CaptionText>
-        <TextInput
-          accessibilityLabel="Receipt notes"
-          value={editor.notes}
-          onChangeText={(notes) => setEditor((current) => (current ? { ...current, notes } : current))}
-          style={styles.input}
-        />
+        <BodyText>{editor.notes || 'None'}</BodyText>
       </View>
 
       <View style={styles.actionRow}>
-        <PrimaryButton
-          label="Save receipt"
-          onPress={() => {
-            void run('Saved.', () => controller.saveReceiptEdits(editor));
-          }}
-        />
+        {onEdit ? <PrimaryButton label="Edit receipt" onPress={onEdit} /> : null}
         <PrimaryButton
           label="Mark reviewed"
           onPress={() => {

@@ -21,6 +21,7 @@ export default function ReceiptDetailRoute() {
           }}
           onOpenExtraction={() => router.push(`/receipt/${receiptId}/extraction`)}
           onOpenOcr={() => router.push(`/receipt/${receiptId}/ocr`)}
+          onEdit={() => router.push(`/receipt/${receiptId}/edit`)}
         />
       ) : (
         <LoadingState message="Loading receipt services..." />

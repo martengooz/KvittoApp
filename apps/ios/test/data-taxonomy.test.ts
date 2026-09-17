@@ -257,3 +257,75 @@ describe('tag CRUD', () => {
     db.close();
   });
 });
+
+describe('attaching tags to a receipt', () => {
+  test('setting tags adds the wanted ones and removes the rest', async () => {
+    const { db, repository } = makeRepository();
+    const travel = await repository.saveTag({ name: 'Resa', color: '#4f7cff' });
+    const deduct = await repository.saveTag({ name: 'Avdrag', color: '#22a06b' });
+    await seedReceipt(repository, { id: 'r-1' });
+
+    await repository.setReceiptTags('r-1', [travel.id]);
+    expect(await repository.listTagIdsForReceipt('r-1')).toEqual([travel.id]);
+
+    await repository.setReceiptTags('r-1', [deduct.id]);
+    expect(await repository.listTagIdsForReceipt('r-1')).toEqual([deduct.id]);
+    db.close();
+  });
+
+  test('clearing every tag leaves tombstones, not deleted rows', async () => {
+    const { db, repository } = makeRepository();
+    const tag = await repository.saveTag({ name: 'Resa', color: '#4f7cff' });
+    await repository.setReceiptTags('r-1', [tag.id]);
+
+    await repository.setReceiptTags('r-1', []);
+
+    expect(await repository.listTagIdsForReceipt('r-1')).toEqual([]);
+    // The removal has to reach the server, so the row survives as a tombstone.
+    const link = await repository.get('receiptTags', `rt:r-1:${tag.id}`);
+    expect(link?.deletedAt).toBe(1000);
+    expect(link?.dirty).toBe(1);
+    db.close();
+  });
+
+  test('re-attaching a removed tag revives the original link rather than adding a second', async () => {
+    const { db, repository } = makeRepository();
+    const tag = await repository.saveTag({ name: 'Resa', color: '#4f7cff' });
+
+    await repository.setReceiptTags('r-1', [tag.id]);
+    await repository.setReceiptTags('r-1', []);
+    await repository.setReceiptTags('r-1', [tag.id]);
+
+    expect(await repository.listTagIdsForReceipt('r-1')).toEqual([tag.id]);
+    const all = await repository.list('receiptTags', { cursor: -1, limit: 100 });
+    // Two links for the same pair would race each other on the next sync.
+    expect(all.items.filter((link) => link.receiptId === 'r-1')).toHaveLength(1);
+    db.close();
+  });
+
+  test('setting the same tags twice is idempotent', async () => {
+    const { db, repository } = makeRepository();
+    const tag = await repository.saveTag({ name: 'Resa', color: '#4f7cff' });
+
+    await repository.setReceiptTags('r-1', [tag.id]);
+    const first = await repository.get('receiptTags', `rt:r-1:${tag.id}`);
+    await repository.setReceiptTags('r-1', [tag.id]);
+    const second = await repository.get('receiptTags', `rt:r-1:${tag.id}`);
+
+    expect(second?.rev).toBe(first?.rev);
+    db.close();
+  });
+
+  test('one receipt’s tags do not touch another’s', async () => {
+    const { db, repository } = makeRepository();
+    const tag = await repository.saveTag({ name: 'Resa', color: '#4f7cff' });
+    await repository.setReceiptTags('r-1', [tag.id]);
+    await repository.setReceiptTags('r-2', [tag.id]);
+
+    await repository.setReceiptTags('r-1', []);
+
+    expect(await repository.listTagIdsForReceipt('r-1')).toEqual([]);
+    expect(await repository.listTagIdsForReceipt('r-2')).toEqual([tag.id]);
+    db.close();
+  });
+});

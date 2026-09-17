@@ -810,6 +810,59 @@ export class IosDataRepository implements CanonicalRepositoryPort {
     return { receipts, items };
   }
 
+  /** The tags currently attached to one receipt. */
+  async listTagIdsForReceipt(receiptId: ID): Promise<ID[]> {
+    const rows = await this.db.selectAll<PayloadRow>(
+      `SELECT payload FROM ${TABLE_CANONICAL_ENTITIES} WHERE kind = 'receiptTags' AND deletedAt = 0`,
+    );
+    return rows
+      .map((row) => parsePayload<'receiptTags'>(row))
+      .filter((link) => link.receiptId === receiptId)
+      .map((link) => link.tagId);
+  }
+
+  /**
+   * Makes the receipt's tags exactly `tagIds`.
+   *
+   * A removed tag is tombstoned rather than deleted so the removal syncs, and
+   * a re-added one reuses its deterministic link id, which means re-attaching a
+   * tag revives the original row instead of racing a second link for the same
+   * pair against it on the next sync.
+   */
+  async setReceiptTags(receiptId: ID, tagIds: ID[]): Promise<void> {
+    const now = this.now();
+    const wanted = new Set(tagIds);
+
+    const all = await this.db.selectAll<PayloadRow>(
+      `SELECT payload FROM ${TABLE_CANONICAL_ENTITIES} WHERE kind = 'receiptTags'`,
+    );
+    const existing = all
+      .map((row) => parsePayload<'receiptTags'>(row))
+      .filter((link) => link.receiptId === receiptId);
+    const byTag = new Map(existing.map((link) => [link.tagId, link]));
+
+    await this.runInTransaction(async () => {
+      for (const link of existing) {
+        if (link.deletedAt === 0 && !wanted.has(link.tagId)) {
+          await this.writeEntity('receiptTags', { ...link, deletedAt: now, updatedAt: now, dirty: 1 });
+        }
+      }
+
+      for (const tagId of wanted) {
+        const link = byTag.get(tagId);
+        if (link && link.deletedAt === 0) continue;
+        await this.writeEntity('receiptTags', {
+          ...(link ?? { ...newMeta(now), id: `rt:${receiptId}:${tagId}`, receiptId, tagId }),
+          deletedAt: 0,
+          updatedAt: now,
+          dirty: 1,
+        });
+      }
+    });
+
+    this.emit(['receiptTags'], 'mutation');
+  }
+
   /** Tombstones a tag and every link that attached it to a receipt. */
   async deleteTag(id: ID): Promise<{ links: number } | null> {
     const current = await this.get('tags', id);

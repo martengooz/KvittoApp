@@ -20,8 +20,8 @@ receipt images. The camera preview, capture, torch, and zoom work through
 VisionCamera, but only host-tested — nothing camera-related has run on real
 hardware, since a simulator has no camera.
 
-Of the eleven pushed/modal route files under `apps/ios/app`, six are real: receipt
-detail, extraction, OCR, filters, categories, and tags. Five route files still render
+Of the eleven pushed/modal route files under `apps/ios/app`, seven are real: receipt
+detail, edit, extraction, OCR, filters, categories, and tags. Four route files still render
 `RouteSkeletonScreen` placeholders (see "What is left" below) — check with
 `grep -rn "RouteSkeletonScreen" apps/ios/app` before trusting any older count
 in the status doc, which has described this number inconsistently across
@@ -205,22 +205,39 @@ repeat them.
 Ordered roughly by the project's own recommended resume order, with effort
 and risk notes.
 
-1. **Five placeholder routes** still render `RouteSkeletonScreen`:
-   - `apps/ios/app/receipt/[receiptId]/edit.tsx` (receipt editing)
+1. **A debug-only seed action.** Not a handoff item, but it blocks verifying
+   everything else. The device smoke check visits receipt routes with an id
+   that does not exist, and the simulator has no camera, so no
+   receipt-dependent screen can be exercised on device past its empty state.
+   One "seed sample data" action fixes that for every such screen at once, and
+   `app/debug/log.tsx` below is the natural host. Cheap, and it raises the
+   ceiling on every check that follows.
+
+2. **Four placeholder routes** still render `RouteSkeletonScreen`:
    - `apps/ios/app/pairing/scanner.tsx`
    - `apps/ios/app/debug/log.tsx`
    - `apps/ios/app/archive/preflight.tsx`
    - `apps/ios/app/archive/result.tsx`
 
-   Detail, extraction, OCR, filters, categories and tags are done and are a
-   good template: controller-free screens read straight from the repository,
-   real not-found/loading states, tests that render the actual screen via
-   `react-test-renderer` against a seeded database, and an entry added to the
-   smoke check's route list. Receipt edit is the natural next one — it is
-   self-contained and the repository already exposes everything it needs.
-   Archive preflight/result and the pairing scanner depend on work further
-   down this list (native ZIP, pairing flow) and are more naturally sequenced
-   after it.
+   Detail, edit, extraction, OCR, filters, categories and tags are done and
+   are a good template: controller-free screens read straight from the
+   repository, real not-found/loading states, tests that render the actual
+   screen via `react-test-renderer` against a seeded database, and an entry
+   added to the smoke check's route list. The four that remain all depend on
+   work further down this list (native ZIP, the pairing flow), so they are
+   naturally sequenced after it rather than picked up next.
+
+   Two conventions the recent screens settled on, worth keeping: a destructive
+   action confirms in place and names its consequence (there is still no
+   `Alert` in this app), and a value that looks wrong is *reported*, never
+   silently corrected — an inverted filter range, a line whose quantity times
+   unit price misses its total, items that do not add up to the receipt total.
+   A receipt is a record of what was printed; rewriting it to be self-consistent
+   destroys the evidence that it was not.
+
+   Editing a receipt has exactly one owner: the edit modal. The detail screen
+   shows those fields read-only. It used to edit some of them inline, which is
+   how the two would have drifted apart.
 
    Note on taxonomy, since it is easy to reintroduce: deleting a category or
    tag must clear the references held by receipts, items and `receiptTags`
@@ -229,18 +246,18 @@ and risk notes.
    and `deleteTag` do this and return the counts; anything else that removes a
    referenced entity needs the same treatment.
 
-2. **Haptics.** `ScanHapticsPort` in `src/app/services.tsx` is composed with
+3. **Haptics.** `ScanHapticsPort` in `src/app/services.tsx` is composed with
    a no-op (`impact() { return; }`). Section 15 of the handoff asks for
    haptics throughout. Small, low-risk — wire `expo-haptics` (not yet a
    dependency) into that port and into whatever else calls for tactile
    feedback (delete, save, capture).
 
-3. **Swipe actions, sheets, and alerts.** Screens currently use plain
+4. **Swipe actions, sheets, and alerts.** Screens currently use plain
    buttons. Section 15 lists these as expected native affordances. Moderate
    effort, no architectural risk — this is UI work on top of the existing
    controllers.
 
-4. **VisionCamera frame processor for auto-capture — the largest remaining
+5. **VisionCamera frame processor for auto-capture — the largest remaining
    piece.** `analyzeFrameCompact` currently reports `unsupported` with
    `pluginLinked: false` rather than inventing a detection; the camera bridge
    (`src/features/scan/camera-bridge.ts`) already passes a real reading
@@ -255,21 +272,21 @@ and risk notes.
    stepped buttons) are smaller and unrelated, and could be done first if you
    want a native-camera warm-up before tackling the plugin.
 
-5. **BGTask background work.** The periodic sync sweep only runs in the
+6. **BGTask background work.** The periodic sync sweep only runs in the
    foreground; `BGContinuedProcessingTask` registration and bounded
    background sync are not implemented. Needs claim/progress persisted
    against the real jobs table (`src/jobs`, already durable and tested in the
    foreground), plus expiration/cancellation/termination/swipe-away testing —
    all of which require a physical device.
 
-6. **Native ZIP + archive interop.** The Swift ZIP reader/writer isn't
+7. **Native ZIP + archive interop.** The Swift ZIP reader/writer isn't
    exposed through the Expo module yet. Once it is: import a real
    web-produced `.kvitto` archive on-device, re-export it, and validate
    round-trips, tampering, rollback, repeated import, and conflicts against
    real files and the real SQLite/blob stores (`packages/archive` already has
    the schema/validation logic from the PWA side).
 
-7. **Maestro E2E, physical-device matrix, performance budgets.** None of
+8. **Maestro E2E, physical-device matrix, performance budgets.** None of
    this has run yet. Section 18-20 of the handoff spell out what's needed:
    Maestro flows against seeded fixtures, real companion-server convergence
    from the native app, light/dark + Dynamic Type + VoiceOver + Reduce Motion

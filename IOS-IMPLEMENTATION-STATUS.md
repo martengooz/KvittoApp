@@ -30,6 +30,78 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: The receipt editor, and one receipt with one owner
+
+`receipt/[receiptId]/edit.tsx` was the last self-contained placeholder. Filling
+it in turned up a duplication worth removing first.
+
+The detail screen already edited merchant, purchase date and notes inline, with
+its own Save. `saveReceiptEdits` in the receipts controller has always handled
+category, tags and status too - the detail screen simply never rendered controls
+for them, and nothing anywhere edited line items, though `addItem`, `updateItem`
+and `deleteItem` have existed on the repository the whole time.
+
+So rather than add a second screen writing the same fields, editing now has one
+owner. `src/features/receipts/edit-view.tsx` is the full editor: merchant, date,
+notes, status, category, tags, and line items. The detail screen shows those
+fields read-only and has an "Edit receipt" button. Two screens writing one
+receipt is how they drift apart, and there was no test covering detail's inline
+Save, so nothing was protecting the old arrangement.
+
+Three decisions worth keeping:
+
+- **Line fields commit on blur, not per keystroke.** Writing on every change
+  persists a half-typed "1" on the way to "12.50", and each write wakes every
+  subscriber. A test types a partial name and asserts the database still holds
+  the old value.
+- **Arithmetic disagreements are reported, never corrected.** If quantity times
+  unit price misses the line total, or the lines do not add up to the receipt
+  total, the screen says so and leaves the numbers alone. A printed receipt can
+  legitimately disagree with itself - rounding, a basket-level discount, a
+  missed line - and silently rewriting the total destroys evidence of what was
+  actually printed. This follows the filters screen's inverted-range handling.
+- **Blank is not zero.** An empty unit price stores `null`, meaning "not
+  stated", not `0`. Unparseable input leaves the stored value untouched.
+
+The tag-link logic moved from the controller to the repository as
+`setReceiptTags` / `listTagIdsForReceipt`, so the modal and the controller share
+one implementation. The controller's version used `Date.now()` directly rather
+than the injected clock, which made it untestable at a fixed time; the
+repository version uses `this.now()`. Links are tombstoned rather than dropped,
+and re-attaching a removed tag revives the original deterministic link id
+instead of creating a second row for the same pair, which would race itself on
+the next sync.
+
+Verified:
+  - `npm run -w apps/ios typecheck`: clean.
+  - `npx jest --config apps/ios/jest.config.js`: 49 suites, 226 tests, passed.
+    22 are new (15 edit screen, 5 tag links, 2 detail).
+  - `npm test` (monorepo): 55 passed.
+  - `npm run ios:smoke`: passed, 12 routes including
+    `/receipt/smoke-missing-id/edit`, idle CPU 1-2%.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Not verified on device: the *populated* editor. The smoke check visits receipt
+routes with an id that does not exist, and the simulator has no camera and no
+seeding path, so the device has no receipts at all - only the "Receipt
+unavailable" branch can be reached there. The populated form, saving, and every
+line-item path are covered by the 15 host tests, which drive the real controls
+against a real SQLite database.
+
+**This is a standing gap, not a one-off.** No receipt-dependent screen can be
+exercised on device beyond its empty state. A debug-only "seed sample data"
+action would fix it for every such screen at once, and `app/debug/log.tsx` - one
+of the remaining placeholders - is the natural host.
+
+Build note: `xcodebuild` failed twice with "database is locked" because a Debug
+build was running against the same DerivedData. Building with an explicit
+`-derivedDataPath` avoids contending with a dev build, which is what CI already
+does.
+
+Placeholder routes remaining: four files - pairing scanner, debug log, archive
+preflight, and archive result. Verify with
+`grep -rln "RouteSkeletonScreen" apps/ios/app`.
+
 ### 2026-09-17: Categories and tags are editable
 
 Both taxonomy routes were placeholders, and nothing in the app linked to them at
@@ -289,9 +361,9 @@ wrapper controls. Not chased further.
 
 Measured against `IOS-HANDOFF.md`, not against the packet table:
 
-1. **Five pushed/modal route files are still placeholders**: receipt edit,
-   pairing scanner, debug log, archive preflight, archive result. (Receipt
-   detail, extraction, OCR, filters, categories and tags are done.) Confirm with
+1. **Four pushed/modal route files are still placeholders**: pairing scanner,
+   debug log, archive preflight, archive result. (Receipt detail, edit,
+   extraction, OCR, filters, categories and tags are done.) Confirm with
    `grep -rln "RouteSkeletonScreen" apps/ios/app`.
 2. **No haptics.** `ScanHapticsPort` is composed with a no-op; section 15 asks
    for haptics.
@@ -993,8 +1065,9 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Replace the remaining placeholder routes, starting with receipt edit,
-  and add haptics and swipe actions.
+1. Add a debug-only seed action so receipt-dependent screens can be checked on
+  device beyond their empty state, then replace the remaining placeholder
+  routes, and add haptics and swipe actions.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.
