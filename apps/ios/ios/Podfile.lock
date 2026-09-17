@@ -188,6 +188,8 @@ PODS:
     - ExpoModulesCore
   - ExpoGlassEffect (57.0.3):
     - ExpoModulesCore
+  - ExpoImagePicker (57.0.18):
+    - ExpoModulesCore
   - ExpoKeepAwake (57.0.2):
     - ExpoModulesCore
   - ExpoLinking (57.0.10):
@@ -252,6 +254,53 @@ PODS:
   - hermes-engine/Pre-built (250829098.0.17)
   - kvitto-native (0.1.0):
     - ExpoModulesCore
+  - NitroImage (0.15.2):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - NitroModules (0.37.1):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RCTDeprecation (0.86.3)
   - RCTRequired (0.86.3)
   - RCTSwiftUI (0.86.3)
@@ -2402,6 +2451,31 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - VisionCamera (5.2.3):
+    - hermes-engine
+    - NitroImage
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -2418,6 +2492,7 @@ DEPENDENCIES:
   - ExpoFileSystem (from `../../../node_modules/expo/node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
   - ExpoFont (from `../../../node_modules/expo-font/ios/ExpoFont.podspec`)
   - ExpoGlassEffect (from `../../../node_modules/expo-glass-effect/ios`)
+  - ExpoImagePicker (from `../../../node_modules/expo-image-picker/ios`)
   - ExpoKeepAwake (from `../../../node_modules/expo/node_modules/expo-keep-awake/ios`)
   - ExpoLinking (from `../../../node_modules/expo-linking/ios`)
   - "ExpoLogBox (from `../../../node_modules/@expo/log-box`)"
@@ -2435,6 +2510,8 @@ DEPENDENCIES:
   - FBLazyVector (from `../../../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - kvitto-native (from `../modules/kvitto-native/ios`)
+  - NitroImage (from `../../../node_modules/react-native-nitro-image`)
+  - NitroModules (from `../../../node_modules/react-native-nitro-modules`)
   - RCTDeprecation (from `../../../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
   - RCTRequired (from `../../../node_modules/react-native/Libraries/Required`)
   - RCTSwiftUI (from `../../../node_modules/react-native/ReactApple/RCTSwiftUI`)
@@ -2514,6 +2591,7 @@ DEPENDENCIES:
   - RNReanimated (from `../../../node_modules/react-native-reanimated`)
   - RNScreens (from `../../../node_modules/react-native-screens`)
   - RNWorklets (from `../../../node_modules/react-native-worklets`)
+  - VisionCamera (from `../../../node_modules/react-native-vision-camera`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
 
 EXTERNAL SOURCES:
@@ -2543,6 +2621,8 @@ EXTERNAL SOURCES:
     :podspec: "../../../node_modules/expo-font/ios/ExpoFont.podspec"
   ExpoGlassEffect:
     :path: "../../../node_modules/expo-glass-effect/ios"
+  ExpoImagePicker:
+    :path: "../../../node_modules/expo-image-picker/ios"
   ExpoKeepAwake:
     :path: "../../../node_modules/expo/node_modules/expo-keep-awake/ios"
   ExpoLinking:
@@ -2578,6 +2658,10 @@ EXTERNAL SOURCES:
     :tag: hermes-v250829098.0.17
   kvitto-native:
     :path: "../modules/kvitto-native/ios"
+  NitroImage:
+    :path: "../../../node_modules/react-native-nitro-image"
+  NitroModules:
+    :path: "../../../node_modules/react-native-nitro-modules"
   RCTDeprecation:
     :path: "../../../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation"
   RCTRequired:
@@ -2734,6 +2818,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native-screens"
   RNWorklets:
     :path: "../../../node_modules/react-native-worklets"
+  VisionCamera:
+    :path: "../../../node_modules/react-native-vision-camera"
   Yoga:
     :path: "../../../node_modules/react-native/ReactCommon/yoga"
 
@@ -2751,6 +2837,7 @@ SPEC CHECKSUMS:
   ExpoFileSystem: 28778f942725170102f7c6cf4dee05a526ddacd0
   ExpoFont: f8198a952ba2ff53c9b393b5269ea435f232cfc3
   ExpoGlassEffect: ac454a05346de8610d61dc1324d624893ca22d14
+  ExpoImagePicker: bcbd037dd189d0c26e723628fd8a5df69fe65496
   ExpoKeepAwake: 72af0b3be3615e59bc819d26061ff4e06b155ee0
   ExpoLinking: 15c8ddb0eb4a778950712ea4a6feedf021778852
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
@@ -2768,6 +2855,8 @@ SPEC CHECKSUMS:
   FBLazyVector: 2138c6c2ab66c31bf5754dc18097fbc498a49c7f
   hermes-engine: 8930e5f68b09f76e00ab617da3f7587e7262efd0
   kvitto-native: 4491480522da3447917b9bde5371d4e61fa865ac
+  NitroImage: 5daf897d2f37ed419186278d6b0fcdd8aab313b0
+  NitroModules: 38f8754287858ff1294e43fd43f614a664e54050
   RCTDeprecation: 96f68ebf33f8762466b01d57d6e873c4f30efb07
   RCTRequired: 166eed8ad6d8440e73e56d09a9090366609823d2
   RCTSwiftUI: e818198d11928a78c2b2afe281d072171dab617f
@@ -2846,6 +2935,7 @@ SPEC CHECKSUMS:
   RNReanimated: 3a204af3747842859392545d41d443b9c5e428a3
   RNScreens: c1a06fd73d0581a2a28a160577be393f579662b9
   RNWorklets: 63cb8f15b2886288da888ac65cc21934c9ebc80a
+  VisionCamera: f84550cffbbf23f3cac7a3d1d2e66e5098a4e8eb
   Yoga: 18b74b3ade30bebc1904004dfaceae1dd02a330a
 
 PODFILE CHECKSUM: 722812e74a01dac9a474581b66e397e96372af68

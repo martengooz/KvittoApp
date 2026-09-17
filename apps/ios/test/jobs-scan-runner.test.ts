@@ -118,6 +118,14 @@ class NativeStub implements KvittoNativeFacade {
     return 0;
   }
 
+  makeScratchFileUri(prefix: string, extension: string): string {
+    return `file:///scratch/${prefix}.${extension}`;
+  }
+
+  async deleteScratchFile(): Promise<boolean> {
+    return true;
+  }
+
   async storeDownloadedBlob(): Promise<BlobMetadataRecord> {
     throw new Error('not used');
   }

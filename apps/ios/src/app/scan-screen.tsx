@@ -1,14 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import type { ScanBatchOutcome, ScanFeatureController, ScanState } from '../features/scan';
+import type {
+  ScanBatchOutcome,
+  ScanCameraBridge,
+  ScanCameraUiState,
+  ScanFeatureController,
+  ScanState,
+} from '../features/scan';
+import type { KvittoNativeFacade } from '../../modules/kvitto-native/src';
+import { ScanCameraPreview } from './camera-preview';
 import { PrimaryButton, ScreenScaffold } from '../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../ui/typography';
 import { colorToken } from '../ui/tokens';
 
 export type ScanFeatureScreenProps = {
   controller: ScanFeatureController;
+  camera: ScanCameraBridge;
+  native: KvittoNativeFacade;
 };
+
+const ZOOM_STEPS = [1, 2, 3] as const;
 
 function cloneScanState(state: Readonly<ScanState>): ScanState {
   return {
@@ -24,10 +36,13 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export function ScanFeatureScreen({ controller }: ScanFeatureScreenProps) {
+export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScreenProps) {
   const [state, setState] = useState<ScanState>(() => cloneScanState(controller.getState()));
+  const [cameraState, setCameraState] = useState<ScanCameraUiState>(() => camera.getUiState());
   const [error, setError] = useState<string | null>(null);
   const [lastImport, setLastImport] = useState<ScanBatchOutcome | null>(null);
+
+  useEffect(() => camera.subscribe(setCameraState), [camera]);
 
   const refresh = useCallback(() => {
     setState(cloneScanState(controller.getState()));
@@ -53,7 +68,16 @@ export function ScanFeatureScreen({ controller }: ScanFeatureScreenProps) {
     });
   }, [controller, run]);
 
-  const canCapture = state.permission === 'granted' && !state.processing;
+  // Stopping the preview when the screen goes away releases the camera and the
+  // torch rather than leaving them held by an unmounted screen.
+  useEffect(() => {
+    return () => {
+      void controller.stopCapture();
+    };
+  }, [controller]);
+
+  const canCapture =
+    state.permission === 'granted' && cameraState.attached && cameraState.active && !state.processing;
 
   return (
     <ScreenScaffold style={styles.container}>
@@ -77,6 +101,14 @@ export function ScanFeatureScreen({ controller }: ScanFeatureScreenProps) {
         </CaptionText>
       ) : null}
 
+      {state.stage === 'capture' ? (
+        <ScanCameraPreview bridge={camera} native={native} />
+      ) : null}
+
+      {cameraState.lastError ? (
+        <BodyText accessibilityRole="alert">{cameraState.lastError}</BodyText>
+      ) : null}
+
       <View style={styles.row}>
         <PrimaryButton
           label="Request camera permission"
@@ -85,16 +117,41 @@ export function ScanFeatureScreen({ controller }: ScanFeatureScreenProps) {
               await controller.requestPermission();
             });
           }}
+          disabled={state.permission === 'granted'}
         />
         <PrimaryButton
-          label="Start capture"
+          label={cameraState.active ? 'Pause preview' : 'Start capture'}
           onPress={() => {
             void run(async () => {
+              if (cameraState.active) {
+                await controller.stopCapture();
+                return;
+              }
               await controller.startCapture();
             });
           }}
           disabled={state.processing}
         />
+      </View>
+
+      <View style={styles.row} accessibilityLabel="Camera controls">
+        <PrimaryButton
+          label={cameraState.torch ? 'Torch on' : 'Torch off'}
+          onPress={() => {
+            camera.setTorch(!cameraState.torch);
+          }}
+          disabled={!cameraState.active}
+        />
+        {ZOOM_STEPS.map((step) => (
+          <PrimaryButton
+            key={step}
+            label={`${step}x`}
+            onPress={() => {
+              camera.setZoom(step);
+            }}
+            disabled={!cameraState.active || cameraState.zoom === step}
+          />
+        ))}
       </View>
 
       <View style={styles.row}>

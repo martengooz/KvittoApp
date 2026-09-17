@@ -9,7 +9,15 @@ export default function ScanRoute() {
   return (
     <>
       <Stack.Screen options={{ title: 'Scan', headerLargeTitle: true }} />
-      {composition ? <ScanFeatureScreen controller={composition.tabs.scan.controller} /> : <LoadingState message="Loading scan services..." />}
+      {composition ? (
+        <ScanFeatureScreen
+          controller={composition.tabs.scan.controller}
+          camera={composition.tabs.scan.camera}
+          native={composition.tabs.scan.native}
+        />
+      ) : (
+        <LoadingState message="Loading scan services..." />
+      )}
     </>
   );
 }

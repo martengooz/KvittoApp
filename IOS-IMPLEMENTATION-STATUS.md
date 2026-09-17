@@ -21,13 +21,81 @@ Repository reads and writes now execute as direct SQL against SQLite; the
 in-memory state mirror and full-table rewrite are gone. Sync runs automatically
 from app lifecycle, connectivity, and local edits, and pulls receipt images.
 
-The rewrite is not release-complete. The main remaining work is real camera and
-VisionCamera integration, native ZIP bridge wiring, background execution,
-physical-device tests, and release-level E2E/performance/accessibility work.
+The rewrite is not release-complete. The main remaining work is the live
+VisionCamera frame processor for auto-capture, native ZIP bridge wiring,
+background execution, physical-device tests, and release-level
+E2E/performance/accessibility work.
 
 The native iOS rewrite is committed on `main`.
 
 ## Progress Log
+
+### 2026-09-17: VisionCamera integration, live preview, and capture
+
+- Added `react-native-vision-camera` 5.2.3 with its Nitro dependencies
+  (`react-native-nitro-modules`, `react-native-nitro-image`) and
+  `expo-image-picker`. All four autolink and the app builds and its native tests
+  pass with them integrated.
+- Added `src/features/scan/camera-bridge.ts`: an imperative `ScanCameraPort` the
+  scan controller drives, deliberately split from the React component that owns
+  the native session. The controller and its tests never touch native code, and
+  the screen can mount and unmount without the controller holding a stale camera.
+- The bridge refuses to capture with a specific reason for each cause: no
+  preview on screen, permission not granted, or preview paused. Pausing or
+  detaching the preview releases the torch rather than reporting it still on, and
+  a stale detach from a replaced preview cannot disconnect the live one.
+- Added `src/app/camera-preview.tsx`: the VisionCamera preview, photo output,
+  torch, and zoom, registering capture with the bridge. It renders explicit
+  states for a device with no camera and for ungranted or denied permission
+  instead of a blank frame.
+- Rebuilt the scan screen around the preview with torch and zoom controls, a
+  pause/start toggle, camera error reporting, and preview teardown on unmount so
+  an unmounted screen cannot keep holding the camera and torch.
+- Replaced the `pickImages` stub with a real `expo-image-picker` flow, including
+  the library permission prompt and multi-select, hashing each picked file so it
+  is content-addressable from the start.
+- Added native `makeScratchFileUri`/`deleteScratchFile`. This fixes a real bug:
+  scan temporary files were being written to `file:///tmp/...`, which is not
+  writable inside the iOS sandbox. Scratch files now live in the app's caches
+  directory, and deletion is confined to that directory.
+- VisionCamera imports Nitro's TurboModule at module scope, which does not exist
+  off-device, so the permissions adapter moved to `src/app/camera-platform.ts`
+  and loads it on first use. Without that, importing the service composition
+  broke three host test suites.
+- Tests added: `test/scan-camera-bridge.test.ts` (13 tests) covering every
+  capture refusal, permission flow, torch release on pause and detach, stale
+  detach, zoom clamping, subscriber de-duplication, and frame-analysis
+  reporting. Added `test/support/scan-fakes.ts` so integration tests compose a
+  real bridge over fake permissions.
+- Verification evidence:
+  - `npm run typecheck:ios`: passed.
+  - `npm run test:ios -- --runInBand`: 41 suites, 144 tests passed.
+  - `npm run ios:bundle`: passed.
+  - `npm run typecheck`, `npm test`, `npm run build`: passed.
+  - `pod install`: VisionCamera 5.2.3, NitroModules 0.37.1, NitroImage 0.15.2,
+    ExpoImagePicker 57.0.18 integrated.
+  - Debug simulator `xcodebuild build` and `xcodebuild test` on
+    iPhone 17 Pro / iOS 26.5: BUILD SUCCEEDED, 14 native tests, 0 failures.
+  - `npm run lint`: 10 errors, all pre-existing.
+- **Not verified, and important:** no camera behavior has been exercised against
+  real hardware. A simulator has no camera, so preview, capture, torch, zoom,
+  and the photo-library flow are covered only by host tests over the bridge and
+  by the fact that the app compiles and links. The Release build, install, and
+  launch check that earlier checkpoints ran could not be repeated: the build
+  machine ran out of disk (123 MB free of 460 GB) part-way through the Release
+  configuration. Debug build and native tests had already succeeded.
+- Residual gaps for this roadmap area:
+  - The live frame processor plugin is still not implemented, so auto-capture
+    has no document detection. `analyzeFrameCompact` reports `unsupported` with
+    `pluginLinked: false` rather than pretending otherwise, and the bridge
+    already passes a real reading straight through once a plugin supplies one.
+    VisionCamera 5 routes frame processors through Nitro hybrid objects and
+    `react-native-vision-camera-worklets`, which means adding nitrogen codegen
+    to the `kvitto-native` module - a separate step.
+  - Torch, zoom, capture quality, and the 5-8 fps analysis cadence are untuned
+    and unmeasured without a device.
+  - Tap-to-focus and pinch-to-zoom gestures are not wired; zoom is stepped
+    buttons for now.
 
 ### 2026-09-17: Automatic sync triggers, real connectivity, and blob downloads
 
@@ -80,7 +148,7 @@ The native iOS rewrite is committed on `main`.
   and removing the Wi-Fi-only gate each fail their tests.
 - Verification evidence:
   - `npm run typecheck:ios`: passed.
-  - `npm run test:ios -- --runInBand`: 40 suites, 132 tests passed.
+  - `npm run test:ios -- --runInBand`: 41 suites, 144 tests passed.
   - `npm run ios:bundle`: passed.
   - `npm run typecheck`, `npm test`, `npm run build`: passed.
   - `pod install`: passed with `ExpoNetwork` integrated.
@@ -406,7 +474,7 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 40 suites, 132 tests passed
+- `npm run test:ios -- --runInBand`: 41 suites, 144 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed
@@ -433,13 +501,13 @@ The following checks have passed during implementation:
 | 3. Database repositories | Implemented | Direct SQL reads/writes, FTS5 search, keyset pagination, and relaunch persistence tests. SQLCipher-key recovery and large-data profiling remain. |
 | 4. Blob storage | Mostly complete | Content-addressed store, verified downloads, and upload-state reset are covered by native tests. Reference-safe cleanup remains. |
 | 5. Sync transport/identity | Implemented and tested | Manual and automatic sync, pair/unpair with blob upload reset. A real-server app run remains. |
-| 6. Native Vision module | Partial | Still processing/OCR compile and native fixture tests execute; live VisionCamera frame plugin remains. |
+| 6. Native Vision module | Partial | Still processing/OCR compile and native fixture tests execute; the live VisionCamera frame plugin remains. |
 | 7. App shell/UI | Implemented | Needs accessibility and appearance screenshot matrix. |
 | 8. Archive/PWA export | Mostly complete | PWA streaming ZIP exists; cross-platform interoperability still needs end-to-end validation. |
 | 9. Sync engine | Implemented and composed | Automatic triggers, real connectivity, and blob download persistence are wired and tested. Background execution and a real-server app run remain. |
 | 10. Durable jobs | Partial | Repository-backed durable queue/store, strict multi-kind foreground handlers, and lifecycle service are composed; native background bridge behavior (BGTask) remains. |
 | 11. Receipt/purchase/collection | Implemented foundation | Needs full UI E2E, large-data profiling, and final interaction polish. |
-| 12. Scan feature | Partial | Workflow is implemented; camera adapter, VisionCamera UI, torch/zoom, and device auto-capture remain. |
+| 12. Scan feature | Partial | Workflow, camera adapter, VisionCamera preview, capture, torch, and zoom are implemented and build. The frame processor plugin, device auto-capture, and any hardware verification remain. |
 | 13. AI/company | Implemented foundation | Needs production credential/job wiring and optional provider smoke tests. |
 | 14. Native migration/settings | Partial | Orchestration exists; native ZIP bridge and complete Files/share UX remain. |
 | 15. Integration/release | In progress | Routes/docs/CI exist; full E2E, privacy, performance, accessibility, and release work remain. |
@@ -465,7 +533,6 @@ Connectivity, automatic sync triggers, blob-download persistence, and blob
 upload-state reset are now production adapters with injectable fakes for tests.
 Still placeholders in `src/app/services`:
 
-- camera permission/preview/capture
 - background sync triggers (foreground triggers are implemented; background
   execution needs `BGTask`, see section 6)
 - native archive adapter exposure
@@ -475,13 +542,19 @@ sync.
 
 ### 3. Camera and live Vision
 
-- Install and configure the compatible VisionCamera dependency.
-- Implement the native frame processor/plugin that analyzes native buffers and
-  emits only compact geometry/evidence/timing metadata.
-- Wire camera preview, permissions, torch, zoom, interruption, manual shutter,
-  photo-library fallback, and the existing scan controller.
-- Measure and tune the 5-8 fps analysis cadence and auto-capture behavior on a
-  physical device using `fixtures/receipts`.
+VisionCamera is installed and the preview, permissions, capture, torch, zoom,
+manual shutter, and photo-library fallback are wired to the scan controller
+through the camera bridge. What remains:
+
+- The native frame processor plugin that analyzes native buffers and emits only
+  compact geometry/evidence/timing metadata. VisionCamera 5 routes these through
+  Nitro hybrid objects plus `react-native-vision-camera-worklets`, so this needs
+  nitrogen codegen added to the `kvitto-native` module.
+- Auto-capture, which stays disabled until that plugin exists.
+- Tap-to-focus and pinch-to-zoom gestures.
+- Measuring and tuning the 5-8 fps analysis cadence and auto-capture behavior on
+  a physical device using `fixtures/receipts`. Nothing camera-related has run on
+  real hardware yet.
 
 ### 4. Native tests
 
@@ -518,7 +591,8 @@ sync.
 
 ## Recommended Resume Order
 
-1. Implement VisionCamera preview/frame processing and complete the scan UI.
+1. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
+  enable auto-capture.
 2. Expose native ZIP and run web/native archive interoperability.
 3. Implement `BGTask` registration and bounded background sync.
 4. Add Maestro flows and real-server integration.

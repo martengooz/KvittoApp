@@ -15,6 +15,12 @@ public final class KvittoNativeModule: Module {
     return base.appendingPathComponent("kvitto-native", isDirectory: true)
   }()
 
+  private lazy var scratchRoot: URL = {
+    let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+      ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    return base.appendingPathComponent("kvitto-scratch", isDirectory: true)
+  }()
+
   private lazy var blobStore: ContentAddressedBlobStore = {
     do {
       return try ContentAddressedBlobStore(rootDirectory: blobRoot)
@@ -97,6 +103,28 @@ public final class KvittoNativeModule: Module {
 
     AsyncFunction("deleteBlobMetadata") { (sha256Id: String) async -> Bool in
       await self.metadataStore.delete(sha256Id)
+    }
+
+    // iOS sandboxes the app: `/tmp` is not writable, so scratch files have to be
+    // created under the app's own caches directory.
+    Function("makeScratchFileUri") { (prefix: String, fileExtension: String) -> String in
+      let directory = self.scratchRoot
+      try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let safePrefix = prefix.isEmpty ? "scratch" : prefix
+      return directory
+        .appendingPathComponent("\(safePrefix)-\(UUID().uuidString).\(fileExtension)")
+        .absoluteString
+    }
+
+    AsyncFunction("deleteScratchFile") { (fileUri: String) -> Bool in
+      guard let url = URL(string: fileUri), url.isFileURL else { return false }
+      guard url.path.hasPrefix(self.scratchRoot.path) else { return false }
+      do {
+        try FileManager.default.removeItem(at: url)
+        return true
+      } catch {
+        return false
+      }
     }
 
     AsyncFunction("resetBlobUploadState") { () async throws -> Int in

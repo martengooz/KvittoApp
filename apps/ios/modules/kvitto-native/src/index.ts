@@ -25,6 +25,8 @@ interface KvittoNativeBinding {
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
+  makeScratchFileUri(prefix: string, fileExtension: string): string;
+  deleteScratchFile(fileUri: string): Promise<boolean>;
   storeDownloadedBlob(input: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;
@@ -90,6 +92,12 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     resetBlobUploadState() {
       return binding.resetBlobUploadState();
+    },
+    makeScratchFileUri(prefix, fileExtension) {
+      return binding.makeScratchFileUri(prefix, fileExtension);
+    },
+    deleteScratchFile(fileUri) {
+      return binding.deleteScratchFile(fileUri);
     },
     storeDownloadedBlob(request) {
       return binding.storeDownloadedBlob(request);

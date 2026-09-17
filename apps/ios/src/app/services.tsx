@@ -1,7 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
-import { createKvittoNativeFacade, type FrameAnalysisResult, type KvittoNativeFacade } from '../../modules/kvitto-native/src';
+import {
+  createKvittoNativeFacade,
+  type FileBackedDescriptor,
+  type KvittoNativeFacade,
+} from '../../modules/kvitto-native/src';
 import {
   createSecureStoreCredentialPorts,
   IosNativeBlobStore,
@@ -10,7 +14,12 @@ import {
   type SecureStoreBackend,
   type DataStartupResult,
 } from '../data';
-import { createScanFeatureController, type ScanFeatureController } from '../features/scan';
+import {
+  createScanCameraBridge,
+  createScanFeatureController,
+  type ScanCameraBridge,
+  type ScanFeatureController,
+} from '../features/scan';
 import type {
   ScanCameraPort,
   ScanHapticsPort,
@@ -28,6 +37,7 @@ import { createIosSyncTriggers, createReactNativeAppLifecycle } from '../sync/tr
 import { createCredentialsAdapter, createIdentityStateStoreFromKeyValue, type IdentityStateStore } from '../sync/identity';
 import { createAppSyncService, type AppSyncService } from '../sync/service';
 import { ProtocolV2Transport } from '../sync/transport/client';
+import { createVisionCameraPermissionsPort } from './camera-platform';
 import {
   createRepositoryBackedJobStore,
   createScanDurableJobService,
@@ -40,7 +50,7 @@ import { bootFailed, bootReady, initialBootState, type BootState } from './boot-
 export interface TabFeatureServices {
   receipts: { repository: IosDataRepository };
   purchases: { repository: IosDataRepository };
-  scan: { controller: ScanFeatureController };
+  scan: { controller: ScanFeatureController; camera: ScanCameraBridge; native: KvittoNativeFacade };
   collections: { repository: IosDataRepository };
   settings: { controller: SettingsFeatureController };
 }
@@ -200,46 +210,66 @@ function createExpoSecureStoreBackend(): SecureStoreBackend {
   };
 }
 
-function unsupportedFrame(): FrameAnalysisResult {
+/**
+ * Turns a file the camera or photo library produced into the descriptor the
+ * scan pipeline works with, hashing it so it is content-addressable from the
+ * first moment it exists.
+ */
+async function describeImageFile(
+  native: KvittoNativeFacade,
+  file: { uri: string; width: number; height: number; byteSize: number },
+): Promise<FileBackedDescriptor> {
   return {
-    status: 'unsupported',
-    pluginLinked: false,
-    evidenceScore: 0,
-    coverage: 0,
-    normalizedQuad: null,
-    source: 'stub',
-    timing: {
-      startedAtMs: Date.now(),
-      endedAtMs: Date.now(),
-      durationMs: 0,
+    uri: file.uri,
+    mimeType: 'image/jpeg',
+    width: file.width,
+    height: file.height,
+    byteSize: file.byteSize,
+    sha256Id: await native.hashFileSha256(file.uri),
+    role: 'original',
+  };
+}
+
+function createPhotoLibraryPort(native: KvittoNativeFacade): ScanLibraryPort {
+  return {
+    async pickImages(): Promise<FileBackedDescriptor[]> {
+      const picker = await import('expo-image-picker');
+      const permission = await picker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error('Photo library access is needed to import receipt images.');
+      }
+
+      const result = await picker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 1,
+        exif: false,
+      });
+      if (result.canceled) return [];
+
+      const descriptors: FileBackedDescriptor[] = [];
+      for (const asset of result.assets) {
+        descriptors.push(
+          await describeImageFile(native, {
+            uri: asset.uri,
+            width: asset.width,
+            height: asset.height,
+            byteSize: asset.fileSize ?? 0,
+          }),
+        );
+      }
+      return descriptors;
     },
   };
 }
 
-function createScanController(repository: IosDataRepository, native: KvittoNativeFacade, jobs: ScanJobQueuePort): ScanFeatureController {
-  const camera: ScanCameraPort = {
-    async requestPermission() {
-      return 'unavailable';
-    },
-    async startPreview() {
-      return;
-    },
-    async stopPreview() {
-      return;
-    },
-    async captureStill() {
-      throw new Error('Camera adapter has not been wired yet in this JS integration wave.');
-    },
-    async analyzeFrameCompact() {
-      return unsupportedFrame();
-    },
-  };
-
-  const library: ScanLibraryPort = {
-    async pickImages() {
-      return [];
-    },
-  };
+function createScanController(
+  repository: IosDataRepository,
+  native: KvittoNativeFacade,
+  jobs: ScanJobQueuePort,
+  camera: ScanCameraPort,
+): ScanFeatureController {
+  const library = createPhotoLibraryPort(native);
 
   const haptics: ScanHapticsPort = {
     impact() {
@@ -257,7 +287,7 @@ function createScanController(repository: IosDataRepository, native: KvittoNativ
     repo: repository,
     paths: {
       tempUri(kind, stageId) {
-        return `file:///tmp/${stageId}-${kind}.jpg`;
+        return native.makeScratchFileUri(`${stageId}-${kind}`, 'jpg');
       },
     },
   });
@@ -280,12 +310,14 @@ function createRepositoryIdentityStateStore(repository: IosDataRepository): Iden
 export function composeTabFeatureServices(input: {
   repository: IosDataRepository;
   scanController: ScanFeatureController;
+  scanCamera: ScanCameraBridge;
+  native: KvittoNativeFacade;
   settingsController: SettingsFeatureController;
 }): TabFeatureServices {
   return {
     receipts: { repository: input.repository },
     purchases: { repository: input.repository },
-    scan: { controller: input.scanController },
+    scan: { controller: input.scanController, camera: input.scanCamera, native: input.native },
     collections: { repository: input.repository },
     settings: { controller: input.settingsController },
   };
@@ -391,7 +423,11 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     runOne: runOneScanJob,
   });
 
-  const scanController = createScanController(repository, native, jobService.queue);
+  const scanCamera = createScanCameraBridge({
+    permissions: createVisionCameraPermissionsPort(),
+    describeCapture: (capture) => describeImageFile(native, capture),
+  });
+  const scanController = createScanController(repository, native, jobService.queue, scanCamera);
   await scanController.syncRecoverableStages();
   const settingsController = createSettingsController({
     secureCredentials: secureCredentialPorts.settingsCredentials,
@@ -419,6 +455,8 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     tabs: composeTabFeatureServices({
       repository,
       scanController,
+      scanCamera,
+      native,
       settingsController,
     }),
     dispose() {

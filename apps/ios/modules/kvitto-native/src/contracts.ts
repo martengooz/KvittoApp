@@ -118,6 +118,9 @@ export interface KvittoNativeFacade {
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
+  /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */
+  makeScratchFileUri(prefix: string, fileExtension: string): string;
+  deleteScratchFile(fileUri: string): Promise<boolean>;
   storeDownloadedBlob(request: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;

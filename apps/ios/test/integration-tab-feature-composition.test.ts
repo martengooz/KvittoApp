@@ -2,6 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import { IosDataRepository } from '../src/data/repository';
 import { SqliteTestAdapter } from './support/sqlite-test-adapter';
+import { createFakeScanCameraBridge, createNativeFacadeStub } from './support/scan-fakes';
 import type { ScanFeatureController, ScanState } from '../src/features/scan';
 import { SettingsFeatureController } from '../src/features/settings';
 import {
@@ -112,6 +113,8 @@ describe('integration tab feature composition', () => {
     const services = composeTabFeatureServices({
       repository,
       scanController: makeFakeScanController(),
+      scanCamera: createFakeScanCameraBridge(),
+      native: createNativeFacadeStub(),
       settingsController: makeFakeSettingsController(),
     });
 
