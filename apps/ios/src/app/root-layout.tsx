@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
 import { Stack, type ErrorBoundaryProps } from 'expo-router';
+
+import { createKvittoNativeFacade } from '../../modules/kvitto-native/src';
 import { StatusBar } from 'expo-status-bar';
 import { AppServicesProvider, useAppServices } from './services';
 import { DiagnosticsRecoveryState, LoadingState, ScreenScaffold } from '../ui/controls';
@@ -51,7 +54,22 @@ export function RootRouterLayout() {
   );
 }
 
+/** Marker the device smoke check watches for; see `apps/ios/scripts/smoke.mjs`. */
+export const RENDER_FAILED_MARKER = 'render:failed';
+
 export function RouterErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  // A render failure is invisible from outside the app: the process stays alive
+  // and the screen still looks like a screen. React also stops a runaway update
+  // loop once it trips its depth guard, so CPU falls back to idle and nothing
+  // else marks it. Reporting it makes the failure observable.
+  useEffect(() => {
+    try {
+      createKvittoNativeFacade().logDiagnostic(RENDER_FAILED_MARKER, error.message || 'unknown render error');
+    } catch {
+      // Off-device the boundary still renders; only the log line is missing.
+    }
+  }, [error]);
+
   return (
     <ScreenScaffold>
       <TitleText accessibilityRole="header">Unexpected error</TitleText>

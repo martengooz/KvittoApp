@@ -51,6 +51,7 @@ function createBinding(): KvittoNativeBinding {
     listBlobMetadataPendingUpload: async () => [record],
     deleteBlobMetadata: async () => true,
     resetBlobUploadState: async () => 0,
+    logDiagnostic: () => undefined,
     makeScratchFileUri: (prefix: string, extension: string) => `file:///scratch/${prefix}.${extension}`,
     deleteScratchFile: async () => true,
     storeDownloadedBlob: async () => {

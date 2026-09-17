@@ -118,6 +118,8 @@ export interface KvittoNativeFacade {
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
   resetBlobUploadState(): Promise<number>;
+  /** Writes a milestone to the unified log, which survives a Release build. */
+  logDiagnostic(category: string, message: string): void;
   /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */
   makeScratchFileUri(prefix: string, fileExtension: string): string;
   deleteScratchFile(fileUri: string): Promise<boolean>;

@@ -467,15 +467,35 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
   };
 }
 
+/** Markers the device smoke check waits for; see `apps/ios/scripts/smoke.mjs`. */
+export const BOOT_READY_MARKER = 'boot:ready';
+export const BOOT_FAILED_MARKER = 'boot:failed';
+
+/**
+ * Boot outcome goes to the unified log as well as to React state, because a
+ * Release build strips `console`, and a screenshot cannot tell a rendered shell
+ * apart from a rendered error card. Automation needs one unambiguous signal.
+ */
+function reportBootOutcome(marker: string, detail: string): void {
+  try {
+    createKvittoNativeFacade().logDiagnostic(marker, detail);
+  } catch {
+    // The native module is unavailable off-device; boot state still carries the
+    // outcome for anything running in-process.
+  }
+}
+
 export async function runBootAttempt(bootstrap: AppBootstrap): Promise<BootAttemptResult> {
   try {
     const composition = await bootstrap();
+    reportBootOutcome(BOOT_READY_MARKER, `steps=${composition.startup.steps.length}`);
     return {
       boot: bootReady(),
       composition,
     };
   } catch (error) {
     const details = error instanceof Error ? error.message : 'Unknown startup error.';
+    reportBootOutcome(BOOT_FAILED_MARKER, details);
     return {
       boot: bootFailed('Could not initialize local services.', details),
       composition: null,

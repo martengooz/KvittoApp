@@ -1,6 +1,7 @@
 import ExpoModulesCore
 import Foundation
 import ImageIO
+import os
 
 public final class KvittoNativeModule: Module {
   private let cancellationRegistry = CancellationRegistry()
@@ -103,6 +104,12 @@ public final class KvittoNativeModule: Module {
 
     AsyncFunction("deleteBlobMetadata") { (sha256Id: String) async -> Bool in
       await self.metadataStore.delete(sha256Id)
+    }
+
+    // Release builds strip `console.log`, so milestones that automation needs to
+    // observe (boot completing, boot failing) go to the unified log instead.
+    Function("logDiagnostic") { (category: String, message: String) -> Void in
+      os_log("%{public}@ %{public}@", log: OSLog(subsystem: "com.kvitto.app.ios", category: "diagnostics"), type: .default, category, message)
     }
 
     // iOS sandboxes the app: `/tmp` is not writable, so scratch files have to be

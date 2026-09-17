@@ -26,7 +26,8 @@
     "build": "npm run build --workspace @kvitto/shared && npm run build --workspace @kvitto/web && npm run build --workspace @kvitto/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "clean": "rm -rf apps/*/dist packages/*/dist apps/*/node_modules/.vite"
+    "clean": "rm -rf apps/*/dist packages/*/dist apps/*/node_modules/.vite",
+    "ios:smoke": "npm run smoke:ios --workspace @kvitto/ios --"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

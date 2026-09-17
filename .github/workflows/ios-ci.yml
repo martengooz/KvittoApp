@@ -106,14 +106,19 @@ jobs:
           xcrun simctl bootstatus "$IOS_SIMULATOR_UDID" -b
           echo "IOS_SIMULATOR_UDID=$IOS_SIMULATOR_UDID" >> "$GITHUB_ENV"
 
+      # Code signing stays on, even for the simulator. With
+      # CODE_SIGNING_ALLOWED=NO the app carries no entitlements at all and
+      # SecureStore fails at startup with "A required entitlement isn't present",
+      # so an unsigned build cannot be smoke tested and hides real breakage.
       - name: Xcode build
         run: |
           xcodebuild build \
+            -configuration Release \
             -workspace apps/ios/ios/KvittoAppiOS.xcworkspace \
             -scheme KvittoAppiOS \
             -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_UDID" \
             -derivedDataPath "$RUNNER_TEMP/KvittoAppDerivedData" \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
       - name: Xcode test
         run: |
@@ -122,4 +127,21 @@ jobs:
             -scheme KvittoAppiOS \
             -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_UDID" \
             -derivedDataPath "$RUNNER_TEMP/KvittoAppDerivedData" \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
+
+      # The Jest suite has passed green while the app could not start at all, so
+      # the build is also launched and driven through every tab.
+      - name: Device smoke check
+        run: |
+          npm run ios:smoke -- \
+            --app "$RUNNER_TEMP/KvittoAppDerivedData/Build/Products/Release-iphonesimulator/KvittoAppiOS.app" \
+            --device "$IOS_SIMULATOR_UDID"
+
+      - name: Upload smoke failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-smoke-diagnostics
+          path: |
+            ${{ runner.temp }}/KvittoAppDerivedData/Logs
+          if-no-files-found: ignore

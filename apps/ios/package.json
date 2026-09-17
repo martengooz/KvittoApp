@@ -9,7 +9,8 @@
     "prebuild:ios": "expo prebuild --platform ios --clean",
     "bundle:ios": "expo export --platform ios --output-dir dist",
     "typecheck": "tsc -b tsconfig.json",
-    "test": "jest"
+    "test": "jest",
+    "smoke:ios": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@kvitto/client-core": "*",

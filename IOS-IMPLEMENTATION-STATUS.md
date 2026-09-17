@@ -30,6 +30,60 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Device smoke check in CI, proven against both past failures
+
+The highest-value gap was that the test suite had passed green twice while the
+app was unusable. There is now a device smoke check, and it is proven to catch
+both failures that got through.
+
+`apps/ios/scripts/smoke.mjs` installs the built Release app on a simulator,
+launches it, and asserts:
+
+- the app reports `boot:ready` within 90s, and never `boot:failed`,
+- visiting every tab route produces no JavaScript exception,
+- no screen trips the render error boundary,
+- the app is not burning CPU on any route while idle.
+
+Run with `npm run ios:smoke -- --app <path to .app> [--device <name or udid>]`.
+
+To make boot and render outcomes observable at all, a native `logDiagnostic`
+writes to the unified log under subsystem `com.kvitto.app.ios`, category
+`diagnostics`. A Release build strips `console`, and a screenshot cannot tell a
+rendered shell apart from a rendered error card, so automation needed one
+unambiguous signal. `runBootAttempt` emits `boot:ready`/`boot:failed`, and the
+router error boundary emits `render:failed`.
+
+Proven in both directions, by rebuilding the app with each bug reintroduced:
+
+- SecureStore key name with colons: **caught**, reporting
+  `boot:failed ... Invalid key provided to SecureStore`.
+- Unstable `actions` in the receipts hook: **caught** at the exact route,
+  reporting `Visiting / tripped the render error boundary: Maximum update depth
+  exceeded`.
+- The fixed build passes, with idle CPU of 1-2% per route.
+
+Two things learned while building it, both of which would have made the gate
+useless:
+
+- `ps -o %cpu` on macOS is an average over the whole process lifetime, so it
+  hides a loop that started seconds ago. The check samples cumulative CPU time
+  and computes a delta over a window instead.
+- CPU alone cannot see a runaway render loop, because React trips its own depth
+  guard and stops it, after which the app sits idle behind an error screen. That
+  is why the error boundary reports itself.
+
+Also fixed in CI: `Xcode build` and `Xcode test` used `CODE_SIGNING_ALLOWED=NO`,
+which produces a binary with no entitlements, so SecureStore fails at startup.
+Both steps now sign ad-hoc, and the build step produces the Release product the
+smoke check consumes.
+
+- Verification evidence:
+  - `npm run typecheck:ios`: passed.
+  - `npm run test:ios -- --runInBand`: 44 suites, 164 tests passed.
+  - `npm run typecheck`, `npm test`: passed.
+  - `npm run ios:smoke`: passed on the fixed build, failed on each reintroduced bug.
+  - `npm run lint`: 10 errors, all pre-existing.
+
 ### 2026-09-17: Handoff gap audit, SF Symbols, FlashList, and a real receipt detail route
 
 Audited the working app against `IOS-HANDOFF.md` section 15 (UI Feature
@@ -100,8 +154,10 @@ Measured against `IOS-HANDOFF.md`, not against the packet table:
 7. **Maestro E2E flows**, real-server convergence, the physical-device matrix,
    Instruments performance budgets, and the accessibility/appearance matrix
    (sections 18-20).
-8. **A device smoke check in CI** - still the highest-value item, because the
-   full suite passed twice while the app was unusable.
+8. ~~A device smoke check in CI~~ - done, see the entry above. What it does not
+   yet assert is screen *content*: it would not catch a screen that renders the
+   wrong thing without erroring. Maestro flows (section 18) remain the answer
+   for that.
 
 ### 2026-09-17: The app loads its data - runaway render loop fixed
 
@@ -788,18 +844,16 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Add a device-level smoke check to CI. The whole suite passed while the app
-  was unusable; nothing but running it would have caught that.
-2. Replace the eight remaining placeholder routes, starting with receipt edit
+1. Replace the eight remaining placeholder routes, starting with receipt edit
   and filters, and add haptics and swipe actions.
-3. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
+2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
-4. Expose native ZIP and run web/native archive interoperability.
-5. Implement `BGTask` registration and bounded background sync.
-6. Add Maestro flows and real-server integration.
-7. Perform physical-device camera/background/security/performance gates,
+3. Expose native ZIP and run web/native archive interoperability.
+4. Implement `BGTask` registration and bounded background sync.
+5. Add Maestro flows and real-server integration.
+6. Perform physical-device camera/background/security/performance gates,
   including SQLCipher-key recovery and large-data query profiling.
-8. Run the complete CI matrix and begin release hardening.
+7. Run the complete CI matrix and begin release hardening.
 
 ## Resume Commands
 

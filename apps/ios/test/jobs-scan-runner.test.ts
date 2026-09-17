@@ -118,6 +118,10 @@ class NativeStub implements KvittoNativeFacade {
     return 0;
   }
 
+  logDiagnostic(): void {
+    return;
+  }
+
   makeScratchFileUri(prefix: string, extension: string): string {
     return `file:///scratch/${prefix}.${extension}`;
   }
