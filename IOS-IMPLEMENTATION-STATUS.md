@@ -30,6 +30,66 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Auto-capture groundwork, and a correction to the plan for it
+
+I picked up the VisionCamera frame processor as the largest remaining item, and
+the first thing I found was that **the plan recorded for it in this document was
+wrong**. Earlier entries (and `IOS-NEXT-STEPS.md`) said it needed "a Nitro
+frame-processor plugin plus nitrogen codegen", describing the VisionCamera v3/v4
+API. That API does not exist in the pinned version.
+
+What is actually true of `react-native-vision-camera@5.2.3`:
+
+- There is **no `FrameProcessorPlugin` class**. `grep -rl FrameProcessorPlugin
+  node_modules/react-native-vision-camera/ios` returns nothing. The plugin
+  registry and `VisionCameraProxy.initFrameProcessorPlugin` are gone.
+- Frames are consumed through **`useFrameOutput({ onFrame })`**, whose callback
+  is a synchronous worklet running on the frame output's own thread. The frame
+  must be `dispose()`d immediately or the pipeline stalls and drops frames.
+- That hook requires **`react-native-vision-camera-worklets`**, a separate
+  package that was not installed. It is now (`5.2.3`, matching the camera), and
+  its pod links: `[NitroModules] VisionCameraWorklets is boosted by nitro`.
+- To do the Vision work natively rather than in JS, the worklet needs to hand
+  `frame.getNativeBuffer()` to a **Nitro hybrid object** exposed by
+  `kvitto-native`. That is where nitrogen codegen genuinely comes in - for a
+  hybrid object, not for a frame-processor plugin.
+
+So the nitrogen part of the old note survives; the shape of what it generates
+does not.
+
+**Current behaviour is inert, not subtly wrong.** `FrameAnalysisAdapter.swift`
+returns `status: "unsupported"`, `pluginLinked: false`, `source: "stub"`, and
+`toFrameReading` in the scan controller only trusts a frame when
+`pluginLinked && evidenceScore >= 0.35`. Auto-capture therefore never arms from
+a real frame today; it is disabled, not misbehaving. The auto-capture state
+machine itself is already implemented and tested
+(`scan-feature.state-machine.test.ts`), driven by injected readings.
+
+**Why I stopped at the dependency rather than writing the worklet.** None of
+this path can be exercised here: a simulator has no camera, so
+`useCameraDevice('back')` returns nothing, the preview never mounts, and an
+`onFrame` worklet never runs. A mistake in that worklet - most obviously a
+missed `dispose()` - stalls the camera pipeline, and I would have no way to
+observe it. Shipping a frame-thread worklet whose only evidence is "it
+compiles" is the same shape as the two failures this project has already had,
+where the suite was green and the app was unusable. The remaining work needs a
+physical device in the loop, not more code written blind.
+
+Verified (what landing the dependency does and does not change):
+  - `xcodebuild` Release: succeeded with the new pod linked.
+  - `npx jest --config apps/ios/jest.config.js`: 51 suites, 252 tests, passed.
+  - `npm run ios:smoke`: passed, 21 routes, idle CPU 2%.
+  - No behaviour change: nothing imports the new package yet.
+
+Next person picking this up needs, in order: a Nitro spec in `kvitto-native`
+declaring a hybrid object that takes a native buffer and returns the existing
+`FrameAnalysisCompactResult`; nitrogen wired into that module's build; a Swift
+implementation running `VNDetectRectanglesRequest`; `useFrameOutput` in
+`src/app/camera-preview.tsx` calling it and disposing every frame; and a
+`Synchronizable` (from `react-native-worklets`) to carry the reading back for
+`readLatestFrameAnalysis`, which `camera-bridge.ts` already declares as an
+optional handle. Do it with a device attached.
+
 ### 2026-09-17: Sheets, and the unreachable Apply button they exposed
 
 Sheets were the last item on section 15's control list. Working out where one
@@ -1252,10 +1312,10 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. The VisionCamera frame processor (Nitro + nitrogen) is now the largest
-  remaining item, and the only one blocking auto-capture. The three placeholder
-  routes (pairing scanner, archive preflight, archive result) all depend on
-  work further down this list, so they are not the next thing to pick up.
+1. Auto-capture's remaining work is native and needs a physical device to
+  verify; see the entry above for what VisionCamera 5 actually requires. Of the
+  work that can be done without hardware, BGTask background sync and the native
+  ZIP bridge are the largest.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.

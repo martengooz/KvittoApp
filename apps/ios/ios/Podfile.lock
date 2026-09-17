@@ -2480,6 +2480,32 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - VisionCameraWorklets (5.2.3):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - RNWorklets
+    - VisionCamera
+    - Yoga
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -2598,6 +2624,7 @@ DEPENDENCIES:
   - RNScreens (from `../../../node_modules/react-native-screens`)
   - RNWorklets (from `../../../node_modules/react-native-worklets`)
   - VisionCamera (from `../../../node_modules/react-native-vision-camera`)
+  - VisionCameraWorklets (from `../../../node_modules/react-native-vision-camera-worklets`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
 
 EXTERNAL SOURCES:
@@ -2830,6 +2857,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native-worklets"
   VisionCamera:
     :path: "../../../node_modules/react-native-vision-camera"
+  VisionCameraWorklets:
+    :path: "../../../node_modules/react-native-vision-camera-worklets"
   Yoga:
     :path: "../../../node_modules/react-native/ReactCommon/yoga"
 
@@ -2948,6 +2977,7 @@ SPEC CHECKSUMS:
   RNScreens: c1a06fd73d0581a2a28a160577be393f579662b9
   RNWorklets: 63cb8f15b2886288da888ac65cc21934c9ebc80a
   VisionCamera: f84550cffbbf23f3cac7a3d1d2e66e5098a4e8eb
+  VisionCameraWorklets: b6de1b4f950e958236366987750ed0b3c86228b9
   Yoga: 18b74b3ade30bebc1904004dfaceae1dd02a330a
 
 PODFILE CHECKSUM: 722812e74a01dac9a474581b66e397e96372af68

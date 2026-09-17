@@ -300,20 +300,42 @@ and risk notes.
      `resolver: 'react-native-worklets/jest/resolver.js'` to handle that — if a
      new screen suddenly fails to import in a test, this is why.
 
-5. **VisionCamera frame processor for auto-capture — the largest remaining
-   piece.** `analyzeFrameCompact` currently reports `unsupported` with
-   `pluginLinked: false` rather than inventing a detection; the camera bridge
-   (`src/features/scan/camera-bridge.ts`) already passes a real reading
-   through the moment a plugin supplies one, so the JS/controller side needs
-   no rework. What's missing is the native plugin itself: VisionCamera 5
-   routes frame processors through Nitro hybrid objects and the
-   `react-native-vision-camera-worklets` package, which means adding nitrogen
-   codegen to the `kvitto-native` Expo module — a genuinely separate,
-   native-Swift-and-codegen-heavy piece of work, not a small addition. Budget
-   real time for this; it's the one item on this list requiring new native
-   tooling. Tap-to-focus and pinch-to-zoom gestures (zoom is currently
-   stepped buttons) are smaller and unrelated, and could be done first if you
-   want a native-camera warm-up before tackling the plugin.
+5. **VisionCamera frame processor for auto-capture — needs a device.**
+
+   Correcting what earlier notes said: `react-native-vision-camera@5.2.3` has
+   **no `FrameProcessorPlugin` class**. The v3/v4 plugin API is gone. Verify
+   with `grep -rl FrameProcessorPlugin node_modules/react-native-vision-camera/ios`
+   — it returns nothing.
+
+   What v5 actually needs:
+
+   - `useFrameOutput({ onFrame })`, whose callback is a **synchronous worklet**
+     on the frame output's own thread. The frame must be `dispose()`d
+     immediately or the pipeline stalls and drops frames.
+   - `react-native-vision-camera-worklets` — a separate package, required by
+     that hook. Already installed (`5.2.3`) and its pod links.
+   - For native Vision work, hand `frame.getNativeBuffer()` to a **Nitro hybrid
+     object** in `kvitto-native`. This is the real nitrogen task — a hybrid
+     object, not a frame-processor plugin.
+
+   Order of work: Nitro spec returning the existing `FrameAnalysisCompactResult`
+   → nitrogen in the module build → Swift `VNDetectRectanglesRequest` →
+   `useFrameOutput` in `src/app/camera-preview.tsx` → a `Synchronizable` (from
+   `react-native-worklets`) carrying the reading back to
+   `readLatestFrameAnalysis`, which `camera-bridge.ts` already declares as an
+   optional handle.
+
+   **Today's state is inert, not broken.** `FrameAnalysisAdapter.swift` returns
+   `pluginLinked: false`, and the scan controller only trusts a frame when
+   `pluginLinked && evidenceScore >= 0.35`, so auto-capture simply never arms.
+   The state machine around it is implemented and tested with injected
+   readings (`scan-feature.state-machine.test.ts`).
+
+   **Do this with a device attached.** A simulator has no camera, so the
+   preview never mounts and `onFrame` never runs — a missed `dispose()` would
+   stall the pipeline with nothing to show it. Writing it blind and shipping on
+   "it compiles" is how this project twice ended up with a green suite and an
+   unusable app.
 
 6. **BGTask background work.** The periodic sync sweep only runs in the
    foreground; `BGContinuedProcessingTask` registration and bounded
