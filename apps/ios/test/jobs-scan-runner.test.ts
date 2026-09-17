@@ -114,6 +114,14 @@ class NativeStub implements KvittoNativeFacade {
     return this.metadata.delete(sha256Id);
   }
 
+  async resetBlobUploadState(): Promise<number> {
+    return 0;
+  }
+
+  async storeDownloadedBlob(): Promise<BlobMetadataRecord> {
+    throw new Error('not used');
+  }
+
   async normalizeOrientation(sourceUri: string): Promise<FileBackedDescriptor> {
     return {
       uri: sourceUri,

@@ -50,6 +50,10 @@ function createBinding(): KvittoNativeBinding {
     markBlobUploaded: async () => undefined,
     listBlobMetadataPendingUpload: async () => [record],
     deleteBlobMetadata: async () => true,
+    resetBlobUploadState: async () => 0,
+    storeDownloadedBlob: async () => {
+      throw new Error('not used');
+    },
     normalizeOrientation: async () => ({
       uri: 'file:///tmp/normalized.jpg',
       mimeType: 'image/jpeg',

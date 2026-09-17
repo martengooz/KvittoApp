@@ -101,6 +101,13 @@ export interface StoreBlobRequest {
   knownSha256Id?: string;
 }
 
+export interface StoreDownloadedBlobRequest {
+  base64: string;
+  mimeType: string;
+  sha256Id: string;
+  role: ImageRole;
+}
+
 export interface KvittoNativeFacade {
   hashFileSha256(fileUri: string): Promise<string>;
   computeShardPath(sha256Id: string): Promise<string>;
@@ -110,6 +117,8 @@ export interface KvittoNativeFacade {
   markBlobUploaded(sha256Id: string): Promise<void>;
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
+  resetBlobUploadState(): Promise<number>;
+  storeDownloadedBlob(request: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;
   processReceiptImage(request: ProcessReceiptImageRequest): Promise<ProcessReceiptImageResult>;

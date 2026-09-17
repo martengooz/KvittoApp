@@ -12,6 +12,7 @@ import type {
   RecognizeTextRequest,
   RecognizeTextResult,
   StoreBlobRequest,
+  StoreDownloadedBlobRequest,
 } from './contracts';
 
 interface KvittoNativeBinding {
@@ -23,6 +24,8 @@ interface KvittoNativeBinding {
   markBlobUploaded(sha256Id: string): Promise<void>;
   listBlobMetadataPendingUpload(limit: number): Promise<BlobMetadataRecord[]>;
   deleteBlobMetadata(sha256Id: string): Promise<boolean>;
+  resetBlobUploadState(): Promise<number>;
+  storeDownloadedBlob(input: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;
   processReceiptImage(input: {
@@ -84,6 +87,12 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     deleteBlobMetadata(sha256Id) {
       return binding.deleteBlobMetadata(sha256Id);
+    },
+    resetBlobUploadState() {
+      return binding.resetBlobUploadState();
+    },
+    storeDownloadedBlob(request) {
+      return binding.storeDownloadedBlob(request);
     },
     normalizeOrientation(sourceUri, outputUri, jpegQuality, cancellationId) {
       return binding.normalizeOrientation(sourceUri, outputUri, jpegQuality, cancellationId);

@@ -123,6 +123,10 @@ function makeNative(processImpl?: (input: { forcedQuad?: NormalizedQuad | null }
     markBlobUploaded: async () => undefined,
     listBlobMetadataPendingUpload: async () => [],
     deleteBlobMetadata: async () => true,
+    resetBlobUploadState: async () => 0,
+    storeDownloadedBlob: async () => {
+      throw new Error('not used');
+    },
     normalizeOrientation: async (sourceUri) => descriptor(sourceUri, 'original'),
     detectRectangle: async () => null,
     processReceiptImage: async (input) => {

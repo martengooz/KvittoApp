@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import Foundation
+import ImageIO
 
 public final class KvittoNativeModule: Module {
   private let cancellationRegistry = CancellationRegistry()
@@ -96,6 +97,56 @@ public final class KvittoNativeModule: Module {
 
     AsyncFunction("deleteBlobMetadata") { (sha256Id: String) async -> Bool in
       await self.metadataStore.delete(sha256Id)
+    }
+
+    AsyncFunction("resetBlobUploadState") { () async throws -> Int in
+      try await self.metadataStore.resetUploadState()
+    }
+
+    // A blob pulled from the server: the bytes are verified against the id the
+    // server indexed them under, stored content-addressed, and recorded as
+    // already uploaded so the next sync pass does not push them straight back.
+    AsyncFunction("storeDownloadedBlob") { (input: [String: Any]) async throws -> [String: Any] in
+      let base64 = try self.requireString(input, key: "base64")
+      let mimeType = try self.requireString(input, key: "mimeType")
+      let expectedId = try self.requireString(input, key: "sha256Id")
+      let role = try self.requireString(input, key: "role")
+
+      guard let data = Data(base64Encoded: base64) else {
+        throw NSError(
+          domain: "KvittoNative",
+          code: 5003,
+          userInfo: [NSLocalizedDescriptionKey: "Downloaded blob payload was not valid base64"]
+        )
+      }
+
+      let stagingDirectory = self.blobRoot.appendingPathComponent("staging", isDirectory: true)
+      try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+      let tempURL = stagingDirectory.appendingPathComponent("download-" + UUID().uuidString)
+      try data.write(to: tempURL, options: .atomic)
+      defer {
+        try? FileManager.default.removeItem(at: tempURL)
+      }
+
+      let stored = try self.blobStore.storeFile(sourceURI: tempURL.absoluteString, knownDigest: expectedId)
+      let size = (try? self.imageDimensions(at: stored.fileURL)) ?? (width: 0, height: 0)
+      let now = Int(Date().timeIntervalSince1970 * 1000)
+      let record = BlobMetadataRecord(
+        uri: stored.fileURL.absoluteString,
+        mimeType: mimeType,
+        width: size.width,
+        height: size.height,
+        byteSize: data.count,
+        sha256Id: stored.digest,
+        role: role,
+        createdAt: now,
+        uploadedAt: now,
+        pendingUpload: false,
+        shardPath: stored.shardPath
+      )
+
+      _ = try await self.metadataStore.put(record)
+      return self.encodeRecord(record)
     }
 
     AsyncFunction("normalizeOrientation") { (sourceUri: String, outputUri: String, jpegQuality: Double, cancellationId: String?) async throws -> [String: Any] in
@@ -276,6 +327,23 @@ public final class KvittoNativeModule: Module {
         ],
       ]
     }
+  }
+
+  /// Reads pixel dimensions from the image header, without decoding the image.
+  private func imageDimensions(at url: URL) throws -> (width: Int, height: Int) {
+    guard
+      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+      let height = properties[kCGImagePropertyPixelHeight] as? Int
+    else {
+      throw NSError(
+        domain: "KvittoNative",
+        code: 5002,
+        userInfo: [NSLocalizedDescriptionKey: "Could not read image dimensions"]
+      )
+    }
+    return (width, height)
   }
 
   private func requireFileURL(_ uri: String) throws -> URL {

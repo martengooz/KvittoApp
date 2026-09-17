@@ -1,6 +1,6 @@
 # Native iOS Rewrite Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 This document records the implementation checkpoint against `IOS-HANDOFF.md`.
 It is deliberately stricter than a feature checklist: code and adapter contracts
@@ -18,15 +18,86 @@ iOS 26.5 simulator. The Receipts, Purchases, Scan, Collections, and Settings
 tabs rendered successfully.
 
 Repository reads and writes now execute as direct SQL against SQLite; the
-in-memory state mirror and full-table rewrite are gone.
+in-memory state mirror and full-table rewrite are gone. Sync runs automatically
+from app lifecycle, connectivity, and local edits, and pulls receipt images.
 
 The rewrite is not release-complete. The main remaining work is real camera and
-VisionCamera integration, native ZIP bridge wiring, physical-device
-background/camera tests, and release-level E2E/performance/accessibility work.
+VisionCamera integration, native ZIP bridge wiring, background execution,
+physical-device tests, and release-level E2E/performance/accessibility work.
 
 The native iOS rewrite is committed on `main`.
 
 ## Progress Log
+
+### 2026-09-17: Automatic sync triggers, real connectivity, and blob downloads
+
+- Added `src/sync/network.ts`: a connectivity monitor over `expo-network` that
+  caches state so `NetworkPort.isOnline()` can stay synchronous, distinguishes
+  metered from unmetered connections for the Wi-Fi-only setting, publishes
+  transitions, and keeps the last known state when a reading fails.
+- Added `src/sync/triggers.ts`: automatic sync driven by app lifecycle,
+  connectivity, and local edits. Returning to the foreground re-reads
+  connectivity and then syncs; regaining a connection syncs; bursts of local
+  edits debounce into one run; a periodic sweep runs only while foregrounded.
+- Every candidate passes one policy gate that reads live settings, so a run is
+  suppressed with a named reason when automatic sync is off
+  (`auto-sync-off`), there is no server or pairing (`not-configured`), the
+  device is offline (`offline`), the connection is metered under Wi-Fi-only
+  (`wifi-only`), or the minimum interval has not elapsed (`throttled`). A
+  foreground return deliberately bypasses the throttle.
+- Replaced the placeholder `network: { isOnline: () => true }` in app
+  composition with the real monitor, and wired the triggers into the engine.
+- Implemented blob download persistence. `writeDownloadedBlob` no longer throws:
+  it hands bytes to a new native `storeDownloadedBlob`, which verifies they hash
+  to the id the server indexed them under, stores them content-addressed, reads
+  the real pixel dimensions, and records them as already uploaded so the next
+  pass does not push them straight back. A tampered or corrupted download fails
+  loudly instead of becoming a wrong receipt image.
+- Raised the app's `blobDownloadLimit` from 0 to 24 and wired a receipt image
+  planner that walks live receipts newest-first, skips blobs already held, and
+  records whether each id is a thumbnail, processed, or original image so the
+  stored metadata matches what the receipt points at.
+- Closed the unpair gap noted in the 2026-09-16 sync entry: a new native
+  `resetBlobUploadState` clears the uploaded flag on locally stored blobs, so
+  they upload to the next account instead of being suppressed forever.
+- Added `encodeBase64` for the native bridge, since Hermes has neither `Buffer`
+  nor a dependable `btoa`.
+- Tests added:
+  - `test/sync-triggers.test.ts` (10 tests): each trigger source, each
+    suppression reason, throttling and the foreground exemption, the
+    foreground-only interval, debounce coalescing, full detach, and monitor
+    caching/transition/failure behavior, all on injected clocks and timers.
+  - `test/sync-blob-download.test.ts` (9 tests): base64 output checked against
+    Node for every length remainder, role-correct download storage, integrity
+    failures propagating, upload descriptor lookup, and planner ordering,
+    dedupe, deleted-receipt, and zero-budget behavior.
+  - `test/app-sync-service-composition.test.ts`: an attached trigger drives a
+    real run and detaches on dispose; unpair calls the blob upload reset.
+  - `ios/KvittoAppiOSTests/KvittoNativeBlobStoreTests.swift` (4 tests): digest
+    mismatch rejection, dedupe on matching digest, and upload-state reset
+    including idempotence.
+- Both central wirings were mutation-checked: removing the trigger pass-through
+  and removing the Wi-Fi-only gate each fail their tests.
+- Verification evidence:
+  - `npm run typecheck:ios`: passed.
+  - `npm run test:ios -- --runInBand`: 40 suites, 132 tests passed.
+  - `npm run ios:bundle`: passed.
+  - `npm run typecheck`, `npm test`, `npm run build`: passed.
+  - `pod install`: passed with `ExpoNetwork` integrated.
+  - Debug simulator `xcodebuild build` on iPhone 17 Pro / iOS 26.5: BUILD SUCCEEDED.
+  - `xcodebuild test` on the same destination: 14 tests, 0 failures (was 9).
+  - `npm run lint`: 10 errors, all pre-existing; one earlier error in
+    `services.tsx` disappeared with the unused sync-engine import.
+- Residual gaps for this roadmap area:
+  - Background sync is still foreground-only. `BGTask` registration and bounded
+    background sync remain unimplemented, so the periodic sweep stops when the
+    app leaves the foreground.
+  - Triggers have not been exercised against a real companion server or on a
+    physical device; connectivity transitions are covered only by a fake backend.
+  - Download planning walks live receipts each pass with a 5000-receipt bound
+    rather than tracking outstanding blobs in a table, so it is untested at scale.
+  - Downloads are pulled one blob at a time with whole payloads in memory; large
+    originals are not streamed.
 
 ### 2026-09-16: Direct SQL persistence replaces the in-memory state mirror
 
@@ -335,12 +406,11 @@ The following checks have passed during implementation:
 - `npm run typecheck:ios`
 - `npm run test:ios -- --runInBand jobs-store.repository jobs-scan-service scan-feature.workflow integration-boot-recovery`: 4 suites, 14 tests passed
 - `npm run test:ios -- --runInBand jobs-scan-service`: 1 suite, 5 tests passed
-- `npm run test:ios -- --runInBand`: 38 suites, 111 tests passed
+- `npm run test:ios -- --runInBand`: 40 suites, 132 tests passed
 - Focused Expo SQLite adapter contract: 2 tests passed after atomicity changes
 - `npm run test:ios -- --runInBand data-sql-persistence`: 7 tests passed
 - `npm run ios:bundle`: Expo/Metro iOS export passed
-- `npm run lint`: 41 warnings and 11 errors, all pre-existing and none in files
-  touched by the direct-SQL change
+- `npm run lint`: 10 pre-existing errors remain; no new ones were introduced
 - `npm run typecheck`: passed
 - `npm test`: shared 112, server 31, web 55, and then-current iOS tests passed
 - `npm run build`: shared, web production bundle, and server passed
@@ -351,7 +421,7 @@ The following checks have passed during implementation:
 - Standalone Release app installed and launched on iPhone 17e, iOS 26.5
 - Simulator screenshot confirmed all five tabs and the Receipts screen render
 - Hosted app XCTest passed
-- Native module fixture/utility XCTest: 9 passed, 0 failed, 0 skipped
+- Native XCTest: 14 passed, 0 failed, 0 skipped
 - Final native build after Expo SQLite/SQLCipher additions exited successfully
 
 ## Packet Status
@@ -361,12 +431,12 @@ The following checks have passed during implementation:
 | 1. Project scaffold | Mostly complete | Native builds, launch, CI, hosted XCTest, and nine native module tests pass. |
 | 2. Shared contracts | Complete foundation | Domain export, ports, fakes, and invariant tests implemented. |
 | 3. Database repositories | Implemented | Direct SQL reads/writes, FTS5 search, keyset pagination, and relaunch persistence tests. SQLCipher-key recovery and large-data profiling remain. |
-| 4. Blob storage | Partial | Native implementation compiles; reference-safe cleanup and native XCTest execution remain. |
-| 5. Sync transport/identity | Implemented and tested | Production manual sync/pair/unpair composition exists; automatic triggers and a real-server app run remain. |
+| 4. Blob storage | Mostly complete | Content-addressed store, verified downloads, and upload-state reset are covered by native tests. Reference-safe cleanup remains. |
+| 5. Sync transport/identity | Implemented and tested | Manual and automatic sync, pair/unpair with blob upload reset. A real-server app run remains. |
 | 6. Native Vision module | Partial | Still processing/OCR compile and native fixture tests execute; live VisionCamera frame plugin remains. |
 | 7. App shell/UI | Implemented | Needs accessibility and appearance screenshot matrix. |
 | 8. Archive/PWA export | Mostly complete | PWA streaming ZIP exists; cross-platform interoperability still needs end-to-end validation. |
-| 9. Sync engine | Implemented and composed | Manual app service is wired and tested; automatic triggers, full blob downloads, and a real-server app run remain. |
+| 9. Sync engine | Implemented and composed | Automatic triggers, real connectivity, and blob download persistence are wired and tested. Background execution and a real-server app run remain. |
 | 10. Durable jobs | Partial | Repository-backed durable queue/store, strict multi-kind foreground handlers, and lifecycle service are composed; native background bridge behavior (BGTask) remains. |
 | 11. Receipt/purchase/collection | Implemented foundation | Needs full UI E2E, large-data profiling, and final interaction polish. |
 | 12. Scan feature | Partial | Workflow is implemented; camera adapter, VisionCamera UI, torch/zoom, and device auto-capture remain. |
@@ -391,16 +461,17 @@ database. What remains:
 
 ### 2. Production service composition
 
-Several adapters are intentionally still placeholders in `src/app/services`:
+Connectivity, automatic sync triggers, blob-download persistence, and blob
+upload-state reset are now production adapters with injectable fakes for tests.
+Still placeholders in `src/app/services`:
 
 - camera permission/preview/capture
-- automatic foreground/network/background sync triggers
-- full sync blob-download persistence and upload-state reset
+- background sync triggers (foreground triggers are implemented; background
+  execution needs `BGTask`, see section 6)
 - native archive adapter exposure
 
-Replace these with production adapters while retaining injectable fakes for
-tests. A local receipt save must stay offline-first and must not wait for OCR,
-AI, or sync.
+A local receipt save must stay offline-first and must not wait for OCR, AI, or
+sync.
 
 ### 3. Camera and live Vision
 
@@ -447,10 +518,9 @@ AI, or sync.
 
 ## Recommended Resume Order
 
-1. Implement automatic sync triggers (foreground/network/background) and full
-  blob-download persistence.
-2. Implement VisionCamera preview/frame processing and complete the scan UI.
-3. Expose native ZIP and run web/native archive interoperability.
+1. Implement VisionCamera preview/frame processing and complete the scan UI.
+2. Expose native ZIP and run web/native archive interoperability.
+3. Implement `BGTask` registration and bounded background sync.
 4. Add Maestro flows and real-server integration.
 5. Perform physical-device camera/background/security/performance gates,
   including SQLCipher-key recovery and large-data query profiling.

@@ -2,7 +2,13 @@ import type { BlobStorePort, CanonicalRepositoryPort, Clock, Logger, NetworkPort
 import type { SyncRunResult } from '@kvitto/client-core/sync';
 import type { PairResponse } from '@kvitto/shared/domain';
 
-import { createIosSyncEngine, type IosSyncEngine, type IosSyncEngineOptions } from './engine';
+import {
+  createIosSyncEngine,
+  type IosSyncEngine,
+  type IosSyncEngineOptions,
+  type SyncImagePlannerPort,
+  type SyncTriggerAdapter,
+} from './engine';
 import {
   createCredentialsAdapter,
   getDeviceName,
@@ -46,6 +52,15 @@ export interface CreateAppSyncServiceInput {
   clock?: Clock;
   now?: () => number;
   engineOptions?: IosSyncEngineOptions;
+  /** Fires automatic runs from app lifecycle, connectivity, and local edits. */
+  triggers?: SyncTriggerAdapter;
+  /** Decides which receipt images to pull, thumbnails first. */
+  imagePlanner?: SyncImagePlannerPort;
+  /**
+   * Clears the uploaded flag on locally stored blobs. Unpairing means the next
+   * account has none of them, so without this they would never be uploaded.
+   */
+  resetBlobUploadState?: () => Promise<void>;
   transportFactory?: (options: ProtocolV2TransportOptions) => ProtocolV2Transport;
   idFactory?: IdentityDeps['idFactory'];
   deviceNameFactory?: IdentityDeps['deviceNameFactory'];
@@ -109,6 +124,8 @@ export async function createAppSyncService(input: CreateAppSyncServiceInput): Pr
       network,
     }, {
       now: input.now,
+      triggers: input.triggers,
+      imagePlanner: input.imagePlanner,
       ...input.engineOptions,
     });
   }
@@ -188,7 +205,7 @@ export async function createAppSyncService(input: CreateAppSyncServiceInput): Pr
       await unpairDevice({
         credentials,
         repo: input.repository,
-        resetBlobUploadState: async () => {},
+        resetBlobUploadState: input.resetBlobUploadState ?? (async () => {}),
         logger,
       });
       authState = await readSnapshotAuthState();
@@ -227,14 +244,6 @@ export async function createAppSyncService(input: CreateAppSyncServiceInput): Pr
       detachEngine();
       engine.dispose();
       listeners.clear();
-    },
-  };
-}
-
-export function createUnsupportedBlobDownloadWriter(): Pick<BlobFilePort, 'writeDownloadedBlob'> {
-  return {
-    async writeDownloadedBlob(): Promise<void> {
-      throw new Error('Blob download persistence is unavailable in this app-level sync composition step.');
     },
   };
 }

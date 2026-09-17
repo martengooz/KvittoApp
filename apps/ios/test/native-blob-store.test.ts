@@ -38,6 +38,10 @@ function nativeMock(): KvittoNativeFacade {
     },
     listBlobMetadataPendingUpload: async () => (stored.pendingUpload ? [stored] : []),
     deleteBlobMetadata: async () => true,
+    resetBlobUploadState: async () => 0,
+    storeDownloadedBlob: async () => {
+      throw new Error('not used');
+    },
     normalizeOrientation: async () => stored,
     detectRectangle: async () => null,
     processReceiptImage: async () => {

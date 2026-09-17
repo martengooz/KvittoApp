@@ -91,6 +91,10 @@ function makeNative(options: {
     markBlobUploaded: async () => undefined,
     listBlobMetadataPendingUpload: async () => [],
     deleteBlobMetadata: async () => true,
+    resetBlobUploadState: async () => 0,
+    storeDownloadedBlob: async () => {
+      throw new Error('not used');
+    },
     normalizeOrientation: async (uri) => source(uri),
     detectRectangle: async () => null,
     processReceiptImage: async (input) => {

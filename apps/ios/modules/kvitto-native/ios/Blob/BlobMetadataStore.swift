@@ -60,6 +60,36 @@ actor BlobMetadataStore {
     _ = try put(record)
   }
 
+  /// Marks every known blob as needing upload again. Used when the device is
+  /// unpaired: the next account has none of these blobs, so the previous
+  /// uploaded state would otherwise suppress uploads forever.
+  func resetUploadState() throws -> Int {
+    let entries = try fileManager.contentsOfDirectory(at: metadataDirectory, includingPropertiesForKeys: nil)
+    var reset = 0
+    for entry in entries {
+      let data = try Data(contentsOf: entry)
+      let decoded = try JSONDecoder().decode(BlobMetadataRecord.self, from: data)
+      if decoded.pendingUpload && decoded.uploadedAt == nil {
+        continue
+      }
+      _ = try put(BlobMetadataRecord(
+        uri: decoded.uri,
+        mimeType: decoded.mimeType,
+        width: decoded.width,
+        height: decoded.height,
+        byteSize: decoded.byteSize,
+        sha256Id: decoded.sha256Id,
+        role: decoded.role,
+        createdAt: decoded.createdAt,
+        uploadedAt: nil,
+        pendingUpload: true,
+        shardPath: decoded.shardPath
+      ))
+      reset += 1
+    }
+    return reset
+  }
+
   func delete(_ id: String) -> Bool {
     let fileURL = fileURLForRecord(id)
     guard fileManager.fileExists(atPath: fileURL.path) else {

@@ -362,4 +362,71 @@ describe('app sync service composition', () => {
     await expect(service.runManual()).rejects.toThrow('Sync service is disposed.');
     expect(listener).not.toHaveBeenCalled();
   });
+  test('unpair marks locally stored blobs for upload to the next account', async () => {
+    const base = createSetup();
+    const securePorts = createSecureStoreCredentialPorts(new InMemorySecureStoreBackend());
+    let resetCalls = 0;
+
+    const service = await createAppSyncService({
+      repository: base.repository,
+      state: base.stateStore,
+      tokenVault: securePorts.pairingTokenVault,
+      configStore: base.configStore,
+      blobs: new BlobStoreStub(),
+      blobFiles: createBlobFilePort(),
+      transportFactory: createTransport({ statusCalls: 0, pairCalls: 0 }),
+      deviceNameFactory: () => 'Test iPhone',
+      async resetBlobUploadState() {
+        resetCalls += 1;
+      },
+    });
+
+    await service.updateConfig({ serverUrl: 'https://sync.example' });
+    await service.pair('PAIR-OK');
+    await service.unpair();
+
+    expect(resetCalls).toBe(1);
+    service.dispose();
+  });
+
+  test('an attached trigger drives a sync run and detaches on dispose', async () => {
+    const base = createSetup();
+    const securePorts = createSecureStoreCredentialPorts(new InMemorySecureStoreBackend());
+    const backend = { statusCalls: 0, pairCalls: 0 };
+
+    let fire: ((reason: string) => void) | null = null;
+    let detached = false;
+
+    const service = await createAppSyncService({
+      repository: base.repository,
+      state: base.stateStore,
+      tokenVault: securePorts.pairingTokenVault,
+      configStore: base.configStore,
+      blobs: new BlobStoreStub(),
+      blobFiles: createBlobFilePort(),
+      transportFactory: createTransport(backend),
+      deviceNameFactory: () => 'Test iPhone',
+      triggers: {
+        attach(trigger) {
+          fire = trigger;
+          return () => {
+            detached = true;
+          };
+        },
+      },
+    });
+
+    await service.updateConfig({ serverUrl: 'https://sync.example' });
+    await service.pair('PAIR-OK');
+
+    expect(fire).not.toBeNull();
+    fire!('foreground');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(backend.statusCalls).toBeGreaterThan(0);
+    expect(service.getSnapshot().engine.lastSuccessAt).not.toBeNull();
+
+    service.dispose();
+    expect(detached).toBe(true);
+  });
 });

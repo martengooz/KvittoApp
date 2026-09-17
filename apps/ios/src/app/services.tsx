@@ -20,11 +20,14 @@ import type {
   ScanStagingPort,
 } from '../features/scan/types';
 import { SettingsFeatureController, type SecureCredentialsPort } from '../features/settings';
+import { createBlobFilePort, createBlobRoleRegistry } from '../sync/blob-files';
 import { createSyncConfigStore } from '../sync/config';
-import { createIosSyncEngine } from '../sync/engine';
+import { createReceiptImagePlanner } from '../sync/image-planner';
+import { createExpoNetworkBackend, createIosNetworkMonitor } from '../sync/network';
+import { createIosSyncTriggers, createReactNativeAppLifecycle } from '../sync/triggers';
 import { createCredentialsAdapter, createIdentityStateStoreFromKeyValue, type IdentityStateStore } from '../sync/identity';
 import { createAppSyncService, type AppSyncService } from '../sync/service';
-import { ProtocolV2Transport, type BlobFilePort } from '../sync/transport/client';
+import { ProtocolV2Transport } from '../sync/transport/client';
 import {
   createRepositoryBackedJobStore,
   createScanDurableJobService,
@@ -260,32 +263,6 @@ function createScanController(repository: IosDataRepository, native: KvittoNativ
   });
 }
 
-function createBlobFilePort(native: KvittoNativeFacade): BlobFilePort {
-  return {
-    async getUploadDescriptor(id) {
-      const record = await native.getBlobMetadata(id);
-      if (!record) {
-        throw new Error(`Blob metadata is missing for upload id ${id}.`);
-      }
-      return {
-        id,
-        mimeType: record.mimeType,
-        filePath: record.uri,
-      };
-    },
-    async readFile(path) {
-      const response = await fetch(path);
-      if (!response.ok) {
-        throw new Error(`Could not read blob file for sync upload (${path}).`);
-      }
-      return new Uint8Array(await response.arrayBuffer());
-    },
-    async writeDownloadedBlob() {
-      throw new Error('Blob download persistence is not yet available in app-level sync composition.');
-    },
-  };
-}
-
 function createRepositoryIdentityStateStore(repository: IosDataRepository): IdentityStateStore {
   return createIdentityStateStoreFromKeyValue({
     getKeyValue(key) {
@@ -335,7 +312,31 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
 
   const native = createKvittoNativeFacade();
   const blobStore = new IosNativeBlobStore(native);
-  const blobFiles = createBlobFilePort(native);
+  const blobRoles = createBlobRoleRegistry();
+  const blobFiles = createBlobFilePort({ native, roles: blobRoles });
+
+  const networkMonitor = createIosNetworkMonitor({ backend: createExpoNetworkBackend() });
+  await networkMonitor.refresh();
+
+  // The trigger policy reads the live service snapshot, so settings changes and
+  // pairing take effect without rebuilding the triggers. Triggers only fire on
+  // events after boot, by which point the reference is set.
+  let syncServiceRef: AppSyncService | null = null;
+  const syncTriggers = createIosSyncTriggers({
+    lifecycle: createReactNativeAppLifecycle(),
+    network: networkMonitor,
+    localChanges: {
+      subscribe: (listener) => repository.subscribe(() => listener()),
+    },
+    policy: () => {
+      const snapshot = syncServiceRef?.getSnapshot();
+      return {
+        autoSync: snapshot?.config.autoSync ?? false,
+        wifiOnly: snapshot?.config.wifiOnly ?? true,
+        ready: Boolean(snapshot?.config.serverUrl) && Boolean(snapshot?.paired),
+      };
+    },
+  });
 
   const secureCredentialPorts = createSecureStoreCredentialPorts(createExpoSecureStoreBackend());
   const syncService = await createAppSyncService({
@@ -345,16 +346,27 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     configStore: syncConfigStore,
     blobs: blobStore,
     blobFiles,
+    network: networkMonitor,
+    triggers: syncTriggers,
+    imagePlanner: createReceiptImagePlanner({
+      repository,
+      roles: blobRoles,
+      hasBlob: async (id) => (await native.getBlobMetadata(id)) !== null,
+    }),
+    async resetBlobUploadState() {
+      await native.resetBlobUploadState();
+    },
     transportFactory(options) {
       return new ProtocolV2Transport(options);
     },
     engineOptions: {
       runOptions: {
-        blobDownloadLimit: 0,
+        blobDownloadLimit: 24,
       },
     },
     now: () => Date.now(),
   });
+  syncServiceRef = syncService;
 
   const credentials = createCredentialsAdapter({
     state: stateStore,
@@ -412,6 +424,7 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     dispose() {
       jobService.stop();
       syncService.dispose();
+      networkMonitor.dispose();
     },
   };
 }
