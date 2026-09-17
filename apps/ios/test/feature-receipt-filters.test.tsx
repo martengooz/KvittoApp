@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { describe, expect, test } from '@jest/globals';
+import { ScrollView } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { emptyMerchant, type Receipt } from '@kvitto/shared/domain';
 
@@ -8,6 +9,7 @@ import { countActiveFilters, createReceiptFilterStore } from '../src/features/re
 import { ReceiptFiltersScreen } from '../src/features/receipts/filters-view';
 import { ReceiptsFeatureController } from '../src/features/receipts/controller';
 import { IosDataRepository } from '../src/data/repository';
+import { PUSHED_MODAL_ROUTE_CONTRACTS } from '../src/app/routes';
 import { SqliteTestAdapter } from './support/sqlite-test-adapter';
 
 function flush(): Promise<void> {
@@ -211,5 +213,40 @@ describe('filters screen', () => {
 
     await act(async () => renderer.unmount());
     db.close();
+  });
+});
+
+describe('the filter actions stay reachable', () => {
+  test('the content scrolls, so Apply and Clear can be reached at any height', async () => {
+    const db = new SqliteTestAdapter();
+    const repository = new IosDataRepository(db, () => 1000);
+    // The default taxonomy is nineteen categories, which is taller than a phone.
+    await repository.seedDefaultCategoriesOnce();
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<ReceiptFiltersScreen repository={repository} filterStore={createReceiptFilterStore()} />);
+    });
+    await flush();
+    await flush();
+
+    const scrollViews = renderer!.root.findAllByType(ScrollView);
+    expect(scrollViews).toHaveLength(1);
+
+    // Apply has to be inside the scroll view: without one, nineteen category
+    // chips pushed it off the bottom of the screen where it could not be
+    // pressed at all.
+    const insideScroll = scrollViews[0]!.findAll(
+      (node) => node.props?.accessibilityLabel === 'Apply filters' && typeof node.props?.onPress === 'function',
+    );
+    expect(insideScroll.length).toBeGreaterThan(0);
+
+    await act(async () => renderer!.unmount());
+    db.close();
+  });
+
+  test('the filters route is presented as a sheet, not a full modal', () => {
+    const contract = PUSHED_MODAL_ROUTE_CONTRACTS.find((route) => route.route === 'filters');
+    expect(contract?.presentation).toBe('formSheet');
   });
 });

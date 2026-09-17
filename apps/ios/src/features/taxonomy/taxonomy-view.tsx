@@ -397,8 +397,8 @@ const styles = StyleSheet.create({
     color: colorToken('danger'),
   },
   list: {
-    flexGrow: 1,
-    flexShrink: 1,
+    // See the note in filters-view.tsx: a grow-only basis overflows.
+    flex: 1,
   },
   listContent: {
     gap: 12,

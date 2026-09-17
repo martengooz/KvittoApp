@@ -258,9 +258,21 @@ and risk notes.
    Installing `idb` would close this, and is probably the single highest-value
    thing available to the next person.
 
-3. **Sheets.** The last of section 15's control list still missing. Haptics,
-   alerts and swipe actions are done; the screens currently use full routes and
-   modals where a sheet would fit.
+3. **Section 15's control list is complete.** Haptics, alerts, swipe actions
+   and sheets are all in, alongside the native controls, system colours,
+   Dynamic Type, VoiceOver, Reduce Motion and safe areas that were already
+   there. Two conventions to keep when adding a route:
+
+   - **Route options live in `src/app/routes.ts` only.** The root layout maps
+     each contract to a `Stack.Screen`. Setting options again on the screen's
+     own `Stack.Screen` makes the two disagree — the filters sheet took its
+     presentation from one and its header from the other and rendered with a
+     duplicate title bar.
+   - **Every screen that can grow needs a `ScrollView`.** Filters shipped
+     without one and its Apply button was clipped off the bottom of the screen,
+     unreachable. A pinned footer below a bounded scroll area does *not* clip
+     correctly inside a form sheet — the scroll content paints over it — so put
+     the actions in the scroll column until someone works out why.
 
 4. **What still cannot be checked on device: anything needing a tap or a drag.**
    `simctl` can open URLs and screenshot, but cannot tap, and neither `idb` nor

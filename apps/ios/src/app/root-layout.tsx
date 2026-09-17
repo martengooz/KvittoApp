@@ -31,14 +31,28 @@ function RouterShell() {
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false, animation: 'default' }}>
         <Stack.Screen name="(tabs)" />
+        {/*
+          Route options live here alone. Setting them again on the screen's own
+          `Stack.Screen` made the two disagree: the sheet took its presentation
+          from one and its header from the other, and rendered with a duplicate
+          title bar.
+        */}
         {PUSHED_MODAL_ROUTE_CONTRACTS.map((route) => (
           <Stack.Screen
             key={route.route}
             name={route.route}
             options={{
-              headerShown: true,
+              headerShown: route.headerShown ?? true,
               title: route.title,
               presentation: route.presentation,
+              ...(route.sheet
+                ? {
+                    sheetAllowedDetents: route.sheet.detents,
+                    sheetInitialDetentIndex: route.sheet.initialDetentIndex,
+                    sheetGrabberVisible: true,
+                    sheetCornerRadius: 16,
+                  }
+                : {}),
             }}
           />
         ))}

@@ -30,6 +30,64 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-17: Sheets, and the unreachable Apply button they exposed
+
+Sheets were the last item on section 15's control list. Working out where one
+genuinely belonged mattered more than adding one: the scan screen already shows
+camera and "Import from library" as separate buttons, so hiding them behind an
+action sheet would have been a regression. Filters is the real case - it is
+adjusted against the list behind it, so a half-height detent that keeps that
+context visible is better than the full modal it was.
+
+`filters` is now a `formSheet` with detents `[0.5, 1]`, a grabber, and no
+navigation bar.
+
+**Presenting it exposed a defect I shipped earlier.** The filters screen had no
+`ScrollView`. With the default nineteen category chips its content is taller
+than the screen, so Apply and Clear were clipped off the bottom and could not be
+pressed **at all** - the screen could be opened but not used. It is the only
+screen that was missing one; edit, taxonomy and debug all scroll.
+
+Three things went wrong on the way, all worth recording.
+
+**Route options were set in two places.** The root layout maps every contract to
+a `Stack.Screen`, and the route file set its own as well. The two disagreed: the
+sheet took its presentation from one and its header from the other, and rendered
+with the title twice - once in the native bar, once in the content behind it.
+The contract in `src/app/routes.ts` is now the single source, including
+`headerShown` and the sheet detents, and the route file sets nothing.
+
+**A pinned footer would not clip inside the sheet.** Keeping the actions below a
+bounded `ScrollView` is the nicer design and it is what I tried first; inside a
+form sheet the scroll area painted over the buttons regardless of `flexGrow`
+versus `flex: 1`. Rather than keep guessing at the cause, the actions now scroll
+with the content in one column. That fixes the actual defect - unreachable
+buttons - and behaves at every detent. The nicer version can come back if
+someone works out why the scroll area does not clip there.
+
+**`npx prettier --write` reformatted a whole file.** There is no Prettier config
+in this repo, so it used its defaults and rewrote 194 lines of `filters-view.tsx`
+to double quotes, against the style of every other file. Reverted and redone by
+hand. Do not run Prettier here until the repo has a config.
+
+Verified:
+  - `npm run -w apps/ios typecheck`: clean.
+  - `npx jest --config apps/ios/jest.config.js`: 51 suites, 252 tests, passed.
+  - `npm test` (monorepo): all suites passed.
+  - `npm run ios:smoke`: passed, 21 routes, idle CPU 1-2%.
+  - Screenshot confirmed the sheet opens at the half detent with a grabber, the
+    list visible behind it, one title, and no overlapping controls. Three
+    earlier screenshots in this session caught the duplicate header and the
+    overlap that the tests could not see.
+  - `npm run lint`: 10 errors, all pre-existing.
+
+Not verified on device: that Apply can be *scrolled to*. `simctl` cannot drag.
+A test asserts it is inside the scroll view, which is what was wrong before.
+
+Section 15's control list is now complete: native controls, system colours,
+Dynamic Type, VoiceOver, Reduce Motion, safe areas, haptics, sheets, alerts and
+swipe actions.
+
 ### 2026-09-17: Haptics, alerts, and swipe actions
 
 Section 15 of the handoff asks for haptics, sheets, alerts and swipe actions.
@@ -1194,11 +1252,10 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Sheets are the one part of section 15's control list still missing; the
-  screens use full routes and modals instead. After that, the VisionCamera
-  frame processor is the largest remaining item. The three placeholder routes
-  (pairing scanner, archive preflight, archive result) all depend on work
-  further down this list, so they are not the next thing to pick up.
+1. The VisionCamera frame processor (Nitro + nitrogen) is now the largest
+  remaining item, and the only one blocking auto-capture. The three placeholder
+  routes (pairing scanner, archive preflight, archive result) all depend on
+  work further down this list, so they are not the next thing to pick up.
 2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
   enable auto-capture.
 3. Expose native ZIP and run web/native archive interoperability.

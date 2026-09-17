@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import type { Category, Receipt } from '@kvitto/shared/domain';
 import type { IosDataRepository, ReceiptFilter } from '../../data/repository';
@@ -101,124 +101,134 @@ export function ReceiptFiltersScreen({ repository, filterStore, onDone }: Receip
 
   return (
     <ScreenScaffold style={styles.container}>
-      <TitleText accessibilityRole="header">Filters</TitleText>
-      <CaptionText>{activeCount === 0 ? 'No filters applied.' : `${activeCount} filters applied.`}</CaptionText>
+      {/*
+        The category chips grow with the user's taxonomy - nineteen by default -
+        so this content is taller than the screen and was clipping Apply and
+        Clear off the bottom, where they could not be reached at all.
+        Everything, actions included, scrolls together. A pinned footer would
+        keep them permanently in view, but inside a form sheet the scroll area
+        above it did not clip to its bounds and painted over the buttons; one
+        scrolling column is simpler and behaves at every detent.
+      */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <TitleText accessibilityRole="header">Filters</TitleText>
+        <CaptionText>{activeCount === 0 ? 'No filters applied.' : `${activeCount} filters applied.`}</CaptionText>
 
-      <View style={styles.card}>
-        <CaptionText>Purchased between (YYYY-MM-DD)</CaptionText>
-        <View style={styles.pairRow}>
-          <TextInput
-            accessibilityLabel="Purchased from date"
-            placeholder="from"
-            value={from}
-            onChangeText={setFrom}
-            autoCapitalize="none"
-            style={[styles.input, styles.pairInput]}
-          />
-          <TextInput
-            accessibilityLabel="Purchased to date"
-            placeholder="to"
-            value={to}
-            onChangeText={setTo}
-            autoCapitalize="none"
-            style={[styles.input, styles.pairInput]}
-          />
-        </View>
-        {datesInverted ? (
-          <CaptionText accessibilityRole="alert">The start date is after the end date.</CaptionText>
-        ) : null}
-      </View>
-
-      <View style={styles.card}>
-        <CaptionText>Total between</CaptionText>
-        <View style={styles.pairRow}>
-          <TextInput
-            accessibilityLabel="Minimum total"
-            placeholder="min"
-            value={minTotal}
-            onChangeText={setMinTotal}
-            keyboardType="decimal-pad"
-            style={[styles.input, styles.pairInput]}
-          />
-          <TextInput
-            accessibilityLabel="Maximum total"
-            placeholder="max"
-            value={maxTotal}
-            onChangeText={setMaxTotal}
-            keyboardType="decimal-pad"
-            style={[styles.input, styles.pairInput]}
-          />
-        </View>
-        {rangeInverted ? (
-          <CaptionText accessibilityRole="alert">The minimum is greater than the maximum.</CaptionText>
-        ) : null}
-      </View>
-
-      <View style={styles.card}>
-        <CaptionText>Status</CaptionText>
-        <View style={styles.chipRow}>
-          {STATUSES.map((status) => (
-            <Chip
-              key={status}
-              label={status}
-              selected={statuses.includes(status)}
-              onPress={() => setStatuses((current) => toggle(current, status))}
+        <View style={styles.card}>
+          <CaptionText>Purchased between (YYYY-MM-DD)</CaptionText>
+          <View style={styles.pairRow}>
+            <TextInput
+              accessibilityLabel="Purchased from date"
+              placeholder="from"
+              value={from}
+              onChangeText={setFrom}
+              autoCapitalize="none"
+              style={[styles.input, styles.pairInput]}
             />
-          ))}
+            <TextInput
+              accessibilityLabel="Purchased to date"
+              placeholder="to"
+              value={to}
+              onChangeText={setTo}
+              autoCapitalize="none"
+              style={[styles.input, styles.pairInput]}
+            />
+          </View>
+          {datesInverted ? (
+            <CaptionText accessibilityRole="alert">The start date is after the end date.</CaptionText>
+          ) : null}
         </View>
-      </View>
 
-      <View style={styles.card}>
-        <CaptionText>Category</CaptionText>
-        {categories.length === 0 ? (
-          <CaptionText>No categories yet.</CaptionText>
-        ) : (
+        <View style={styles.card}>
+          <CaptionText>Total between</CaptionText>
+          <View style={styles.pairRow}>
+            <TextInput
+              accessibilityLabel="Minimum total"
+              placeholder="min"
+              value={minTotal}
+              onChangeText={setMinTotal}
+              keyboardType="decimal-pad"
+              style={[styles.input, styles.pairInput]}
+            />
+            <TextInput
+              accessibilityLabel="Maximum total"
+              placeholder="max"
+              value={maxTotal}
+              onChangeText={setMaxTotal}
+              keyboardType="decimal-pad"
+              style={[styles.input, styles.pairInput]}
+            />
+          </View>
+          {rangeInverted ? (
+            <CaptionText accessibilityRole="alert">The minimum is greater than the maximum.</CaptionText>
+          ) : null}
+        </View>
+
+        <View style={styles.card}>
+          <CaptionText>Status</CaptionText>
           <View style={styles.chipRow}>
-            {categories.map((category) => (
+            {STATUSES.map((status) => (
               <Chip
-                key={category.id}
-                label={category.name}
-                selected={categoryIds.includes(category.id)}
-                onPress={() => setCategoryIds((current) => toggle(current, category.id))}
+                key={status}
+                label={status}
+                selected={statuses.includes(status)}
+                onPress={() => setStatuses((current) => toggle(current, status))}
               />
             ))}
           </View>
-        )}
-      </View>
+        </View>
 
-      <View style={styles.filterRow}>
-        <BodyText>Needs review only</BodyText>
-        <Switch
-          accessibilityLabel="Needs review only"
-          value={needsReview}
-          onValueChange={setNeedsReview}
-        />
-      </View>
+        <View style={styles.card}>
+          <CaptionText>Category</CaptionText>
+          {categories.length === 0 ? (
+            <CaptionText>No categories yet.</CaptionText>
+          ) : (
+            <View style={styles.chipRow}>
+              {categories.map((category) => (
+                <Chip
+                  key={category.id}
+                  label={category.name}
+                  selected={categoryIds.includes(category.id)}
+                  onPress={() => setCategoryIds((current) => toggle(current, category.id))}
+                />
+              ))}
+            </View>
+          )}
+        </View>
 
-      <View style={styles.actionRow}>
-        <PrimaryButton
-          label="Apply filters"
-          disabled={rangeInverted || datesInverted}
-          onPress={() => {
-            filterStore.replaceFilter(draft);
-            onDone?.();
-          }}
-        />
-        <PrimaryButton
-          label="Clear all"
-          onPress={() => {
-            filterStore.clear();
-            setFrom('');
-            setTo('');
-            setMinTotal('');
-            setMaxTotal('');
-            setStatuses([]);
-            setCategoryIds([]);
-            setNeedsReview(false);
-            onDone?.();
-          }}
-        />
-      </View>
+        <View style={styles.filterRow}>
+          <BodyText>Needs review only</BodyText>
+          <Switch
+            accessibilityLabel="Needs review only"
+            value={needsReview}
+            onValueChange={setNeedsReview}
+          />
+        </View>
+        <View style={styles.actionRow}>
+          <PrimaryButton
+            label="Apply filters"
+            disabled={rangeInverted || datesInverted}
+            onPress={() => {
+              filterStore.replaceFilter(draft);
+              onDone?.();
+            }}
+          />
+          <PrimaryButton
+            label="Clear all"
+            onPress={() => {
+              filterStore.clear();
+              setFrom('');
+              setTo('');
+              setMinTotal('');
+              setMaxTotal('');
+              setStatuses([]);
+              setCategoryIds([]);
+              setNeedsReview(false);
+              onDone?.();
+            }}
+          />
+        </View>
+      </ScrollView>
     </ScreenScaffold>
   );
 }
@@ -230,6 +240,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     gap: 12,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 12,
+    paddingBottom: 12,
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -280,5 +297,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colorToken('surfaceSecondary'),
+    paddingTop: 12,
+    marginTop: 4,
   },
 });

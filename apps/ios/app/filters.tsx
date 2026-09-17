@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 
 import { LoadingState } from '../src/ui/controls';
 import { ReceiptFiltersScreen } from '../src/features/receipts/filters-view';
@@ -10,7 +10,7 @@ export default function FiltersRoute() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Filters', presentation: 'modal' }} />
+      {/* Presentation comes from the route contract; see `src/app/routes.ts`. */}
       {composition ? (
         <ReceiptFiltersScreen
           repository={composition.tabs.receipts.repository}
