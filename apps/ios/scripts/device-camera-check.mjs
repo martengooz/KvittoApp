@@ -89,7 +89,11 @@ async function main() {
 
   const startedAt = Date.now();
   while (!log.includes(BOOT_READY)) {
-    if (log.includes('could not be, unlocked')) {
+    // Both spellings mean the same thing in practice: the phone is locked, or
+    // was when the launch was requested. The second is what a launch issued
+    // moments after the screen went off reports, and its text names neither
+    // the lock nor the app - it took a misreported run to work that out.
+    if (log.includes('could not be, unlocked') || log.includes('failed preflight checks')) {
       child.kill();
       fail('', 'the device is locked; unlock it and run this again');
     }

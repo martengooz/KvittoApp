@@ -152,7 +152,11 @@ async function main() {
     // A device that refused the launch says so at once. Waiting out the boot
     // timeout for an answer already in hand wastes two minutes and reports the
     // wrong problem - "did not boot" rather than "was never started".
-    if (log.includes('could not be, unlocked')) {
+    // Both spellings mean the same thing in practice: the phone is locked, or
+    // was when the launch was requested. The second is what a launch issued
+    // moments after the screen went off reports, and its text names neither
+    // the lock nor the app - it took a misreported run to work that out.
+    if (log.includes('could not be, unlocked') || log.includes('failed preflight checks')) {
       child.kill();
       fail('', 'the device is locked; unlock it and run this again');
     }
