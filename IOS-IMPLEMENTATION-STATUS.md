@@ -21,14 +21,166 @@ Repository reads and writes now execute as direct SQL against SQLite; the
 in-memory state mirror and full-table rewrite are gone. Sync runs automatically
 from app lifecycle, connectivity, and local edits, and pulls receipt images.
 
-The rewrite is not release-complete. The main remaining work is the live
-VisionCamera frame processor for auto-capture, native ZIP bridge wiring,
-background execution, physical-device tests, and release-level
-E2E/performance/accessibility work.
+The rewrite is not release-complete. The main remaining work is release-level
+E2E, performance and accessibility work, and verification of the camera and
+background paths against real hardware - both are now built and both boot on a
+device, but neither has been watched doing its job.
 
 The native iOS rewrite is committed on `main`.
 
 ## Progress Log
+
+### 2026-09-18: Live document detection, and a way to check it on a device
+
+Two pieces, and the second is why the first can be believed at all.
+
+**The frame detector.** `FrameAnalysisAdapter.swift` reported
+`pluginLinked: false`, and the scan controller only trusts a reading when
+`pluginLinked && evidenceScore >= 0.35`. Auto-capture had therefore never once
+armed. The state machine around it was written and tested against injected
+readings; nothing had ever produced a real one.
+
+`react-native-vision-camera@5` has **no** frame-processor plugin API. Frames
+arrive in `useFrameOutput`'s `onFrame`, a synchronous worklet on the camera's
+own thread, and the pixel buffer is valid only for that call. An Expo module
+function cannot be called from there. A Nitro hybrid object can, so
+`modules/kvitto-frames` is one, wrapping `VNDetectRectanglesRequest`.
+
+It is a **separate pod** from `kvitto-native`, and that is load-bearing rather
+than tidy. Nitro compiles its pod with `SWIFT_OBJC_INTEROP_MODE = objcxx`;
+under C++ interop Swift rebuilds `ExpoModulesCore` from its `.swiftinterface`
+and fails with "this SDK is not supported by the compiler" against the
+precompiled XCFramework Expo ships. The first attempt put the hybrid object in
+`kvitto-native` and broke the whole build.
+
+The shape that matters is the split of `analyze` and `latest`. `analyze` runs
+on the camera thread and must return before the next frame or the pipeline
+stalls, so it returns nothing and stores its result; `latest` is read from the
+JS thread, which wants the newest reading and does not care which frame made
+it. One lock covers both. The frame and its native buffer are released in a
+`finally` - hold either past the callback and the preview freezes rather than
+erroring, which is a much harder failure to read.
+
+Detection is gated to 5Hz. It costs more than a frame interval, and a hand
+holding a phone does not move far in 16ms.
+
+Vision's confidence answers "is this a quadrilateral", which a table edge
+satisfies as well as a receipt does, so the score multiplies it by coverage and
+squareness. That rejects a receipt too far away to read, one filling the frame
+edge to edge (where the paper is almost certainly clipped), and shapes whose
+opposite sides disagree. Quads stay in Vision's bottom-left space because the
+same quad is handed back as `forcedQuad` for perspective correction - flipping
+would crop a live capture differently from a still.
+
+On the JS side a reading older than 900ms stops counting. The analyzer holds
+its last result until the next replaces it, which is correct while frames keep
+arriving and wrong the instant they stop: a paused preview would otherwise keep
+auto-capture armed over a scene no longer in front of the camera.
+
+**Driving routes on a device.** `simctl` opens deep links. `devicectl` does
+not - it installs, launches and screenshots, and that is the whole list. So on
+real hardware every screen past the first was unreachable, which is precisely
+where the camera lives.
+
+`devicectl` *can* set environment variables on the launched process, and that
+is the only channel into a signed Release build. The app reads `KVITTO_ROUTES`
+and walks them, logging each **before** opening it, so a route that takes the
+process down is named by the last line written rather than by a missing one. A
+navigation that throws is reported and the walk carries on; one unreachable
+route should not hide the state of the twenty after it. Nothing can set an
+environment variable on an App Store launch, so this is unreachable in the
+field rather than merely unused.
+
+`scripts/device-smoke.mjs` is the simulator check's counterpart, minus what a
+device cannot give: no sample-data seeding, deliberately - someone's own
+receipts are not a place to write six fake ones - and no CPU check, because
+`ps` cannot reach a process on a device.
+
+Verified:
+  - `npx jest`: 62 suites, **359 tests**, passed. 17 are new.
+  - `xcodebuild test`: **48 Swift tests**, 0 failures. 8 are new. They cover
+    the score that decides whether to fire the shutter and the orientation
+    mapping that decides which way up Vision reads a frame.
+    `FrameDocumentScoring` is compiled into the test target directly rather
+    than imported: an Objective-C test target cannot import a C++-interop
+    module, and keeping the judgement in a dependency-free file is what makes
+    it reachable without a device at all.
+  - `xcodebuild build` Release, simulator and device: succeeded.
+  - `npm run ios:smoke`: 25 routes, boot and idle CPU clean.
+
+Not verified: **the camera itself**. `npm run ios:device-smoke` needs the
+phone unlocked and it was locked on every attempt, so no frame has yet reached
+the detector. Everything around the call is tested; the call has not happened.
+
+### 2026-09-18: A background task, and jobs that run inside it
+
+`background-runner.ts` had drained durable jobs inside a revocable window since
+it was written, with twelve tests on a fake clock, and **nothing called it**.
+No registered task, no `UIBackgroundModes`, no
+`BGTaskSchedulerPermittedIdentifiers`. The app had never run a job while it was
+not open.
+
+`expo-background-task` was the short route and the wrong one. Its callback
+gets no deadline and no expiration signal, and those are the two things the
+runner is built around: it refuses to start a job it cannot finish, and polls
+for revocation between jobs. Wrapping it in an API that hides the window would
+have left the guard decorative.
+
+So the task is native. Three rules, in descending order of what getting them
+wrong costs:
+
+1. **Registration happens in the app delegate.** `BGTaskScheduler.register`
+   must be called before `didFinishLaunchingWithOptions` returns, which is
+   earlier than any Expo module is guaranteed to exist.
+2. **Windows are buffered, not pushed.** iOS can launch the app straight into
+   the background to run the task, so the window opens before React Native has
+   a JS runtime and an event sent then goes nowhere. The coordinator holds
+   launches until JavaScript asks. A cold background launch - the case the
+   feature exists for - always arrives that way.
+3. **Every window is completed exactly once.** iOS terminates an app that never
+   completes a launched task and traps on a second completion. The controller
+   finishes in a `finally`; the coordinator refuses a repeat. An unknown handle
+   reads as *expired*, because the only safe answer to "may I start another
+   job?" for a window nobody owns is no.
+
+Expiration marks, it does not complete: the handler flips a flag the sweep
+polls. Completing there would pull the window out from under a running job, and
+a claim whose process died blocks its own retry until it lapses.
+
+iOS reveals no deadline - neither `BGProcessingTask` nor `BGAppRefreshTask`
+carries one - so the controller invents one from a deliberately short assumed
+budget. Finishing early costs one deferred job; overrunning costs a stalled
+claim.
+
+Verified:
+  - `npx jest`: 59 suites, 342 tests. `xcodebuild test`: 40 Swift tests. One
+    of the new Swift tests asserts the registered identifier really is listed
+    in `BGTaskSchedulerPermittedIdentifiers`; registration is refused silently
+    otherwise and the app looks entirely healthy while never running.
+  - **On the physical device** (iPhone 15 Pro, iOS 26.6.2, signed Release):
+
+        [kvitto] boot:ready steps=8
+        [kvitto] background:scheduled scheduled
+
+    iOS accepted the submission, so the launch handler registered and the
+    identifier passed the plist check on real hardware.
+
+Not verified: a window iOS actually grants. That needs the scheduler to choose
+to run the task, which it may defer for hours, and cannot be forced from
+`devicectl`.
+
+### 2026-09-18: Boot confirmed on a physical device
+
+The first launch on real hardware, and the first proof that SQLCipher, the
+Keychain-held key, the SecureStore entitlement, WAL, migrations and FTS all
+initialise outside a simulator.
+
+Getting there needed one change. `devicectl ... --console` attaches to the
+launched process and shows only its stdout and stderr; nothing available can
+stream a physical device's unified log. The boot markers this project depends
+on - `boot:ready`, `boot:failed`, `render:failed` - were being written and
+discarded, and a launch that died in startup looked identical to one that
+worked. `logDiagnostic` now mirrors every diagnostic to stderr.
 
 ### 2026-09-18: AI extraction actually runs
 
