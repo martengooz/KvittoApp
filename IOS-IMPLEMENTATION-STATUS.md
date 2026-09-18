@@ -34,6 +34,37 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-18: An exported archive can leave the app
+
+Export wrote a `.kvitto` file into the app's own caches directory and reported
+the path. That path is inside the container, so nothing on the phone could open
+it - the file was correct, complete and unreachable, which made the whole
+feature unusable while reading as success. `NativeArchiveShareAdapter` had been
+a stub throwing `notImplemented` with no callers.
+
+It now presents a `UIActivityViewController` behind `shareFile` on the native
+facade. Three things there are easy to get wrong and none fails loudly: the
+presentation must happen on the main thread (the call arrives on the module
+queue), it must present from the controller actually on screen (the archive
+screens sit inside a presented stack, so presenting from the root hides the
+sheet behind them), and on iPad a share sheet is a popover that raises rather
+than degrades when given no anchor - and this app targets both families.
+
+The success message no longer names the destination path, because telling
+someone where a file is that they cannot open is worse than not mentioning it.
+
+None of that Swift is reachable from a test, so the export screen takes a
+launch-environment verb that runs the export and opens the sheet - the same
+mechanism the shutter uses. The driver bypasses the sensitivity warning rather
+than answering it: that warning is a gate for a person, and a driver able to
+click through gates is a worse thing to own than an unverified prompt. A normal
+launch and an unrecognised verb both export nothing, pinned by tests, because
+this screen writes every receipt and image into one unencrypted file.
+
+Gates: 69 suites / 430 tests, typecheck clean, lint at its 10 pre-existing
+errors, device Release build succeeds. The share sheet itself has not been seen
+on hardware yet; the phone was locked.
+
 ### 2026-09-18: The camera runs on a real phone, and three defects fall out
 
 Every defect in this entry was found by looking at a screenshot from a physical
@@ -1890,13 +1921,13 @@ The following checks have passed during implementation:
 | 5. Sync transport/identity | Implemented and tested | Manual and automatic sync, pair/unpair with blob upload reset. A real-server app run remains. |
 | 6. Native Vision module | Implemented | Still processing/OCR compile and native fixture tests execute. Live frame detection ships as a separate Nitro pod (VisionCamera 5 removed the frame-processor plugin API) and runs on device at ~60fps. |
 | 7. App shell/UI | Implemented | Real SF Symbols via expo-symbols. Needs the remaining pushed/modal routes, haptics, swipe actions, and the accessibility/appearance matrix. |
-| 8. Archive/PWA export | Mostly complete | PWA streaming ZIP exists; cross-platform interoperability still needs end-to-end validation. |
+| 8. Archive/PWA export | Mostly complete | PWA streaming ZIP exists, and the native side can now both write an archive and hand it to the share sheet. Cross-platform interoperability still needs end-to-end validation. |
 | 9. Sync engine | Implemented and composed | Automatic triggers, real connectivity, and blob download persistence are wired and tested. Background execution and a real-server app run remain. |
 | 10. Durable jobs | Partial | Repository-backed durable queue/store, strict multi-kind foreground handlers, and lifecycle service are composed; native background bridge behavior (BGTask) remains. |
 | 11. Receipt/purchase/collection | Implemented | FlashList lists, indexed per-receipt item reads, and a real pushed receipt detail route. Needs E2E, large-data profiling, and interaction polish. |
 | 12. Scan feature | Mostly complete | Workflow, camera adapter, VisionCamera preview, capture, torch, and zoom are implemented. Live detection runs as a Nitro hybrid object (`modules/kvitto-frames`) and has been verified on an iPhone 15 Pro, as has the full capture-to-persisted-receipt path. Auto-capture arming on hardware and OCR quality against real receipts remain. |
 | 13. AI/company | Implemented foundation | Needs production credential/job wiring and optional provider smoke tests. |
-| 14. Native migration/settings | Partial | Orchestration exists; native ZIP bridge and complete Files/share UX remain. |
+| 14. Native migration/settings | Mostly complete | Orchestration, the native ZIP reader and writer, and sharing an export out through the system share sheet are implemented. A web/native archive round trip remains. |
 | 15. Integration/release | In progress | Routes/docs/CI exist; full E2E, privacy, performance, accessibility, and release work remain. |
 
 ## Important Remaining Work
@@ -1985,10 +2016,12 @@ device capture path are all done; see the 2026-09-18 progress entries.
   and the sweep are implemented and the submission is accepted on device, but
   no granted window has been observed doing work. This needs a device left
   plugged in and charging, and patience - iOS decides when.
-2. Expose native ZIP (the writer is still missing) and run web/native archive
-  interoperability. The reader exists and is tested; what remains is driving
-  `packages/archive`'s preflight over its entries and replacing the archive
-  preflight/result placeholder routes.
+2. Run web/native archive interoperability end to end: export from one, import
+  into the other, and check the merge plan agrees. The native ZIP reader and
+  writer both exist, the preflight/apply flow runs through real screens, and an
+  export can now be shared out of the app - what is missing is a round trip
+  between the two platforms. (This item previously claimed the ZIP writer and
+  the archive routes were missing; both had shipped.)
 3. Real-server integration: a sync convergence run from the native app against
   a live server, and a real call to Anthropic/OpenAI/Ollama and to Apiverket.
   All four need credentials that are not in this repo.
