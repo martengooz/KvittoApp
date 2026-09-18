@@ -100,7 +100,7 @@ export function ReceiptFiltersScreen({ repository, filterStore, onDone }: Receip
   const datesInverted = draft.from !== undefined && draft.to !== undefined && draft.from > draft.to;
 
   return (
-    <ScreenScaffold style={styles.container}>
+    <ScreenScaffold style={styles.container} insetTop>
       {/*
         The category chips grow with the user's taxonomy - nineteen by default -
         so this content is taller than the screen and was clipping Apply and

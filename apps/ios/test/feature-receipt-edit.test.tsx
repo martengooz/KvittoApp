@@ -106,7 +106,10 @@ describe('receipt edit screen', () => {
 
     expect(control(renderer, 'Merchant name', 'onChangeText').props.value).toBe('ICA Maxi');
     expect(control(renderer, 'Receipt notes', 'onChangeText').props.value).toBe('Lunch med kund');
-    expect(textOf(renderer)).toContain('Edit receipt');
+    // The screen no longer draws its own "Edit receipt" title - the native
+    // header carries it, and drawing both made every screen say its name
+    // twice. What the screen owes is the receipt's values, checked above.
+    expect(textOf(renderer)).toContain('Line items');
 
     await act(async () => renderer.unmount());
     db.close();

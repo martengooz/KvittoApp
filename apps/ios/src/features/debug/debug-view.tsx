@@ -119,7 +119,7 @@ export function DebugScreen({ repository, startupSteps, allowSampleData, notice,
   return (
     <ScreenScaffold style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <TitleText accessibilityRole="header">Debug</TitleText>
+      {/* The title comes from the native header; see `src/app/routes.ts`. */}
 
         <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Database contents">
           <TitleText>Database</TitleText>

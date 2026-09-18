@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import type { PreflightReport } from '@kvitto/archive';
 import { ScreenScaffold, PrimaryButton } from '../ui/controls';
@@ -75,6 +75,8 @@ export function ArchiveResultScreen({
 
   return (
     <ScreenScaffold style={styles.container}>
+      {/* A preflight report lists every error and warning the archive produced, so this can outgrow the screen. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       <TitleText accessibilityRole="header">
         {report.ok ? 'Archive is importable' : 'Archive cannot be imported'}
       </TitleText>
@@ -113,11 +115,19 @@ export function ArchiveResultScreen({
       ) : null}
 
       {onStartOver ? <PrimaryButton label="Check another archive" onPress={onStartOver} /> : null}
+      </ScrollView>
     </ScreenScaffold>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 12,
+    paddingBottom: 24,
+  },
   container: { alignItems: 'stretch', justifyContent: 'flex-start', paddingTop: 12, gap: 12 },
   card: {
     borderWidth: StyleSheet.hairlineWidth,

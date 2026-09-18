@@ -18,7 +18,7 @@ export function PurchasesFeatureScreen({ repository }: PurchasesFeatureScreenPro
 
   return (
     <ScreenScaffold style={styles.container}>
-      <TitleText accessibilityRole="header">Purchases</TitleText>
+      {/* The title comes from the tab's native header; see `src/app/tabs.ts`. */}
       <TextInput
         accessibilityLabel="Global item search"
         placeholder="Search purchased items"

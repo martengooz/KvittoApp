@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import type {
   ScanBatchOutcome,
@@ -11,7 +11,7 @@ import type {
 import type { KvittoNativeFacade } from '../../modules/kvitto-native/src';
 import { ScanCameraPreview } from './camera-preview';
 import { PrimaryButton, ScreenScaffold } from '../ui/controls';
-import { BodyText, CaptionText, TitleText } from '../ui/typography';
+import { BodyText, CaptionText } from '../ui/typography';
 import { colorToken } from '../ui/tokens';
 
 export type ScanFeatureScreenProps = {
@@ -81,7 +81,14 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
 
   return (
     <ScreenScaffold style={styles.container}>
-      <TitleText accessibilityRole="header">Scan</TitleText>
+      {/* The title comes from the tab's native header; see `src/app/tabs.ts`. */}
+      {/*
+        The camera preview is most of a screen tall, and the controls below it
+        add four more rows. Without this the shutter was off the bottom of the
+        screen with no way to reach it - on a phone you could see the preview
+        and not take a photo. Caught by a device screenshot; no test can see it.
+      */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Scan diagnostics">
         <CaptionText>{`Permission: ${state.permission}`}</CaptionText>
         <CaptionText>{`Stage: ${state.stage}`}</CaptionText>
@@ -110,15 +117,21 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
       ) : null}
 
       <View style={styles.row}>
-        <PrimaryButton
-          label="Request camera permission"
-          onPress={() => {
-            void run(async () => {
-              await controller.requestPermission();
-            });
-          }}
-          disabled={state.permission === 'granted'}
-        />
+        {/*
+          Hidden once granted rather than shown disabled. It sat above the
+          preview taking the most valuable space on the screen to offer
+          something that could never happen again.
+        */}
+        {state.permission === 'granted' ? null : (
+          <PrimaryButton
+            label="Request camera permission"
+            onPress={() => {
+              void run(async () => {
+                await controller.requestPermission();
+              });
+            }}
+          />
+        )}
         <PrimaryButton
           label={cameraState.active ? 'Pause preview' : 'Start capture'}
           onPress={() => {
@@ -195,6 +208,7 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
           <CaptionText>{`Rotation: ${state.review.rotation}`}</CaptionText>
         </View>
       ) : null}
+      </ScrollView>
     </ScreenScaffold>
   );
 }
@@ -203,8 +217,14 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'stretch',
     justifyContent: 'flex-start',
-    gap: 10,
     paddingTop: 12,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 10,
+    paddingBottom: 24,
   },
   row: {
     flexDirection: 'row',

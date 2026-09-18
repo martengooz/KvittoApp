@@ -90,7 +90,7 @@ export const PUSHED_MODAL_ROUTE_CONTRACTS: ReadonlyArray<RouteSkeletonContract> 
   {
     route: 'archive/preflight',
     presentation: 'card',
-    title: 'Archive preflight',
+    title: 'Import archive',
     controller: 'settings',
   },
   {

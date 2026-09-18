@@ -28,7 +28,8 @@
     "test": "npm run test --workspaces --if-present",
     "clean": "rm -rf apps/*/dist packages/*/dist apps/*/node_modules/.vite",
     "ios:smoke": "npm run smoke:ios --workspace @kvitto/ios --",
-    "ios:device-smoke": "npm run device-smoke --workspace @kvitto/ios --"
+    "ios:device-smoke": "npm run device-smoke --workspace @kvitto/ios --",
+    "ios:device-camera": "npm run device-camera --workspace @kvitto/ios --"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

@@ -56,7 +56,7 @@ export function ReceiptsFeatureScreen({
   return (
     <ScreenScaffold style={styles.container}>
       <View style={styles.header}>
-        <TitleText accessibilityRole="header">Receipts</TitleText>
+      {/* The title comes from the tab's native header; see `src/app/tabs.ts`. */}
         <TextInput
           accessibilityLabel="Search receipts"
           accessibilityHint="Filters receipt list by merchant, notes and item names"

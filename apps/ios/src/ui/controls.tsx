@@ -6,11 +6,27 @@ import { colorToken } from './tokens';
 
 type ScreenScaffoldProps = ViewProps & {
   children: ReactNode;
+  /**
+   * Whether to inset for the status bar and notch at the top.
+   *
+   * Off by default, because almost every screen in this app sits under a
+   * navigation or tab header and React Navigation has already inset the
+   * content below it. Claiming the top edge as well adds the same inset twice
+   * and leaves a band of empty background between the header and the first
+   * control.
+   *
+   * A screen with `headerShown: false` in its route contract - the filters
+   * sheet - has nothing above it and turns this on.
+   */
+  insetTop?: boolean;
 };
 
-export function ScreenScaffold({ children, style, ...props }: ScreenScaffoldProps) {
+export function ScreenScaffold({ children, style, insetTop = false, ...props }: ScreenScaffoldProps) {
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={insetTop ? ['top', 'left', 'right', 'bottom'] : ['left', 'right', 'bottom']}
+    >
       <View style={[styles.content, style]} {...props}>
         {children}
       </View>

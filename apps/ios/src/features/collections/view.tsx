@@ -16,7 +16,7 @@ export function CollectionsFeatureScreen({ repository }: CollectionsFeatureScree
 
   return (
     <ScreenScaffold style={styles.container}>
-      <TitleText accessibilityRole="header">Collections</TitleText>
+      {/* The title comes from the tab's native header; see `src/app/tabs.ts`. */}
       {state.error ? <BodyText accessibilityRole="alert">{state.error}</BodyText> : null}
       {state.loading ? <CaptionText accessibilityRole="progressbar">Loading summaries…</CaptionText> : null}
 

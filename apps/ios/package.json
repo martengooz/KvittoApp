@@ -11,7 +11,8 @@
     "typecheck": "tsc -b tsconfig.json",
     "test": "jest",
     "smoke:ios": "node scripts/smoke.mjs",
-    "device-smoke": "node scripts/device-smoke.mjs"
+    "device-smoke": "node scripts/device-smoke.mjs",
+    "device-camera": "node scripts/device-camera-check.mjs"
   },
   "dependencies": {
     "@kvitto/archive": "*",

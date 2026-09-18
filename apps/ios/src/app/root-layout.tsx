@@ -1,5 +1,13 @@
 import { useEffect } from 'react';
-import { Stack, router, type ErrorBoundaryProps } from 'expo-router';
+import { useColorScheme } from 'react-native';
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+  router,
+  type ErrorBoundaryProps,
+} from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { createKvittoNativeFacade } from '../../modules/kvitto-native/src';
@@ -58,6 +66,15 @@ function useLaunchRouteDriver(ready: boolean): void {
 
 function RouterShell() {
   const { boot, retryBoot } = useAppServices();
+  /*
+   * The navigation chrome has its own theme and does not read the system
+   * appearance on its own. Without this the header and its title stayed light
+   * while every screen underneath - which reads system colours through
+   * `colorToken` - went dark, which on a device is a white bar above a black
+   * screen. Only ever visible on hardware: the simulator was screenshotted in
+   * light mode, where the two happen to agree.
+   */
+  const scheme = useColorScheme();
 
   // Hooks run before the early returns below, so this cannot be moved inside
   // the ready branch; it gates on `ready` instead.
@@ -78,8 +95,13 @@ function RouterShell() {
   }
 
   return (
-    <>
-      <StatusBar style="dark" />
+    <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {/*
+        `auto` follows the system appearance. It was pinned to `dark`, which
+        means dark status-bar *content* - black text - and that is unreadable
+        against this app's own dark-mode background.
+      */}
+      <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false, animation: 'default' }}>
         <Stack.Screen name="(tabs)" />
         {/*
@@ -108,7 +130,7 @@ function RouterShell() {
           />
         ))}
       </Stack>
-    </>
+    </ThemeProvider>
   );
 }
 

@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { LoadingState } from '../../src/ui/controls';
 import { SettingsFeatureScreen } from '../../src/app/settings-screen';
 import { useAppServices } from '../../src/app/services';
@@ -9,7 +9,6 @@ export default function SettingsRoute() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Settings', headerLargeTitle: true }} />
       {composition ? (
         <SettingsFeatureScreen
           controller={composition.tabs.settings.controller}

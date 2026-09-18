@@ -197,7 +197,7 @@ export function TaxonomyScreen({ repository, kind }: TaxonomyScreenProps) {
 
   return (
     <ScreenScaffold style={styles.container}>
-      <TitleText accessibilityRole="header">{plural}</TitleText>
+      {/* The title comes from the native header; see `src/app/routes.ts`. */}
       <CaptionText>
         {rows.length === 0 ? `No ${plural.toLowerCase()} yet.` : `${rows.length} ${rows.length === 1 ? noun : plural.toLowerCase()}.`}
       </CaptionText>

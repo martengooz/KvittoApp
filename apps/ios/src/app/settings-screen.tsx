@@ -104,7 +104,7 @@ export function SettingsFeatureScreen({
         which is the same defect the filters sheet shipped with once.
       */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-      <TitleText accessibilityRole="header">Settings</TitleText>
+      {/* The title comes from the tab's native header; see `src/app/tabs.ts`. */}
       {error ? <BodyText accessibilityRole="alert">{error}</BodyText> : null}
 
       <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Startup diagnostics">

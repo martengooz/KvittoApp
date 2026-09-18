@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { ScreenScaffold, PrimaryButton } from '../ui/controls';
 import { BodyText, CaptionText, TitleText } from '../ui/typography';
@@ -64,7 +64,9 @@ export function ArchiveExportScreen({
 
   return (
     <ScreenScaffold style={styles.container}>
-      <TitleText accessibilityRole="header">Export archive</TitleText>
+      {/* An export report grows a line per blob and per failure, so this can outgrow the screen. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      {/* The title comes from the native header; see `src/app/routes.ts`. */}
 
       <View style={styles.card} accessibilityRole="alert" accessibilityLabel="Export sensitivity warning">
         <TitleText>This file is sensitive</TitleText>
@@ -81,11 +83,19 @@ export function ArchiveExportScreen({
 
       {status ? <CaptionText accessibilityRole="summary">{status}</CaptionText> : null}
       {error ? <CaptionText accessibilityRole="alert">{error}</CaptionText> : null}
+      </ScrollView>
     </ScreenScaffold>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 12,
+    paddingBottom: 24,
+  },
   container: { alignItems: 'stretch', justifyContent: 'flex-start', paddingTop: 12, gap: 12 },
   card: {
     borderWidth: StyleSheet.hairlineWidth,

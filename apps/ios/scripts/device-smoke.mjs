@@ -197,8 +197,26 @@ async function main() {
   }
 
   if (args.screenshot) {
-    await run('xcrun', ['devicectl', 'device', 'screenshot', '--device', args.device, args.screenshot]);
-    console.log(`  screenshot -> ${args.screenshot}`);
+    // Wrapped: every route passed by this point, and a screenshot is a
+    // convenience. Failing the run over it would report the wrong thing.
+    //
+    // Note the shape: `devicectl device capture screenshot`, with the path as
+    // a named `--destination` rather than a positional argument.
+    try {
+      await run('xcrun', [
+        'devicectl',
+        'device',
+        'capture',
+        'screenshot',
+        '--device',
+        args.device,
+        '--destination',
+        args.screenshot,
+      ]);
+      console.log(`  screenshot -> ${args.screenshot}`);
+    } catch (error) {
+      console.warn(`  screenshot failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   child.kill();

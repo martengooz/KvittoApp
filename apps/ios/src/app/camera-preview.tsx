@@ -27,6 +27,25 @@ import { colorToken } from '../ui/tokens';
  */
 const FRAME_ANALYSIS_INTERVAL_MS = 200;
 
+/**
+ * Markers the device camera check watches for; see
+ * `scripts/device-camera-check.mjs`.
+ *
+ * The frame pipeline is otherwise entirely unobservable on a device: Release
+ * strips `console`, the preview looks identical whether the detector is
+ * running or inert, and a stalled pipeline shows up as a preview that simply
+ * stops moving.
+ */
+export const FRAME_MARKERS = {
+  /** The detector was created, or could not be. */
+  analyzer: 'frames:analyzer',
+  /** A periodic reading, while the preview is mounted. */
+  reading: 'frames:reading',
+} as const;
+
+/** How often a reading is logged. Diagnostics, not the pipeline's own rate. */
+const FRAME_LOG_INTERVAL_MS = 1_000;
+
 export interface ScanCameraPreviewProps {
   bridge: ScanCameraBridge;
   native: KvittoNativeFacade;
@@ -66,6 +85,46 @@ export function ScanCameraPreview({ bridge, native }: ScanCameraPreviewProps) {
    * time without putting a `Date.now()` call inside the frame worklet.
    */
   const frameClockOffsetMs = useRef(0);
+
+  /*
+   * Reports what the detector is seeing, once a second, for as long as the
+   * preview is up. This is the only way to find out on a device whether frames
+   * are arriving at all, whether the evidence score reaches the threshold the
+   * scan controller needs, and whether the pipeline is dropping frames because
+   * a buffer was held too long.
+   */
+  useEffect(() => {
+    if (!analyzer) {
+      try {
+        native.logDiagnostic(FRAME_MARKERS.analyzer, 'unavailable');
+      } catch {
+        // Off-device there is no log; the screen still works.
+      }
+      return;
+    }
+
+    try {
+      native.logDiagnostic(FRAME_MARKERS.analyzer, `ready interval=${FRAME_ANALYSIS_INTERVAL_MS}ms`);
+    } catch {
+      // As above.
+    }
+
+    const timer = setInterval(() => {
+      try {
+        const latest = analyzer.latest;
+        native.logDiagnostic(
+          FRAME_MARKERS.reading,
+          latest
+            ? `${latest.status} evidence=${latest.evidenceScore.toFixed(3)} coverage=${latest.coverage.toFixed(3)} took=${latest.durationMs.toFixed(1)}ms skipped=${analyzer.skippedFrames}`
+            : 'none',
+        );
+      } catch {
+        // A logging failure must never take the camera down.
+      }
+    }, FRAME_LOG_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [analyzer, native]);
 
   const frameOutput = useFrameOutput({
     onFrame: (frame) => {

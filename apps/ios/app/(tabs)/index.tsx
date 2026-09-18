@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { LoadingState } from '../../src/ui/controls';
 import { ReceiptsFeatureScreen } from '../../src/features/receipts/view';
 import { useAppServices } from '../../src/app/services';
@@ -9,7 +9,6 @@ export default function ReceiptsRoute() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Receipts', headerLargeTitle: true }} />
       {composition ? <ReceiptsFeatureScreen
           repository={composition.tabs.receipts.repository}
           filterStore={composition.tabs.receipts.filters}

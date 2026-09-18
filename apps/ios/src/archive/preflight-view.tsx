@@ -71,7 +71,7 @@ export function ArchivePreflightScreen({ native, initialFileUri, onReport }: Arc
   return (
     <ScreenScaffold style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <TitleText accessibilityRole="header">Import archive</TitleText>
+      {/* The title comes from the native header; see `src/app/routes.ts`. */}
         <CaptionText>
           Nothing is imported by this screen. It reads the archive and reports what would
           change.

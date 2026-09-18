@@ -183,7 +183,7 @@ export function ReceiptEditScreen({ repository, receiptId, onDone }: ReceiptEdit
   return (
     <ScreenScaffold style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <TitleText accessibilityRole="header">Edit receipt</TitleText>
+      {/* The title comes from the native header; see `src/app/routes.ts`. */}
         {error ? <CaptionText accessibilityRole="alert">{error}</CaptionText> : null}
 
         <View style={styles.card}>

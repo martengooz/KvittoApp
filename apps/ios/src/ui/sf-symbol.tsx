@@ -43,7 +43,7 @@ export type SFSymbolProps = {
 
 function SymbolFallback({ text, size, color }: { text: string; size: number; color: ColorValue }) {
   return (
-    <Text allowFontScaling maxFontSizeMultiplier={1.4} style={[styles.fallback, { fontSize: size, color: String(color) }]}>
+    <Text allowFontScaling maxFontSizeMultiplier={1.4} style={[styles.fallback, { fontSize: size, color }]}>
       {text}
     </Text>
   );
@@ -53,7 +53,14 @@ export function SFSymbol({
   name,
   fallbackText,
   size = 18,
-  color = String(colorToken('textSecondary')),
+  /*
+   * Passed through as a `ColorValue`, not stringified. `colorToken` returns a
+   * `PlatformColor`, which is an opaque object: `String(...)` turns it into
+   * "[object Object]", React Native cannot parse that as a colour, and the
+   * element silently falls back to a default. That is how every tab-bar icon
+   * came to render the same shade regardless of which tab was selected.
+   */
+  color = colorToken('textSecondary'),
   accessibilityLabel,
 }: SFSymbolProps) {
   const SymbolView = resolveSymbolView();
