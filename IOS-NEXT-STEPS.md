@@ -436,9 +436,14 @@ and risk notes.
    Maestro, but it is more than the nothing that was available before.
 
 9. **Things nobody has built yet**, carried forward so they do not get lost:
-   company lookup by organisation number, blob upload and download job kinds,
-   and sync convergence against a real companion server (the engine is tested
-   against fakes; no native client has talked to a running server).
+   sync convergence against a real companion server (the engine is tested
+   against fakes; no native client has talked to a running server), and a real
+   call to Apiverket (the company lookup is built and tested against fakes; no
+   request has left the app, which needs a key).
+
+   Blob upload and download turned out to be done already - the sync engine
+   pushes pending blobs and pulls the ones live receipts reference. There is no
+   separate job kind and there does not need to be.
 
 ## Known defects not fixed
 

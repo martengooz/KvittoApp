@@ -30,6 +30,61 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-18: The shop gets looked up in the company register
+
+The iOS app read an organisation number off a receipt and then did nothing
+with it. The web app has resolved the company for a long time; the phone filed
+the digits and stopped.
+
+The **API client moved to `@kvitto/shared`** rather than being copied. It
+touches no DOM, so the only change on the way was recognising an abort by
+`error.name` rather than `instanceof DOMException`, which Hermes does not
+define - an abort was being reported as an unreachable registry. The web app
+re-exports it from its old path.
+
+The **policy** is a second implementation, deliberately, and both files say so.
+The web copy has no tests and reaches straight into Dexie and a settings
+singleton; unifying them would mean rewriting working, uncovered code for no
+user's benefit. The registry's contract is the part that would really have
+drifted, and that is the part now shared.
+
+The rule the module exists to enforce: **a company already stored is never
+looked up again.** The checksum is validated locally first, because the API
+charges for the 400 it returns on a malformed number and OCR produces malformed
+numbers constantly. A definitive "not found" is remembered for a month; a rate
+limit or a dropped connection is not, because neither says anything about
+whether the company exists.
+
+Name search is the weaker path, off by default - its quota is twenty calls a
+day on a free key, and one batch import would spend all of it unasked. A hit is
+accepted only when the registered name it returns can be found in the receipt's
+own text; a wrong company filed silently is worse than none. It runs only when
+the number did not produce a company the receipt agrees with, which covers no
+legible number, an unknown number, and the subtle case of a number that passed
+its checksum and landed on a different real company.
+
+Two things this turned up:
+
+**There was no way to enter an API key.** Settings reported whether one was
+present and offered no field. The AI runner's careful "no API key configured"
+message pointed at a screen that could not fix it. Both keys now have a field,
+and a stored value is never read back into it.
+
+**Settings had no `ScrollView`.** It grows a card per feature and was already
+several cards taller than the screen, so Credentials could not be reached -
+the same defect the filters sheet shipped with. There is now a test that fails
+if the ScrollView goes away, and the first test that renders this screen at
+all.
+
+Verified:
+  - `npx jest`: 64 suites, **393 tests**. 34 are new - 24 on the lookup rules
+    against a real SQLite database with no network, 10 rendering settings.
+  - `xcodebuild build` Release and `npm run ios:smoke`: clean.
+  - Settings screenshotted: the card at the fold is clipped by the scroll view
+    rather than by the screen.
+
+Not verified: a real call to Apiverket, which needs a key.
+
 ### 2026-09-18: Live document detection, and a way to check it on a device
 
 Two pieces, and the second is why the first can be believed at all.
