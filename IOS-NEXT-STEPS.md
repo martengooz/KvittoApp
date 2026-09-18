@@ -161,14 +161,14 @@ neither blocks a PR, but don't let the count silently grow.
 Each of these cost real debugging time on this project. Know them before you
 repeat them.
 
-- **Opening the project in Xcode can break the build.** Accepting Xcode's
-  "update to recommended settings" sets `ENABLE_USER_SCRIPT_SANDBOXING = YES`
-  on the project, and CocoaPods' `[CP] Copy Pods Resources` phase writes
-  `resources-to-copy-KvittoAppiOS.txt` into `ios/Pods`, which that sandbox
-  denies. The build fails with `Sandbox: bash(...) deny(1) file-write-create`,
-  which names neither CocoaPods nor the setting. The committed project has it
-  off; if a working tree picks it up, either revert the pbxproj hunk or pass
-  `ENABLE_USER_SCRIPT_SANDBOXING=NO` on the `xcodebuild` command line.
+- **Do not turn on `ENABLE_USER_SCRIPT_SANDBOXING`.** Both project-level
+  configurations set it to `NO` deliberately. CocoaPods' `[CP] Copy Pods
+  Resources` phase writes `resources-to-copy-KvittoAppiOS.txt` into `ios/Pods`,
+  which that sandbox denies, and the build fails with
+  `Sandbox: bash(...) deny(1) file-write-create` - an error that names neither
+  CocoaPods nor the setting that caused it. Xcode offers to turn it on as part
+  of "update to recommended settings", so it can arrive in a working tree just
+  from opening the project; decline that part, or set it back to `NO`.
 
 - **Jest passing does not mean the app runs.** The test suite was green twice
   while the app was completely unusable — once because startup crashed before
