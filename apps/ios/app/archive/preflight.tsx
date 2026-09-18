@@ -15,8 +15,8 @@ export default function ArchivePreflightRoute() {
       {composition ? (
         <ArchivePreflightScreen
           native={composition.tabs.scan.native}
-          onReport={(report) => {
-            rememberPreflightReport(report);
+          onReport={(report, fileUri) => {
+            rememberPreflightReport(report, fileUri);
             router.push('/archive/result');
           }}
         />

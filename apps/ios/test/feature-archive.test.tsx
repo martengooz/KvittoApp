@@ -7,6 +7,7 @@ import { createNativeArchiveEntrySource, type ArchiveNativePort } from '../src/a
 import { ArchivePreflightScreen } from '../src/archive/preflight-view';
 import { ArchiveResultScreen } from '../src/archive/result-view';
 import type { PreflightReport } from '@kvitto/archive';
+import { alwaysConfirm } from '../src/ui/confirm';
 
 function flush(): Promise<void> {
   return act(async () => {
@@ -232,10 +233,13 @@ describe('archive preflight screen', () => {
 });
 
 describe('archive result screen', () => {
-  async function render(report: PreflightReport | null) {
+  async function render(
+    report: PreflightReport | null,
+    onApply?: () => Promise<import('../src/archive/apply').ArchiveApplyResult>,
+  ) {
     let renderer: ReactTestRenderer | undefined;
     await act(async () => {
-      renderer = create(<ArchiveResultScreen report={report} />);
+      renderer = create(<ArchiveResultScreen report={report} onApply={onApply} confirm={alwaysConfirm} />);
     });
     await flush();
     return renderer!;
@@ -264,7 +268,7 @@ describe('archive result screen', () => {
     await act(async () => renderer.unmount());
   });
 
-  test('an importable archive is honest that applying it is not implemented', async () => {
+  test('an importable archive with no apply available says so', async () => {
     const renderer = await render({
       ok: true,
       manifest: { version: 1 } as PreflightReport['manifest'],
@@ -277,8 +281,57 @@ describe('archive result screen', () => {
 
     const text = textOf(renderer);
     expect(text).toContain('Archive is importable');
-    // Offering an Import button that did nothing would be worse than saying so.
-    expect(text).toContain('not implemented yet');
+    // No apply function means no button, and a sentence instead.
+    expect(text).toContain('not available on this device');
+    await act(async () => renderer.unmount());
+  });
+
+  test('a rejected archive is never offered an import button', async () => {
+    const renderer = await render(
+      {
+        ok: false,
+        manifest: null,
+        issues: [{ severity: 'error', code: 'missing_manifest', message: 'manifest.json is missing.' }],
+        entryCount: 1,
+        totalUncompressedBytes: 1,
+        entityCounts: {},
+        blobCount: 0,
+      },
+      async () => ({ created: 0, updated: 0, unchanged: 0, blobsStored: 0, blobsAlreadyPresent: 0 }),
+    );
+
+    expect(
+      renderer.root.findAll((node) => node.props?.accessibilityLabel === 'Import archive'),
+    ).toHaveLength(0);
+    await act(async () => renderer.unmount());
+  });
+
+  test('importing reports what it changed', async () => {
+    const renderer = await render(
+      {
+        ok: true,
+        manifest: { version: 1 } as PreflightReport['manifest'],
+        issues: [],
+        entryCount: 5,
+        totalUncompressedBytes: 2048,
+        entityCounts: {},
+        blobCount: 1,
+      },
+      async () => ({ created: 3, updated: 1, unchanged: 2, blobsStored: 1, blobsAlreadyPresent: 0 }),
+    );
+
+    const button = renderer.root.findAll(
+      (node) => node.props?.accessibilityLabel === 'Import archive' && typeof node.props?.onPress === 'function',
+    );
+    await act(async () => {
+      (button[button.length - 1]!.props as { onPress: () => void }).onPress();
+    });
+    await flush();
+    await flush();
+
+    const text = textOf(renderer);
+    expect(text).toContain('Created: 3');
+    expect(text).toContain('Already up to date: 2');
     await act(async () => renderer.unmount());
   });
 });

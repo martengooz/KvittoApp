@@ -12,8 +12,8 @@ export type ArchivePreflightScreenProps = {
   native: ArchiveNativePort;
   /** Pre-filled when the caller already has a file, e.g. from a picker. */
   initialFileUri?: string;
-  /** Handed the report so the route can show the result screen. */
-  onReport?: (report: PreflightReport) => void;
+  /** Handed the report and the file it describes, so the route can apply it. */
+  onReport?: (report: PreflightReport, fileUri: string) => void;
 };
 
 function IssueRow({ issue }: { issue: PreflightIssue }) {
@@ -54,7 +54,7 @@ export function ArchivePreflightScreen({ native, initialFileUri, onReport }: Arc
       const next = await preflightArchive(source);
       setReport(next);
       haptic(next.ok ? 'success' : 'warning');
-      onReport?.(next);
+      onReport?.(next, trimmed);
     } catch (cause: unknown) {
       haptic('error');
       // A file that is not a ZIP at all throws rather than reporting issues,

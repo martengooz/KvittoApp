@@ -654,6 +654,57 @@ export class IosDataRepository implements CanonicalRepositoryPort {
   // transaction as the tombstone.
   // ---------------------------------------------------------------------------
 
+  /**
+   * Writes imported entities in one transaction.
+   *
+   * Goes through `writeEntity` rather than `upsert` for the same reason
+   * `deleteCategory` does: `upsert` notifies on every call, and an import of a
+   * few thousand rows would wake every subscriber a few thousand times while
+   * the transaction is still open, each one reading a half-applied database.
+   * One event is emitted after the commit.
+   *
+   * Section 14 requires all entity changes in a single transaction, so a failed
+   * import leaves the database exactly as it was.
+   */
+  async applyImportedEntities(
+    byKind: ReadonlyMap<EntityKind, CanonicalRecord<EntityKind>[]>,
+  ): Promise<number> {
+    let written = 0;
+
+    await this.runInTransaction(async () => {
+      // ENTITY_KINDS order matters: a receipt references a company, so
+      // companies are written first and no row ever points at one that has not
+      // arrived yet.
+      for (const kind of ENTITY_KINDS) {
+        const rows = byKind.get(kind);
+        if (!rows || rows.length === 0) continue;
+        for (const row of rows) {
+          await this.writeEntity(kind, row);
+          written += 1;
+        }
+      }
+    });
+
+    if (written > 0) {
+      this.emit([...byKind.keys()], 'incoming');
+    }
+    return written;
+  }
+
+  /** Existing rows of one kind, keyed by id, for planning an import merge. */
+  async mapAllByIdForImport(kind: EntityKind): Promise<Map<ID, CanonicalRecord<EntityKind>>> {
+    const rows = await this.db.selectAll<PayloadRow>(
+      `SELECT payload FROM ${TABLE_CANONICAL_ENTITIES} WHERE kind = ?`,
+      [kind],
+    );
+    const out = new Map<ID, CanonicalRecord<EntityKind>>();
+    for (const row of rows) {
+      const parsed = parsePayload(row);
+      out.set(parsed.id, parsed);
+    }
+    return out;
+  }
+
   /** Every live category, in the order they should be shown. */
   async listCategories(): Promise<Category[]> {
     const rows = await this.db.selectAll<PayloadRow>(

@@ -30,6 +30,57 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-18: Applying an archive
+
+The last substantial feature that needed no hardware. Reading, preflighting and
+writing were already done; this is the apply.
+
+`src/archive/apply.ts` follows section 14's requirements 7-10 in that order,
+and the order is the whole point:
+
+1. **Blobs are extracted to staging files outside the live blob directory** and
+   their SHA-256 verified there. A blob is never written where the app would
+   serve it until it is known to be the blob it claims to be. The reader's CRC
+   check says the bytes survived the container; the digest says they are the
+   bytes the archive claims. Those are different questions, so both are asked.
+2. **Entities are applied in one transaction**, so a failure leaves the database
+   exactly as it was.
+3. **Blobs are promoted only after that transaction commits.** Promoting first
+   would leave orphaned images behind on a failed import. Promoting after
+   leaves, at worst, receipts whose images arrive moments later - and a
+   re-import fixes it, because the whole thing is idempotent.
+4. **Staged files are removed on every path**, success or failure.
+
+Merge behaviour comes from `packages/archive`'s `planImportMerge`, the same code
+the web import uses, so the two cannot diverge. A new entity keeps its id,
+timestamps and tombstone with `rev = 0, dirty = 1`; a conflict keeps the
+**local** server revision, because that is what the next push needs. Tests
+assert each of those, including that an older imported row loses and leaves the
+local row untouched.
+
+`applyImportedEntities` on the repository writes through the private
+`writeEntity` and emits once after the commit, for the reason `deleteCategory`
+does: `upsert` notifies per call, and importing a few thousand rows would wake
+every subscriber a few thousand times mid-transaction, each reading a
+half-applied database. A test imports 25 receipts and asserts exactly one event.
+
+The result screen now offers the import, behind a confirmation that says what
+will happen ("the newer version wins. Nothing is deleted.") rather than asking
+whether the user is sure. A **rejected** archive gets no button at all rather
+than a disabled one - the reason is already on screen, and a greyed-out control
+invites a second guess at it.
+
+Verified:
+  - `npx jest`: 56 suites, **315 tests**, passed. 13 are new for the apply, all
+    against a real SQLite database.
+  - `npm run -w apps/ios typecheck`: clean. `npm run lint`: 10 errors, all
+    pre-existing.
+  - `xcodebuild build` Release: succeeded. `npm run ios:smoke`: 25 routes.
+
+Not verified: an actual web-produced `.kvitto` round-tripping through import on
+a device. The pieces are each tested, but no real export from the PWA has been
+run through this end to end.
+
 ### 2026-09-17: Archive export, end to end
 
 The ZIP writer was the last thing on the "possible without a device" list that
