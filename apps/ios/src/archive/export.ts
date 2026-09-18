@@ -17,7 +17,7 @@ const ROWS_PER_CHUNK = 200;
 
 export type ExportNativePort = Pick<
   KvittoNativeFacade,
-  'writeFileChunkBase64' | 'writeArchive' | 'makeScratchFileUri' | 'deleteScratchFile'
+  'writeFileChunkBase64' | 'writeArchive' | 'makeScratchFileUri' | 'deleteScratchFile' | 'shareFile'
 >;
 
 export interface ArchiveExportBlob {

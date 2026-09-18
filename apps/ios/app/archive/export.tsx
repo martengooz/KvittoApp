@@ -29,6 +29,8 @@ export default function ArchiveExportRoute() {
         native={native}
         source={source}
         destinationUri={native.makeScratchFileUri('kvitto-export', 'kvitto')}
+        launchAction={native.launchArchiveAction()}
+        log={(category, message) => native.logDiagnostic(category, message)}
       />
     </>
   );

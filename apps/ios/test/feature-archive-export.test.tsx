@@ -5,7 +5,7 @@ import { ARCHIVE_ENTITY_KINDS } from '@kvitto/archive';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { ArchiveExportScreen } from '../src/archive/export-view';
-import { neverConfirm, type ConfirmPort } from '../src/ui/confirm';
+import { alwaysConfirm, neverConfirm, type ConfirmPort } from '../src/ui/confirm';
 
 import { exportArchive, type ArchiveExportSource, type ExportNativePort } from '../src/archive/export';
 
@@ -17,7 +17,9 @@ function fakeNative() {
   const files = new Map<string, string>();
   const deleted: string[] = [];
   const written: { path: string; sourceFileUri: string }[] = [];
+  const shared: string[] = [];
   let count = 0;
+  let shareOutcome: () => Promise<boolean> | boolean = () => true;
 
   const port: ExportNativePort = {
     makeScratchFileUri: () => `file:///scratch/${(count += 1)}.bin`,
@@ -34,6 +36,10 @@ function fakeNative() {
       deleted.push(uri);
       return true;
     },
+    shareFile: async (uri) => {
+      shared.push(uri);
+      return shareOutcome();
+    },
   };
 
   const contentAt = (archivePath: string): string => {
@@ -42,7 +48,16 @@ function fakeNative() {
     return files.get(entry.sourceFileUri) ?? '';
   };
 
-  return { port, deleted, written, contentAt };
+  return {
+    port,
+    deleted,
+    written,
+    shared,
+    contentAt,
+    setShareOutcome: (next: () => Promise<boolean> | boolean) => {
+      shareOutcome = next;
+    },
+  };
 }
 
 function makeSource(overrides: Partial<ArchiveExportSource> = {}): ArchiveExportSource {
@@ -290,5 +305,185 @@ describe('export screen warns before writing', () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain('not password-protected');
     await act(async () => renderer!.unmount());
+  });
+});
+
+describe('an exported archive can leave the app', () => {
+  /*
+   * The export writes into the app's own caches directory. Before sharing
+   * existed, the screen reported that path and stopped, which read as success
+   * while leaving the user with a file nothing on the phone could open.
+   */
+  const press = async (renderer: ReactTestRenderer, label: string): Promise<void> => {
+    const matches = renderer.root.findAll(
+      (node) => node.props?.accessibilityLabel === label && typeof node.props?.onPress === 'function',
+    );
+    if (matches.length === 0) throw new Error(`no pressable labelled "${label}"`);
+    await act(async () => {
+      (matches[matches.length - 1]!.props as { onPress: () => void }).onPress();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  const labels = (renderer: ReactTestRenderer): string[] =>
+    renderer.root
+      .findAll((node) => typeof node.props?.accessibilityLabel === 'string')
+      .map((node) => String(node.props.accessibilityLabel));
+
+  const summaries = (renderer: ReactTestRenderer): string =>
+    renderer.root
+      .findAll((node) => node.props?.accessibilityRole === 'summary')
+      .map((node) => {
+        const children: unknown = node.props.children;
+        return (Array.isArray(children) ? children : [children]).map((child) => String(child)).join('');
+      })
+      .join(' ');
+
+  const render = async (native: ExportNativePort): Promise<ReactTestRenderer> => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <ArchiveExportScreen
+          native={native}
+          source={makeSource()}
+          destinationUri="file:///out.kvitto"
+          confirm={alwaysConfirm}
+        />,
+      );
+    });
+    return renderer!;
+  };
+
+  test('there is nothing to share until an export has produced something', async () => {
+    const { port } = fakeNative();
+    const renderer = await render(port);
+
+    expect(labels(renderer)).not.toContain('Save or send the file');
+    await act(async () => renderer.unmount());
+  });
+
+  test('a completed export offers to hand the file to the share sheet', async () => {
+    const { port, shared } = fakeNative();
+    const renderer = await render(port);
+
+    await press(renderer, 'Export archive');
+    expect(labels(renderer)).toContain('Save or send the file');
+
+    await press(renderer, 'Save or send the file');
+
+    // The file it shares must be the one just written, not the scratch staging
+    // files the export used on the way.
+    expect(shared).toEqual(['file:///out.kvitto']);
+    expect(summaries(renderer)).toContain('left the app');
+    await act(async () => renderer.unmount());
+  });
+
+  test('dismissing the share sheet is reported, not treated as saved', async () => {
+    /*
+     * The sheet reports a dismissal as an ordinary outcome. Leaving the earlier
+     * "exported" message standing would tell someone their data was safely out
+     * of the app when it never left.
+     */
+    const harness = fakeNative();
+    harness.setShareOutcome(() => false);
+    const renderer = await render(harness.port);
+
+    await press(renderer, 'Export archive');
+    await press(renderer, 'Save or send the file');
+
+    expect(summaries(renderer)).toContain('Not saved yet');
+    expect(summaries(renderer)).not.toContain('left the app');
+    await act(async () => renderer.unmount());
+  });
+
+  test('a share that fails says so and leaves the offer standing', async () => {
+    const harness = fakeNative();
+    harness.setShareOutcome(() => Promise.reject(new Error('no visible screen to present from')));
+    const renderer = await render(harness.port);
+
+    await press(renderer, 'Export archive');
+    await press(renderer, 'Save or send the file');
+
+    const alerts = renderer.root
+      .findAll((node) => node.props?.accessibilityRole === 'alert')
+      .map((node) => String(node.props.children));
+    expect(alerts.join(' ')).toContain('no visible screen');
+    // Still offered: the archive is written and retrying costs nothing.
+    expect(labels(renderer)).toContain('Save or send the file');
+    await act(async () => renderer.unmount());
+  });
+
+  test('the success message no longer points at a path nobody can open', async () => {
+    const { port } = fakeNative();
+    const renderer = await render(port);
+
+    await press(renderer, 'Export archive');
+
+    expect(summaries(renderer)).not.toContain('file:///');
+    await act(async () => renderer.unmount());
+  });
+});
+
+describe('the launch-environment driver stays out of the way', () => {
+  const renderWith = async (
+    native: ExportNativePort,
+    props: { launchAction?: string } = {},
+  ): Promise<ReactTestRenderer> => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <ArchiveExportScreen
+          native={native}
+          source={makeSource()}
+          destinationUri="file:///out.kvitto"
+          confirm={neverConfirm}
+          {...props}
+        />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return renderer!;
+  };
+
+  test('a normal launch exports nothing at all', async () => {
+    /*
+     * This screen writes every receipt and image on the device into one
+     * unencrypted file. Doing that because someone opened the screen - or
+     * because a default crept into the launch verb - would be a data leak, not
+     * a bug, so the inert case is pinned here rather than left implied.
+     */
+    const { port, written, shared } = fakeNative();
+
+    const renderer = await renderWith(port);
+
+    expect(written).toEqual([]);
+    expect(shared).toEqual([]);
+    await act(async () => renderer.unmount());
+  });
+
+  test('an unrecognised verb exports nothing either', async () => {
+    const { port, written, shared } = fakeNative();
+
+    const renderer = await renderWith(port, { launchAction: 'export' });
+
+    expect(written).toEqual([]);
+    expect(shared).toEqual([]);
+    await act(async () => renderer.unmount());
+  });
+
+  test('the real verb exports and opens the sheet without a person confirming', async () => {
+    // `neverConfirm` here on purpose: the driver must not be answering the
+    // warning prompt, it must be a path that does not reach it.
+    const { port, written, shared } = fakeNative();
+
+    const renderer = await renderWith(port, { launchAction: 'export-and-share' });
+
+    expect(written.length).toBeGreaterThan(0);
+    expect(shared).toEqual(['file:///out.kvitto']);
+    await act(async () => renderer.unmount());
   });
 });

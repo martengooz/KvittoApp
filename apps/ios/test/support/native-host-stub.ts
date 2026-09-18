@@ -7,8 +7,8 @@ import type {
 /**
  * The host-environment half of `KvittoNativeFacade`, inert.
  *
- * Background windows and the launch environment are things only a running
- * device has. Every native stub in this suite has to satisfy the whole facade,
+ * Background windows, the launch environment and the share sheet are things
+ * only a running device has. Every native stub in this suite has to satisfy the whole facade,
  * and most of them care about one corner of it; spreading this in keeps a stub
  * about the thing it is actually testing, and means adding a method here does
  * not touch eight unrelated files.
@@ -20,6 +20,8 @@ export const NATIVE_HOST_STUB: {
   launchRoutes(): string[];
   launchRouteDwellMs(): number;
   launchScanAction(): string;
+  launchArchiveAction(): string;
+  shareFile(fileUri: string): Promise<boolean>;
   backgroundTaskIdentifier(): string;
   drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
   isBackgroundLaunchExpired(handle: string): boolean;
@@ -36,6 +38,11 @@ export const NATIVE_HOST_STUB: {
   launchRoutes: () => [],
   launchRouteDwellMs: () => 0,
   launchScanAction: () => '',
+  launchArchiveAction: () => '',
+  // False, not true: there is no share sheet here, so nothing was shared. A
+  // stub claiming success would let a screen report a file safely out of the
+  // app when nothing had happened at all.
+  shareFile: async () => false,
   backgroundTaskIdentifier: () => 'com.kvitto.app.ios.jobs.processing',
   drainPendingBackgroundLaunches: () => [],
   isBackgroundLaunchExpired: () => false,

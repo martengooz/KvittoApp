@@ -188,6 +188,13 @@ export interface KvittoNativeFacade {
   /** A writable scratch path inside the app sandbox; `/tmp` is not writable on iOS. */
   makeScratchFileUri(prefix: string, fileExtension: string): string;
   deleteScratchFile(fileUri: string): Promise<boolean>;
+  /**
+   * Hands a file to the system share sheet.
+   *
+   * Resolves true when a share completed and false when the sheet was
+   * dismissed without choosing, which is a normal outcome rather than an error.
+   */
+  shareFile(fileUri: string): Promise<boolean>;
   storeDownloadedBlob(request: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;
@@ -213,6 +220,11 @@ export interface KvittoNativeFacade {
    * Empty in every normal launch; only `capture` is recognised.
    */
   launchScanAction(): string;
+  /**
+   * One action the archive export screen should perform at launch, from the
+   * environment. Empty in every normal launch.
+   */
+  launchArchiveAction(): string;
   backgroundTaskIdentifier(): string;
   /**
    * Windows that opened before JS was listening. iOS can launch the app

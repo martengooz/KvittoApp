@@ -41,6 +41,7 @@ interface KvittoNativeBinding {
   logDiagnostic(category: string, message: string): void;
   makeScratchFileUri(prefix: string, fileExtension: string): string;
   deleteScratchFile(fileUri: string): Promise<boolean>;
+  shareFile(fileUri: string): Promise<boolean>;
   storeDownloadedBlob(input: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;
@@ -64,6 +65,7 @@ interface KvittoNativeBinding {
   launchRoutes(): string[];
   launchRouteDwellMs(): number;
   launchScanAction(): string;
+  launchArchiveAction(): string;
   backgroundTaskIdentifier(): string;
   drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
   isBackgroundLaunchExpired(handle: string): boolean;
@@ -156,6 +158,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     deleteScratchFile(fileUri) {
       return binding.deleteScratchFile(fileUri);
     },
+    shareFile(fileUri) {
+      return binding.shareFile(fileUri);
+    },
     storeDownloadedBlob(request) {
       return binding.storeDownloadedBlob(request);
     },
@@ -207,6 +212,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     launchScanAction() {
       return binding.launchScanAction();
+    },
+    launchArchiveAction() {
+      return binding.launchArchiveAction();
     },
     backgroundTaskIdentifier() {
       return binding.backgroundTaskIdentifier();

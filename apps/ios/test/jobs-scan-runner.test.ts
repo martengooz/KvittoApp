@@ -69,6 +69,8 @@ class NativeStub implements KvittoNativeFacade {
   launchRoutes = () => NATIVE_HOST_STUB.launchRoutes();
   launchRouteDwellMs = () => NATIVE_HOST_STUB.launchRouteDwellMs();
   launchScanAction = () => NATIVE_HOST_STUB.launchScanAction();
+  launchArchiveAction = () => NATIVE_HOST_STUB.launchArchiveAction();
+  shareFile = () => Promise.resolve(true);
   backgroundTaskIdentifier = () => NATIVE_HOST_STUB.backgroundTaskIdentifier();
   drainPendingBackgroundLaunches = () => NATIVE_HOST_STUB.drainPendingBackgroundLaunches();
   isBackgroundLaunchExpired = (handle: string) => NATIVE_HOST_STUB.isBackgroundLaunchExpired(handle);

@@ -11,6 +11,7 @@ public final class KvittoNativeModule: Module {
   private let frameAdapter = VisionFrameAnalysisAdapter()
   private let archiveZipEngine = NativeArchiveZipEngine()
   private let archiveZipWriter = NativeArchiveZipWriter()
+  private let archiveShare = NativeArchiveShareAdapter()
   private let orientationNormalizer = ImageOrientationNormalizer()
   private let processor = ReceiptImageProcessor()
   private let textRecognizer = VisionTextRecognizer()
@@ -103,6 +104,14 @@ public final class KvittoNativeModule: Module {
     /// broken because of that. The scan screen reads this and presses it.
     Function("launchScanAction") { () -> String in
       ProcessInfo.processInfo.environment["KVITTO_SCAN_ACTION"] ?? ""
+    }
+
+    /// One action the archive export screen should perform at launch.
+    ///
+    /// The share sheet is UIKit presentation, which no test can reach; this is
+    /// how it gets exercised on a device. Only `export-and-share` is recognised.
+    Function("launchArchiveAction") { () -> String in
+      ProcessInfo.processInfo.environment["KVITTO_ARCHIVE_ACTION"] ?? ""
     }
 
     Function("backgroundTaskIdentifier") { () -> String in
@@ -219,6 +228,33 @@ public final class KvittoNativeModule: Module {
       }
       try self.archiveZipWriter.write(entries: mapped, to: destinationURL)
       return mapped.count
+    }
+
+    /// Hands a file to the system share sheet.
+    ///
+    /// Resolves true when the user completed a share and false when they
+    /// dismissed the sheet, so a cancel is an outcome rather than an error.
+    AsyncFunction("shareFile") { (fileUri: String, promise: Promise) in
+      let fileURL: URL
+      do {
+        fileURL = try self.requireFileURL(fileUri)
+      } catch {
+        promise.reject(error)
+        return
+      }
+
+      // UIKit presentation is main-thread-only, and this arrives on the module
+      // queue.
+      DispatchQueue.main.async {
+        self.archiveShare.shareArchive(fileURL: fileURL) { result in
+          switch result {
+          case .success(let completed):
+            promise.resolve(completed)
+          case .failure(let error):
+            promise.reject(error)
+          }
+        }
+      }
     }
 
     AsyncFunction("computeBlobShardPath") { (sha256Id: String) -> String in
