@@ -9,6 +9,7 @@ import type { ForegroundRunResult } from './foreground-runner';
 
 const SCAN_IMAGE_PROCESSING_KIND = 'scan:image-processing';
 const SCAN_OCR_KIND = 'scan:ocr';
+const SCAN_EXTRACTION_KIND = 'scan:extraction';
 
 const NOOP_LOGGER: Logger = {
   debug: () => {},
@@ -21,6 +22,17 @@ interface ScanDurableRunnerClock {
   now(): number;
 }
 
+/**
+ * Runs an AI extraction for one receipt. Supplied by the composition, which
+ * owns provider selection and credentials; absent when AI is turned off, and
+ * then extraction jobs report `unsupported` instead of failing.
+ */
+export type ScanExtractionRunner = (input: {
+  receiptId: string;
+  sourceVersion: number;
+  signal?: AbortSignal;
+}) => Promise<'applied' | 'stale' | 'unsupported'>;
+
 export interface ScanDurableRunOneOptions {
   store: JobStorePort;
   repository: IosDataRepository;
@@ -29,6 +41,7 @@ export interface ScanDurableRunOneOptions {
   clock?: ScanDurableRunnerClock;
   logger?: Logger;
   leaseMs?: number;
+  runExtraction?: ScanExtractionRunner;
 }
 
 function toDescriptor(record: BlobMetadataRecord): FileBackedDescriptor {
@@ -163,6 +176,39 @@ export function createScanDurableRunOne(options: ScanDurableRunOneOptions): () =
           return {
             sourceVersion: latest?.updatedAt,
           };
+        },
+        [SCAN_EXTRACTION_KIND]: async (context) => {
+          const job = await options.store.get(context.claim.id);
+          const sourceId = job?.sourceId;
+          if (!sourceId) {
+            throw new Error(`missing-receipt-id-for-job:${context.claim.id}`);
+          }
+
+          const receipt = await options.repository.getReceipt(sourceId);
+          if (!receipt) {
+            throw new Error(`missing-receipt:${sourceId}`);
+          }
+
+          if (!options.runExtraction) {
+            // AI is off, or no provider is configured. Nothing to retry, so
+            // the job settles instead of failing for its whole attempt budget.
+            logger.info?.('extraction skipped: no runner configured', { receiptId: sourceId });
+            return { sourceVersion: receipt.updatedAt };
+          }
+
+          const outcome = await options.runExtraction({
+            receiptId: sourceId,
+            sourceVersion: context.claim.sourceVersion,
+          });
+
+          if (outcome === 'stale') {
+            // A newer version of the source exists; the job for that version
+            // will do the work, so this one must not overwrite it.
+            return { sourceVersion: context.claim.sourceVersion };
+          }
+
+          const latest = await options.repository.getReceipt(sourceId);
+          return { sourceVersion: latest?.updatedAt };
         },
         [SCAN_IMAGE_PROCESSING_KIND]: async (context) => {
           const job = await options.store.get(context.claim.id);

@@ -30,6 +30,76 @@ The native iOS rewrite is committed on `main`.
 
 ## Progress Log
 
+### 2026-09-18: AI extraction actually runs
+
+An audit found the gap rather than a plan: `src/ai/` had a tested extraction
+adapter, a capability registry and an on-device provider stub, and **nothing
+imported any of it outside its own tests**. There was no `extraction` job kind
+and no path from a scanned receipt to a reading. The feature was built and
+unreachable.
+
+Four pieces were missing.
+
+**Remote providers.** `src/ai/remote-providers.ts` bridges the shared
+`callAnthropic` / `callOpenAi` / `callOllama` clients to
+`RemoteExtractionProvider`. The interesting part is error mapping: `retryable`
+decides whether the durable job backs off or gives up, so a bad API key is
+marked non-retryable while a rate limit, server error or dropped connection is.
+Extraction has a deliberately small attempt budget because each attempt may
+cost money.
+
+**Applying a result.** `src/ai/apply-extraction.ts` writes the extraction onto
+the receipt and its lines, in one transaction - a header saying one total while
+the lines are from the previous run is worse than either version alone. Line ids
+are derived from receipt and line number, so re-running **overwrites** instead
+of appending a second copy of the receipt; extraction is retried on failure and
+re-run after a re-crop, so this has to be idempotent. A shorter second result
+deletes the old tail. A category the user chose on a line survives a re-run,
+because extraction does not assign categories and so must not clear one. A
+receipt the user already confirmed is not walked back to `parsed`.
+
+A test caught a real bug here: `upsert('items', …)` does not refresh the
+receipt's `itemCount` the way `addItem`/`deleteItem` do, and the patch was built
+from a receipt read before the lines were written, so the count stayed 0. It is
+now set explicitly.
+
+**The runner.** `src/ai/extraction-runner.ts` reads settings **per run**, so
+turning AI off or switching provider applies to the next job without rebuilding
+the composition. It reads the *processed* image rather than the original - it is
+smaller and already deskewed, so it costs fewer tokens and reads better - and
+pulls it off disk in chunks so peak memory is a chunk, not the whole file.
+Staleness is decided by comparing the receipt's `updatedAt` to the version the
+job claimed: if the receipt has moved on, a newer job exists and this result
+would overwrite it, so it is suppressed.
+
+Failures are recorded on the receipt **and** rethrown: the job runner needs the
+throw to decide on a retry, and the user needs the reason on the extraction
+screen rather than only in a log.
+
+A missing API key is checked in the runner rather than left to the provider.
+The adapter flattens provider errors into "AI-leverantören kunde inte läsa
+kvittot just nu.", which would send someone looking for the wrong problem when
+the real one is a setting they have to go and fill in.
+
+**The job kind.** `extraction` is now a durable kind with its own priority
+(behind OCR: OCR is on-device, cheap, and its output is evidence the user can
+see immediately) and a smaller attempt budget. A scan enqueues it
+unconditionally - whether it does anything is decided when it runs, because
+queueing it conditionally would mean a receipt scanned before AI was configured
+never gets read. With no runner configured the job settles instead of failing
+for its whole attempt budget.
+
+Verified:
+  - `npx jest`: 58 suites, **331 tests**, passed. 16 are new.
+  - `npm test` (monorepo): all suites passed.
+  - `npm run -w apps/ios typecheck`: clean. `npm run lint`: 10 errors, all
+    pre-existing.
+  - `xcodebuild build` Release: succeeded. `npm run ios:smoke`: 25 routes.
+
+Not verified: a real call to a real provider. Every path around the call is
+tested with fakes, but no request has been made to Anthropic, OpenAI or Ollama
+from this app - that needs a key and a network, and would cost money.
+
 ### 2026-09-18: Applying an archive
 
 The last substantial feature that needed no hardware. Reading, preflighting and

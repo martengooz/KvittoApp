@@ -409,6 +409,15 @@ export function createScanFeatureController(options: ScanControllerOptions): Sca
       sourceVersion: receipt.updatedAt,
       sourceImageId: sourceStored.sha256Id,
     });
+    // Enqueued unconditionally. Whether it does anything is decided when it
+    // runs, from the settings as they are then - queueing it conditionally here
+    // would mean a receipt scanned before AI was configured never gets read.
+    await options.jobs.enqueue({
+      kind: 'extraction',
+      receiptId: receipt.id,
+      sourceVersion: receipt.updatedAt,
+      sourceImageId: sourceStored.sha256Id,
+    });
 
     await options.staging.remove(state.activeStageId);
     await syncRecoverableStages();

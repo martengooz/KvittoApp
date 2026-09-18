@@ -40,6 +40,8 @@ import { createAppSyncService, type AppSyncService } from '../sync/service';
 import { ProtocolV2Transport } from '../sync/transport/client';
 import { createVisionCameraPermissionsPort } from './camera-platform';
 import { haptic } from '../ui/haptics';
+import { createExtractionRunner } from '../ai/extraction-runner';
+import type { AdapterSettings } from '../ai/types';
 import {
   createRepositoryBackedJobStore,
   createScanDurableJobService,
@@ -66,7 +68,7 @@ export interface AppServiceComposition {
   repository: IosDataRepository;
   sync: AppSyncService;
   jobs: {
-    enqueue(job: { kind: 'image-processing' | 'ocr'; receiptId: string; sourceVersion: number; sourceImageId: string | null }): Promise<JobRecord>;
+    enqueue(job: { kind: 'image-processing' | 'ocr' | 'extraction'; receiptId: string; sourceVersion: number; sourceImageId: string | null }): Promise<JobRecord>;
     list(state?: JobState): Promise<JobRecord[]>;
     cancel(id: string): Promise<void>;
     drainForeground(maxJobsPerForegroundWindow: number): Promise<ForegroundDrainOutcome>;
@@ -426,11 +428,45 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     repository,
     clock: { now: () => Date.now() },
   });
+  /*
+   * Settings are read on every extraction rather than captured here, so
+   * turning AI off or switching provider applies to the next job without
+   * rebuilding the composition. The API key comes from the secure store, never
+   * from the settings snapshot.
+   */
+  const runExtraction = createExtractionRunner({
+    repository,
+    native,
+    async getSettings() {
+      // `settingsController` is declared further down this function. That is
+      // safe only because this closure runs when a job runs, never during
+      // composition - calling it here would hit the temporal dead zone.
+      const snapshot = await settingsController.getSnapshot();
+      if (snapshot.ai.mode === 'none') return { mode: 'none', settings: null };
+
+      const credentials = await secureCredentialPorts.settingsCredentials.get();
+      const provider = snapshot.ai.provider as AdapterSettings['provider'];
+      return {
+        mode: snapshot.ai.mode,
+        settings: {
+          provider,
+          model: snapshot.ai.model,
+          apiKey: credentials.aiApiKey ?? undefined,
+          maxOutputTokens: 4096,
+          effort: 'auto',
+          structuredOutput: true,
+          extraInstructions: '',
+        },
+      };
+    },
+  });
+
   const runOneScanJob = createScanDurableRunOne({
     store: durableJobStore,
     repository,
     native,
     clock: { now: () => Date.now() },
+    runExtraction,
   });
   const jobService = createScanDurableJobService({
     store: durableJobStore,

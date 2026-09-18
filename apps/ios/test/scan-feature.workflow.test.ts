@@ -231,7 +231,9 @@ describe('scan-feature workflow', () => {
 
     expect(saved).not.toBeNull();
     expect(saved?.status).toBe('draft');
-    expect(jobs.map((entry) => entry.kind).sort()).toEqual(['image-processing', 'ocr']);
+    // Extraction is queued too, unconditionally: whether it does anything is
+    // decided when it runs, from the settings as they are then.
+    expect(jobs.map((entry) => entry.kind).sort()).toEqual(['extraction', 'image-processing', 'ocr']);
 
     release();
   });

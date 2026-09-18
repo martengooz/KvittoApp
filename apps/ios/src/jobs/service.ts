@@ -8,7 +8,7 @@ import {
   type BackgroundSweepSummary,
 } from './background-runner';
 
-export type ScanDurableJobKind = 'image-processing' | 'ocr';
+export type ScanDurableJobKind = 'image-processing' | 'ocr' | 'extraction';
 
 export interface ScanDurableJobInput {
   kind: ScanDurableJobKind;
@@ -64,6 +64,7 @@ export interface ScanDurableJobService {
 
 const SCAN_IMAGE_PROCESSING_KIND = 'scan:image-processing';
 const SCAN_OCR_KIND = 'scan:ocr';
+const SCAN_EXTRACTION_KIND = 'scan:extraction';
 
 const NOOP_LOGGER = {
   info: () => {},
@@ -78,16 +79,25 @@ function defaultIdFactory(job: ScanDurableJobInput): string {
 
 function priorityOf(kind: ScanDurableJobKind): number {
   if (kind === 'image-processing') return 220;
+  // Extraction runs behind OCR: OCR is on-device and cheap, and its output is
+  // evidence the user can see immediately, while extraction costs a network
+  // round trip and possibly money.
+  if (kind === 'extraction') return 100;
   return 140;
 }
 
 function maxAttemptsOf(kind: ScanDurableJobKind): number {
   if (kind === 'image-processing') return 4;
+  // Extraction calls a paid provider; retrying it as freely as local work
+  // turns one transient failure into several billed attempts.
+  if (kind === 'extraction') return 2;
   return 3;
 }
 
 function toDurableKind(kind: ScanDurableJobKind): string {
-  return kind === 'image-processing' ? SCAN_IMAGE_PROCESSING_KIND : SCAN_OCR_KIND;
+  if (kind === 'image-processing') return SCAN_IMAGE_PROCESSING_KIND;
+  if (kind === 'extraction') return SCAN_EXTRACTION_KIND;
+  return SCAN_OCR_KIND;
 }
 
 export function createScanDurableJobService(options: ScanDurableJobServiceOptions): ScanDurableJobService {

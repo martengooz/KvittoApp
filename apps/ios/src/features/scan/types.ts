@@ -87,7 +87,7 @@ export interface ScanStagingPort {
 }
 
 export interface ScanJobQueuePort {
-  enqueue(job: { kind: 'image-processing' | 'ocr'; receiptId: string; sourceVersion: number; sourceImageId: string | null }): Promise<void>;
+  enqueue(job: { kind: 'image-processing' | 'ocr' | 'extraction'; receiptId: string; sourceVersion: number; sourceImageId: string | null }): Promise<void>;
 }
 
 export interface ScanReceiptRepositoryPort {
