@@ -20,6 +20,8 @@ function fakeNative() {
   const shared: string[] = [];
   let count = 0;
   let shareOutcome: () => Promise<boolean> | boolean = () => true;
+  /** Blob files the store has metadata for but no file on disk. */
+  const missingFiles = new Set<string>();
 
   const port: ExportNativePort = {
     makeScratchFileUri: () => `file:///scratch/${(count += 1)}.bin`,
@@ -40,6 +42,7 @@ function fakeNative() {
       shared.push(uri);
       return shareOutcome();
     },
+    filterExistingFiles: async (uris) => uris.filter((uri) => !missingFiles.has(uri)),
   };
 
   const contentAt = (archivePath: string): string => {
@@ -57,6 +60,7 @@ function fakeNative() {
     setShareOutcome: (next: () => Promise<boolean> | boolean) => {
       shareOutcome = next;
     },
+    loseFile: (uri: string) => missingFiles.add(uri),
   };
 }
 
@@ -485,5 +489,116 @@ describe('the launch-environment driver stays out of the way', () => {
     expect(written.length).toBeGreaterThan(0);
     expect(shared).toEqual(['file:///out.kvitto']);
     await act(async () => renderer.unmount());
+  });
+});
+
+describe('a blob whose file has gone missing', () => {
+  const blob = (sha: string, fileUri: string) => ({
+    sha256: sha,
+    mimeType: 'image/jpeg',
+    width: 10,
+    height: 10,
+    sizeBytes: 100,
+    role: 'processed',
+    fileUri,
+  });
+
+  test('is left out instead of killing the whole export', async () => {
+    /*
+     * Found on a device: one metadata row pointed at a blob file that was not
+     * there, and the native writer rejects an archive when any entry has no
+     * source - so the export died before writing anything, every time, with
+     * nothing the user could do. Export is how data gets out of this app; a
+     * missing thumbnail must not be able to block it.
+     */
+    const harness = fakeNative();
+    harness.loseFile('file:///blobs/gone.jpg');
+
+    const result = await exportArchive(
+      harness.port,
+      makeSource({
+        listBlobs: async () => [
+          blob('a'.repeat(64), 'file:///blobs/here.jpg'),
+          blob('b'.repeat(64), 'file:///blobs/gone.jpg'),
+        ],
+      }),
+      'file:///out.kvitto',
+    );
+
+    expect(result.blobCount).toBe(1);
+    expect(result.missingBlobCount).toBe(1);
+
+    const paths = harness.written.map((entry) => entry.path);
+    expect(paths).toContain(`blobs/${'a'.repeat(64)}`);
+    expect(paths).not.toContain(`blobs/${'b'.repeat(64)}`);
+  });
+
+  test('is dropped from the metadata stream too, not just the entries', async () => {
+    /*
+     * The metadata stream is what import verifies against. Listing a blob that
+     * is not in the archive would turn a recoverable gap here into a rejected
+     * archive there - trading a missing image for a useless file.
+     */
+    const harness = fakeNative();
+    harness.loseFile('file:///blobs/gone.jpg');
+
+    await exportArchive(
+      harness.port,
+      makeSource({
+        listBlobs: async () => [
+          blob('a'.repeat(64), 'file:///blobs/here.jpg'),
+          blob('b'.repeat(64), 'file:///blobs/gone.jpg'),
+        ],
+      }),
+      'file:///out.kvitto',
+    );
+
+    const metadata = harness.contentAt('blob-metadata.ndjson');
+    expect(metadata).toContain('a'.repeat(64));
+    expect(metadata).not.toContain('b'.repeat(64));
+  });
+
+  test('an export with nothing missing reports nothing missing', async () => {
+    const harness = fakeNative();
+
+    const result = await exportArchive(
+      harness.port,
+      makeSource({ listBlobs: async () => [blob('a'.repeat(64), 'file:///blobs/here.jpg')] }),
+      'file:///out.kvitto',
+    );
+
+    expect(result.missingBlobCount).toBe(0);
+    expect(result.blobCount).toBe(1);
+  });
+
+  test('the screen says how many images were left out', async () => {
+    const harness = fakeNative();
+    harness.loseFile('file:///blobs/gone.jpg');
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <ArchiveExportScreen
+          native={harness.port}
+          source={makeSource({ listBlobs: async () => [blob('b'.repeat(64), 'file:///blobs/gone.jpg')] })}
+          destinationUri="file:///out.kvitto"
+          confirm={alwaysConfirm}
+          launchAction="export-and-share"
+        />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const summary = renderer!.root
+      .findAll((node) => node.props?.accessibilityRole === 'summary')
+      .map((node) => {
+        const children: unknown = node.props.children;
+        return (Array.isArray(children) ? children : [children]).map((child) => String(child)).join('');
+      })
+      .join(' ');
+    expect(summary).toContain('1 image was missing');
+    await act(async () => renderer!.unmount());
   });
 });

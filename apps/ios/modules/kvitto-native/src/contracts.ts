@@ -195,6 +195,13 @@ export interface KvittoNativeFacade {
    * dismissed without choosing, which is a normal outcome rather than an error.
    */
   shareFile(fileUri: string): Promise<boolean>;
+  /**
+   * Narrows a list of file URIs to the ones that exist on disk.
+   *
+   * Batched because an export asks about every blob in the store. A URI that
+   * cannot be parsed counts as missing.
+   */
+  filterExistingFiles(fileUris: string[]): Promise<string[]>;
   storeDownloadedBlob(request: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;

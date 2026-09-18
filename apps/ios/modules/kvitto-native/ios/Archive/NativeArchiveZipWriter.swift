@@ -7,11 +7,32 @@ struct NativeArchiveWriteEntry {
   let sourceURL: URL
 }
 
-enum NativeArchiveZipWriterError: Error, Equatable {
+enum NativeArchiveZipWriterError: Error, Equatable, LocalizedError {
   case unsafePath(String)
   case duplicatePath(String)
-  case sourceMissing(String)
+  case sourceMissing(entry: String, source: String)
   case writeFailed(String)
+
+  /*
+   * Without this the Expo bridge reports `NativeArchiveZipWriterError error 2`
+   * and nothing else - a case ordinal, with the payload that says which file
+   * dropped on the floor. On a device that is the whole diagnostic, and it cost
+   * a round trip to learn it meant "some file, somewhere, is missing".
+   */
+  var errorDescription: String? {
+    switch self {
+    case .unsafePath(let path):
+      return "The archive entry path \(path) is not safe to write."
+    case .duplicatePath(let path):
+      return "The archive would contain \(path) twice."
+    case .sourceMissing(let entry, let source):
+      // Names both: the entry says which part of the export dropped out, the
+      // source path says which file to go and look for.
+      return "The archive entry \(entry) has no source file at \(source)."
+    case .writeFailed(let reason):
+      return "Writing the archive failed: \(reason)"
+    }
+  }
 }
 
 /**
@@ -41,7 +62,7 @@ final class NativeArchiveZipWriter {
         throw NativeArchiveZipWriterError.duplicatePath(entry.path)
       }
       guard FileManager.default.fileExists(atPath: entry.sourceURL.path) else {
-        throw NativeArchiveZipWriterError.sourceMissing(entry.path)
+        throw NativeArchiveZipWriterError.sourceMissing(entry: entry.path, source: entry.sourceURL.path)
       }
     }
 

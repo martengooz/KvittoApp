@@ -42,6 +42,7 @@ interface KvittoNativeBinding {
   makeScratchFileUri(prefix: string, fileExtension: string): string;
   deleteScratchFile(fileUri: string): Promise<boolean>;
   shareFile(fileUri: string): Promise<boolean>;
+  filterExistingFiles(fileUris: string[]): Promise<string[]>;
   storeDownloadedBlob(input: StoreDownloadedBlobRequest): Promise<BlobMetadataRecord>;
   normalizeOrientation(sourceUri: string, outputUri: string, jpegQuality: number, cancellationId?: string): Promise<FileBackedDescriptor>;
   detectRectangle(sourceUri: string, cancellationId?: string): Promise<NormalizedQuad | null>;
@@ -160,6 +161,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     shareFile(fileUri) {
       return binding.shareFile(fileUri);
+    },
+    filterExistingFiles(fileUris) {
+      return binding.filterExistingFiles(fileUris);
     },
     storeDownloadedBlob(request) {
       return binding.storeDownloadedBlob(request);

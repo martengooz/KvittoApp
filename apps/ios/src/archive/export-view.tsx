@@ -6,7 +6,12 @@ import { BodyText, CaptionText, TitleText } from '../ui/typography';
 import { colorToken } from '../ui/tokens';
 import { haptic } from '../ui/haptics';
 import { nativeConfirm, type ConfirmPort } from '../ui/confirm';
-import { exportArchive, type ArchiveExportSource, type ExportNativePort } from './export';
+import {
+  exportArchive,
+  type ArchiveExportResult,
+  type ArchiveExportSource,
+  type ExportNativePort,
+} from './export';
 import { driveArchiveAction } from './launch-action';
 
 export type ArchiveExportScreenProps = {
@@ -31,6 +36,31 @@ export type ArchiveExportScreenProps = {
  * the confirmation, because the screen can be skimmed and the confirmation
  * cannot.
  */
+/**
+ * What an export produced, in one sentence.
+ *
+ * Shared by the button and the launch-environment driver so a device
+ * screenshot shows the same thing a person would read - and so a missing image
+ * cannot be reported on one path and swallowed on the other.
+ *
+ * A missing image is named rather than quietly dropped: the archive is still
+ * worth having, but someone restoring it should learn about the gap now, not
+ * when a receipt turns up without its photo.
+ */
+function describeExport(result: ArchiveExportResult): string {
+  const missing =
+    result.missingBlobCount > 0
+      ? ` ${result.missingBlobCount} image${
+          result.missingBlobCount === 1 ? ' was' : 's were'
+        } missing from storage and could not be included.`
+      : '';
+  return (
+    `Wrote ${result.entryCount} entries, including ${result.blobCount} image` +
+    `${result.blobCount === 1 ? '' : 's'}.${missing}` +
+    ' Save it somewhere you can reach before you leave this screen.'
+  );
+}
+
 export function ArchiveExportScreen({
   native,
   source,
@@ -71,11 +101,7 @@ export function ArchiveExportScreen({
        * app container, so it told the user where a file was that they had no
        * way to open - which read as success while leaving them stuck.
        */
-      setStatus(
-        `Wrote ${result.entryCount} entries, including ${result.blobCount} image${
-          result.blobCount === 1 ? '' : 's'
-        }. Save it somewhere you can reach before you leave this screen.`,
-      );
+      setStatus(describeExport(result));
     } catch (cause: unknown) {
       haptic('error');
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -124,6 +150,7 @@ export function ArchiveExportScreen({
       exportArchive: async () => {
         const result = await exportArchive(native, source, destinationUri);
         setExportedUri(result.destinationUri);
+        setStatus(describeExport(result));
         return result.destinationUri;
       },
       shareFile: (uri) => native.shareFile(uri),

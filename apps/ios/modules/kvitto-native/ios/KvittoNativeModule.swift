@@ -257,6 +257,19 @@ public final class KvittoNativeModule: Module {
       }
     }
 
+    /// Narrows a list of file URIs to the ones that actually exist.
+    ///
+    /// Batched rather than one call per file: an export asks about every blob
+    /// in the store, and a bridge crossing each would cost more than reading
+    /// them. A URI this module cannot parse counts as missing, because the
+    /// caller is asking what it can safely read.
+    AsyncFunction("filterExistingFiles") { (fileUris: [String]) -> [String] in
+      fileUris.filter { uri in
+        guard let url = try? self.requireFileURL(uri) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+      }
+    }
+
     AsyncFunction("computeBlobShardPath") { (sha256Id: String) -> String in
       try BlobSharding.relativePath(for: sha256Id)
     }

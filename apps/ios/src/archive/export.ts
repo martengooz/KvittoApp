@@ -17,7 +17,12 @@ const ROWS_PER_CHUNK = 200;
 
 export type ExportNativePort = Pick<
   KvittoNativeFacade,
-  'writeFileChunkBase64' | 'writeArchive' | 'makeScratchFileUri' | 'deleteScratchFile' | 'shareFile'
+  | 'writeFileChunkBase64'
+  | 'writeArchive'
+  | 'makeScratchFileUri'
+  | 'deleteScratchFile'
+  | 'shareFile'
+  | 'filterExistingFiles'
 >;
 
 export interface ArchiveExportBlob {
@@ -41,6 +46,11 @@ export interface ArchiveExportResult {
   destinationUri: string;
   entryCount: number;
   blobCount: number;
+  /**
+   * Blobs the store has metadata for but no file. Left out of the archive
+   * rather than aborting it; see `exportArchive`.
+   */
+  missingBlobCount: number;
 }
 
 function encodeBase64(text: string): string {
@@ -115,7 +125,21 @@ export async function exportArchive(
       });
     }
 
-    const blobs = await source.listBlobs();
+    const described = await source.listBlobs();
+    /*
+     * The store can hold metadata for a blob whose file is gone - an interrupted
+     * capture, a download that recorded before it wrote, a file pruned from
+     * under it. The writer rejects the whole archive when one entry has no
+     * source, so a single orphaned row used to make export impossible, forever,
+     * with nothing the user could do about it. Export is the way data gets *out*
+     * of this app; it must not be the thing that a missing thumbnail can block.
+     *
+     * Found on a device: one orphaned row, and the export died before writing
+     * anything.
+     */
+    const present = new Set(await native.filterExistingFiles(described.map((blob) => blob.fileUri)));
+    const blobs = described.filter((blob) => present.has(blob.fileUri));
+    const missingBlobCount = described.length - blobs.length;
 
     await stage(BLOB_METADATA_PATH, async (uri) => {
       const lines = blobs
@@ -138,7 +162,7 @@ export async function exportArchive(
     }
 
     const entryCount = await native.writeArchive(destinationUri, entries);
-    return { destinationUri, entryCount, blobCount: blobs.length };
+    return { destinationUri, entryCount, blobCount: blobs.length, missingBlobCount };
   } finally {
     // Only the staged copies are removed. A blob's `fileUri` is the live file
     // in the blob store, and deleting one of those would destroy user data.

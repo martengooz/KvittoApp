@@ -66,6 +66,7 @@ function createBinding(): KvittoNativeBinding {
   logDiagnostic: () => undefined,
     makeScratchFileUri: (prefix: string, extension: string) => `file:///scratch/${prefix}.${extension}`,
     deleteScratchFile: async () => true,
+    filterExistingFiles: (uris: string[]) => Promise.resolve(uris),
     shareFile: async () => true,
     storeDownloadedBlob: async () => {
       throw new Error('not used');
