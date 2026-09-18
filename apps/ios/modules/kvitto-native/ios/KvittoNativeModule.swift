@@ -203,6 +203,14 @@ public final class KvittoNativeModule: Module {
     // observe (boot completing, boot failing) go to the unified log instead.
     Function("logDiagnostic") { (category: String, message: String) -> Void in
       os_log("%{public}@ %{public}@", log: OSLog(subsystem: "com.kvitto.app.ios", category: "diagnostics"), type: .default, category, message)
+      // Mirrored to stderr as well. On a simulator the smoke check reads the
+      // unified log through `simctl`, but on a physical device none of the
+      // available tooling can stream it - `devicectl ... --console` only sees
+      // the process's own stdout/stderr. Without this, boot success is
+      // unobservable on the hardware it matters most on.
+      if let line = "[kvitto] \(category) \(message)\n".data(using: .utf8) {
+        FileHandle.standardError.write(line)
+      }
     }
 
     // iOS sandboxes the app: `/tmp` is not writable, so scratch files have to be

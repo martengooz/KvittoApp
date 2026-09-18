@@ -40,7 +40,7 @@
 		13B07F961A680F5B00A75B9A /* KvittoAppiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KvittoAppiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = KvittoAppiOS/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = KvittoAppiOS/Info.plist; sourceTree = "<group>"; };
-		27D4F82A88CD4093A684BC7F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = PrivacyInfo.xcprivacy; path = KvittoAppiOS/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		27D4F82A88CD4093A684BC7F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = PrivacyInfo.xcprivacy; path = KvittoAppiOS/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4783CE77E4AE2E5E3057548C /* Pods-KvittoAppiOS.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-KvittoAppiOS.debug.xcconfig"; path = "Target Support Files/Pods-KvittoAppiOS/Pods-KvittoAppiOS.debug.xcconfig"; sourceTree = "<group>"; };
 		4E065F82A4A532FD9F01B0F2 /* libPods-KvittoAppiOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-KvittoAppiOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		803AC5E56F013C97867918FB /* Pods-KvittoAppiOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-KvittoAppiOS.release.xcconfig"; path = "Target Support Files/Pods-KvittoAppiOS/Pods-KvittoAppiOS.release.xcconfig"; sourceTree = "<group>"; };
@@ -125,7 +125,6 @@
 				FBB218EDD5DA7DAA898F2DC1 /* Pods-KvittoAppiOSTests.debug.xcconfig */,
 				BDB8CB521E0B29C0C39FFB07 /* Pods-KvittoAppiOSTests.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -579,6 +578,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = KvittoAppiOS/KvittoAppiOS.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7Y28M25347;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -616,6 +616,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = KvittoAppiOS/KvittoAppiOS.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7Y28M25347;
 				INFOPLIST_FILE = KvittoAppiOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
