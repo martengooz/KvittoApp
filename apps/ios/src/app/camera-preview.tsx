@@ -10,6 +10,7 @@ import {
 
 import type { ScanCameraBridge, ScanCameraCapture, ScanCameraUiState } from '../features/scan';
 import { toFrameAnalysis } from '../features/scan/frame-analysis';
+import { saveCaptureToScratch } from '../features/scan/capture-file';
 import type { FrameAnalysisResult, KvittoNativeFacade } from '../../modules/kvitto-native/src';
 import {
   FRAME_ORIENTATION_DEGREES,
@@ -160,20 +161,10 @@ export function ScanCameraPreview({ bridge, native }: ScanCameraPreviewProps) {
   );
 
   const capturePhoto = useCallback(async (): Promise<ScanCameraCapture> => {
+    // The work is in `saveCaptureToScratch`, which can be tested; this
+    // component cannot, because VisionCamera needs a camera to mount.
     const photo = await photoOutput.capturePhoto({}, {});
-    try {
-      const uri = native.makeScratchFileUri('capture', 'jpg');
-      await photo.saveToFileAsync(uri);
-      return {
-        uri,
-        width: photo.width,
-        height: photo.height,
-        // The file was just written; its size is read when it is hashed.
-        byteSize: 0,
-      };
-    } finally {
-      photo.dispose();
-    }
+    return saveCaptureToScratch(photo, native);
   }, [native, photoOutput]);
 
   const readLatestFrameAnalysis = useCallback((): FrameAnalysisResult | null => {

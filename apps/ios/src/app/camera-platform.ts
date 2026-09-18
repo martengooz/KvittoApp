@@ -44,7 +44,17 @@ export function createVisionCameraPermissionsPort(): ScanCameraPermissionsPort {
       const camera = loadVisionCamera();
       if (!camera) return 'unavailable';
       try {
-        await camera.requestCameraPermission();
+        /*
+         * The answer comes from the call, not from re-reading the property.
+         * `requestCameraPermission` resolves with what the user chose;
+         * `cameraPermissionStatus` is a separate read of a hybrid object's
+         * property, and trusting it to have caught up by the time the promise
+         * settles is an assumption with nothing behind it. Getting that wrong
+         * leaves the app reporting "unknown" after the user has just said yes,
+         * with a preview that never starts and no way to tell why.
+         */
+        const granted = await camera.requestCameraPermission();
+        if (granted) return 'granted';
         return toScanPermission(camera.cameraPermissionStatus);
       } catch {
         return 'unavailable';

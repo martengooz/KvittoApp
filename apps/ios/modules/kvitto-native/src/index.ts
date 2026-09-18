@@ -234,3 +234,4 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
 
 export type { KvittoNativeBinding };
 export * from './contracts';
+export * from './file-uri';

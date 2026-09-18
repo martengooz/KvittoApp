@@ -71,6 +71,8 @@ function createStageId(now: number): string {
 export interface ScanFeatureController {
   getState(): Readonly<ScanState>;
   syncRecoverableStages(): Promise<void>;
+  /** Re-reads the platform's permission; returns the fresh value. */
+  refreshPermission(): ScanPermissionState;
   requestPermission(): Promise<ScanPermissionState>;
   startCapture(): Promise<void>;
   stopCapture(): Promise<void>;
@@ -92,7 +94,13 @@ export function createScanFeatureController(options: ScanControllerOptions): Sca
   const stalledCadenceMultiplier = options.stalledCadenceMultiplier ?? DEFAULT_STALLED_CADENCE_MULTIPLIER;
 
   const state: ScanState = {
-    permission: 'unknown',
+    /*
+     * Read from the platform rather than assumed. Starting at `unknown` meant
+     * an app relaunched with permission already granted showed a paused
+     * preview and offered to request something the user had already given -
+     * and the only way out was a button that had wrapped below the fold.
+     */
+    permission: options.camera.getPermission(),
     stage: 'capture',
     auto: 'off',
     manualShutterEnabled: true,
@@ -123,6 +131,13 @@ export function createScanFeatureController(options: ScanControllerOptions): Sca
   async function syncRecoverableStages(): Promise<void> {
     const staged = await options.staging.list();
     state.recoverableStageIds = staged.map((entry) => entry.id);
+  }
+
+  /** Re-reads the platform's answer, e.g. when the scan screen appears. */
+  function refreshPermission(): ScanPermissionState {
+    state.permission = options.camera.getPermission();
+    if (state.permission !== 'granted') state.auto = 'off';
+    return state.permission;
   }
 
   async function requestPermission(): Promise<ScanPermissionState> {
@@ -494,6 +509,7 @@ export function createScanFeatureController(options: ScanControllerOptions): Sca
       return state;
     },
     syncRecoverableStages,
+    refreshPermission,
     requestPermission,
     startCapture,
     stopCapture,

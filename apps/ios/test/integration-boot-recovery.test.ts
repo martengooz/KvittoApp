@@ -36,6 +36,7 @@ function makeFakeScanController(): ScanFeatureController {
   return {
     getState: () => state,
     syncRecoverableStages: async () => undefined,
+    refreshPermission: () => 'unavailable' as const,
     requestPermission: async () => 'unavailable',
     startCapture: async () => undefined,
     stopCapture: async () => undefined,

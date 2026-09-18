@@ -65,6 +65,20 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
   useEffect(() => {
     void run(async () => {
       await controller.syncRecoverableStages();
+      /*
+       * Re-read the platform's permission, then start the preview if it is
+       * already granted. Both halves matter: the controller's boot-time
+       * sample can be taken before VisionCamera's native module is ready, and
+       * without the auto-start a relaunch showed a paused preview whose only
+       * remedy was a button below the fold.
+       *
+       * Permission is deliberately *not* requested here. Prompting because
+       * someone opened a tab is worse than prompting when they press a button
+       * that says what it is for.
+       */
+      if (controller.refreshPermission() === 'granted') {
+        await controller.startCapture();
+      }
     });
   }, [controller, run]);
 
@@ -118,20 +132,10 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
 
       <View style={styles.row}>
         {/*
-          Hidden once granted rather than shown disabled. It sat above the
-          preview taking the most valuable space on the screen to offer
-          something that could never happen again.
+          The primary action comes first, so it is never the control that wraps
+          onto a second line and off the bottom of the screen. `startCapture`
+          asks for permission itself when it needs to.
         */}
-        {state.permission === 'granted' ? null : (
-          <PrimaryButton
-            label="Request camera permission"
-            onPress={() => {
-              void run(async () => {
-                await controller.requestPermission();
-              });
-            }}
-          />
-        )}
         <PrimaryButton
           label={cameraState.active ? 'Pause preview' : 'Start capture'}
           onPress={() => {
@@ -145,6 +149,20 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
           }}
           disabled={state.processing}
         />
+        {/*
+          Hidden once granted rather than shown disabled: it offered something
+          that could never happen again, in the most valuable space on screen.
+        */}
+        {state.permission === 'granted' ? null : (
+          <PrimaryButton
+            label="Request camera permission"
+            onPress={() => {
+              void run(async () => {
+                await controller.requestPermission();
+              });
+            }}
+          />
+        )}
       </View>
 
       <View style={styles.row} accessibilityLabel="Camera controls">

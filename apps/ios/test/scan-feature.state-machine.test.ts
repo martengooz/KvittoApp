@@ -64,6 +64,10 @@ class FakeCamera implements ScanCameraPort {
   frames: FrameAnalysisResult[] = [];
   captures = 0;
 
+  getPermission(): ScanPermissionState {
+    return this.permission;
+  }
+
   async requestPermission(): Promise<ScanPermissionState> {
     return this.permission;
   }
@@ -310,5 +314,42 @@ describe('scan-feature state machine', () => {
 
     await controller.rotateClockwise();
     expect(controller.getState().review?.rotation).toBe(90);
+  });
+});
+
+describe('permission is read from the platform, not assumed', () => {
+  test('a controller starts with whatever the platform already says', async () => {
+    /*
+     * It used to start at `unknown` and only learn otherwise by asking. On a
+     * relaunch with permission long since granted, that showed a paused
+     * preview and an offer to request something the user had already given -
+     * and the control that would have fixed it had wrapped below the fold.
+     */
+    const { controller } = makeHarness();
+
+    expect(controller.getState().permission).toBe('granted');
+  });
+
+  test('refreshing picks up a change made outside the app', async () => {
+    // Someone revoking access in Settings is the case that matters; the app is
+    // relaunched and has to notice.
+    const { controller, camera } = makeHarness();
+    expect(controller.getState().permission).toBe('granted');
+
+    camera.permission = 'denied';
+
+    expect(controller.refreshPermission()).toBe('denied');
+    expect(controller.getState().permission).toBe('denied');
+  });
+
+  test('losing permission stops auto-capture claiming to be searching', async () => {
+    const { controller, camera } = makeHarness();
+    await controller.startCapture();
+    expect(controller.getState().auto).toBe('searching');
+
+    camera.permission = 'denied';
+    controller.refreshPermission();
+
+    expect(controller.getState().auto).toBe('off');
   });
 });

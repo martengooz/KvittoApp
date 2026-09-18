@@ -65,6 +65,15 @@ export interface ScanStagedDescriptor {
 }
 
 export interface ScanCameraPort {
+  /**
+   * The current permission, re-read from the platform.
+   *
+   * Not a cached value: the controller used to start life assuming `unknown`
+   * and only learn otherwise by asking for permission, so an app relaunched
+   * with permission already granted still showed a paused preview and an
+   * offer to request something the user had granted weeks ago.
+   */
+  getPermission(): ScanPermissionState;
   requestPermission(): Promise<ScanPermissionState>;
   startPreview(): Promise<void>;
   stopPreview(): Promise<void>;

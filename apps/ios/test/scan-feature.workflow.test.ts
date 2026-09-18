@@ -170,6 +170,7 @@ function buildHarness(native: KvittoNativeFacade, libraryFiles: FileBackedDescri
   };
 
   const camera = {
+    getPermission() { return 'granted' as const; },
     async requestPermission() { return 'granted' as const; },
     async startPreview() { return; },
     async stopPreview() { return; },

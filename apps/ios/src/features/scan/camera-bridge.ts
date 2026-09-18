@@ -138,6 +138,15 @@ export function createScanCameraBridge(input: CreateScanCameraBridgeInput): Scan
       update({ zoom: Math.min(zoomRange.max, Math.max(zoomRange.min, zoom)) });
     },
 
+    getPermission(): ScanPermissionState {
+      // Asked of the platform, not answered from `state`. The stored value is
+      // a sample taken when the composition was built, which on a cold launch
+      // can be read before VisionCamera's native module is ready.
+      const permission = input.permissions.getStatus();
+      update({ permission });
+      return permission;
+    },
+
     reportPermission(permission: ScanPermissionState): void {
       update({ permission });
     },
