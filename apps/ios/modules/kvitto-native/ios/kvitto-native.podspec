@@ -17,5 +17,5 @@ Pod::Spec.new do |s|
 
   s.dependency 'ExpoModulesCore'
   s.source_files = '**/*.{h,m,mm,swift}'
-  s.frameworks = 'Vision', 'CoreImage', 'ImageIO', 'Accelerate', 'CryptoKit', 'UIKit'
+  s.frameworks = 'Vision', 'CoreImage', 'ImageIO', 'Accelerate', 'CryptoKit', 'UIKit', 'BackgroundTasks'
 end

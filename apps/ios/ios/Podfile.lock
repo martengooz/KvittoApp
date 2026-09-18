@@ -2895,7 +2895,7 @@ SPEC CHECKSUMS:
   EXUpdatesInterface: 4c96533f11c8cefe879bd506564cc2d537f56804
   FBLazyVector: 2138c6c2ab66c31bf5754dc18097fbc498a49c7f
   hermes-engine: 8930e5f68b09f76e00ab617da3f7587e7262efd0
-  kvitto-native: 4491480522da3447917b9bde5371d4e61fa865ac
+  kvitto-native: 6a9ae3450687f84b433e9599728f206b6535dce8
   NitroImage: 5daf897d2f37ed419186278d6b0fcdd8aab313b0
   NitroModules: 38f8754287858ff1294e43fd43f614a664e54050
   RCTDeprecation: 96f68ebf33f8762466b01d57d6e873c4f30efb07

@@ -2,6 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import { IosNativeBlobStore } from '../src/data/blobs';
 import type { BlobMetadataRecord, KvittoNativeFacade } from '../modules/kvitto-native/src';
+import { NATIVE_BACKGROUND_STUB } from './support/native-background-stub';
 
 const blobId = 'ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211';
 
@@ -25,6 +26,7 @@ function makeRecord(overrides: Partial<BlobMetadataRecord> = {}): BlobMetadataRe
 function nativeMock(): KvittoNativeFacade {
   let stored = makeRecord();
   return {
+    ...NATIVE_BACKGROUND_STUB,
     hashFileSha256: async () => blobId,
     computeShardPath: async () => 'blobs/ff/ee/' + blobId,
     storeContentAddressedFile: async () => stored,

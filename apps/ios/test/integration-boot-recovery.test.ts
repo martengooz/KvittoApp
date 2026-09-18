@@ -158,6 +158,14 @@ function makeComposition(): AppServiceComposition {
       updateConfig: async () => undefined,
       dispose: () => undefined,
     },
+    background: {
+      start: async () => 'unavailable' as const,
+      stop: () => undefined,
+      schedule: async () => 'unavailable' as const,
+      runLaunch: async () => null,
+      sweepNow: async () => null,
+      isRunning: () => false,
+    },
     jobs: {
       enqueue: async () => {
         throw new Error('not-implemented');

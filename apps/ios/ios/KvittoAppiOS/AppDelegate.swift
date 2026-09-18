@@ -1,6 +1,7 @@
 internal import Expo
 import React
 import ReactAppDependencyProvider
+internal import kvitto_native
 
 @main
 class AppDelegate: ExpoAppDelegate {
@@ -13,6 +14,12 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    // Before anything else: `BGTaskScheduler.register` must be called before
+    // this method returns, or iOS raises when a task is later submitted. That
+    // is earlier than any Expo module is guaranteed to exist, so the app
+    // delegate owns it and the module only picks up the launches afterwards.
+    KvittoBackgroundTaskCoordinator.shared.registerLaunchHandlers()
+
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()

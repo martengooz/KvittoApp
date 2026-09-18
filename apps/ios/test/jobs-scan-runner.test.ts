@@ -14,6 +14,8 @@ import { SqliteTestAdapter } from './support/sqlite-test-adapter';
 import { createScanDurableRunOne } from '../src/jobs/scan-runner';
 import { createRepositoryBackedJobStore } from '../src/jobs/store';
 import { createScanDurableJobService } from '../src/jobs/service';
+import type { NativeBackgroundLaunch } from '../modules/kvitto-native/src/contracts';
+import { NATIVE_BACKGROUND_STUB } from './support/native-background-stub';
 
 function blobRecord(input: {
   id: string;
@@ -61,6 +63,20 @@ class NativeStub implements KvittoNativeFacade {
   readonly storedFiles: Array<{ sourceUri: string; role: 'original' | 'processed' | 'thumb' }> = [];
 
   recognizeImpl: (input: RecognizeTextRequest) => Promise<RecognizeTextResult> = async () => ocrResult('');
+
+  // This runner never touches the background window; the facade just has to be
+  // whole. Fields rather than methods so the shared stub supplies the bodies.
+  backgroundTaskIdentifier = () => NATIVE_BACKGROUND_STUB.backgroundTaskIdentifier();
+  drainPendingBackgroundLaunches = () => NATIVE_BACKGROUND_STUB.drainPendingBackgroundLaunches();
+  isBackgroundLaunchExpired = (handle: string) => NATIVE_BACKGROUND_STUB.isBackgroundLaunchExpired(handle);
+  finishBackgroundLaunch = (handle: string, success: boolean) =>
+    NATIVE_BACKGROUND_STUB.finishBackgroundLaunch(handle, success);
+  scheduleBackgroundProcessing = (delaySeconds: number, network: boolean, power: boolean) =>
+    NATIVE_BACKGROUND_STUB.scheduleBackgroundProcessing(delaySeconds, network, power);
+  cancelBackgroundProcessing = () => NATIVE_BACKGROUND_STUB.cancelBackgroundProcessing();
+  pendingBackgroundTaskIdentifiers = () => NATIVE_BACKGROUND_STUB.pendingBackgroundTaskIdentifiers();
+  onBackgroundLaunch = (listener: (launch: NativeBackgroundLaunch) => void) =>
+    NATIVE_BACKGROUND_STUB.onBackgroundLaunch(listener);
 
   async hashFileSha256(fileUri: string): Promise<string> {
     return fileUri;

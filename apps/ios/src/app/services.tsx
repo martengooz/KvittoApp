@@ -50,6 +50,10 @@ import {
   type BackgroundSweepOutcome,
   type ForegroundDrainOutcome,
 } from '../jobs';
+import {
+  createBackgroundTaskController,
+  type BackgroundTaskController,
+} from '../jobs/background-task';
 import type { JobRecord, JobState } from '@kvitto/client-core/ports';
 import { bootFailed, bootReady, initialBootState, type BootState } from './boot-state';
 
@@ -73,15 +77,20 @@ export interface AppServiceComposition {
     cancel(id: string): Promise<void>;
     drainForeground(maxJobsPerForegroundWindow: number): Promise<ForegroundDrainOutcome>;
     /**
-     * Drains inside an OS-granted background window. Composed and tested, but
-     * nothing calls it yet: no background task is registered. See
-     * IOS-NEXT-STEPS.md for what that needs.
+     * Drains inside an OS-granted background window. Driven by `background`
+     * below, from the `BGProcessingTask` the app delegate registers.
      */
     sweepBackground(options: BackgroundSweepOptions): Promise<BackgroundSweepOutcome>;
     stop(): void;
     start(): void;
     isActive(): boolean;
   };
+  /**
+   * The bridge from iOS background windows to `jobs.sweepBackground`. Exposed
+   * so the debug screen can show what is scheduled and force a window; nothing
+   * else should need it.
+   */
+  background: BackgroundTaskController;
   tabs: TabFeatureServices;
   dispose(): void;
 }
@@ -498,11 +507,28 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     },
   });
 
+  const background = createBackgroundTaskController({
+    native,
+    sweep: (sweepOptions) => jobService.sweepBackground(sweepOptions),
+    logger: {
+      info: (message, fields) => native.logDiagnostic('background', `${message} ${JSON.stringify(fields ?? {})}`),
+      warn: (message, fields) => native.logDiagnostic('background', `${message} ${JSON.stringify(fields ?? {})}`),
+    },
+  });
+  /*
+   * Deliberately not awaited. Scheduling talks to `BGTaskScheduler`, which can
+   * be slow or refuse outright when Background App Refresh is off - neither is
+   * a reason to hold up the first screen. The controller subscribes
+   * synchronously before its first await, so a window cannot be missed.
+   */
+  void background.start();
+
   return {
     startup,
     repository,
     sync: syncService,
     jobs: jobService,
+    background,
     tabs: composeTabFeatureServices({
       repository,
       scanController,
@@ -511,6 +537,7 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
       settingsController,
     }),
     dispose() {
+      background.stop();
       jobService.stop();
       syncService.dispose();
       networkMonitor.dispose();

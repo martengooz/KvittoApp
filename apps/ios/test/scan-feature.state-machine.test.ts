@@ -24,6 +24,7 @@ import type {
   ProcessReceiptImageResult,
   RecognizeTextResult,
 } from '../modules/kvitto-native/src';
+import { NATIVE_BACKGROUND_STUB } from './support/native-background-stub';
 
 function descriptor(uri: string, role: 'original' | 'processed' | 'thumb' = 'original'): FileBackedDescriptor {
   return {
@@ -103,6 +104,7 @@ class MemoryStaging implements ScanStagingPort {
 
 function makeNative(processImpl?: (input: { forcedQuad?: NormalizedQuad | null }) => ProcessReceiptImageResult): KvittoNativeFacade {
   return {
+    ...NATIVE_BACKGROUND_STUB,
     hashFileSha256: async () => 'bb'.repeat(32),
     computeShardPath: async (id) => `blobs/${id.slice(0, 2)}`,
     storeContentAddressedFile: async (input) => ({

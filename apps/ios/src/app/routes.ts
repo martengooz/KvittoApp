@@ -78,7 +78,7 @@ export const PUSHED_MODAL_ROUTE_CONTRACTS: ReadonlyArray<RouteSkeletonContract> 
   {
     route: 'debug/log',
     presentation: 'card',
-    title: 'Debug log',
+    title: 'Debug',
     controller: 'settings',
   },
   {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 
 import { LoadingState } from '../../src/ui/controls';
 import { DebugScreen } from '../../src/features/debug/debug-view';
@@ -27,6 +27,29 @@ export default function DebugLogRoute() {
   const { seed } = useLocalSearchParams<{ seed?: string }>();
   const allowSampleData = isSimulator();
   const [autoSeed, setAutoSeed] = useState<string | null>(null);
+
+  const controller = composition?.background;
+  const background = useMemo(() => {
+    if (!controller) return undefined;
+    let native: ReturnType<typeof createKvittoNativeFacade>;
+    try {
+      native = createKvittoNativeFacade();
+    } catch {
+      // Off-device there is no scheduler to ask; the screen says so.
+      return undefined;
+    }
+    return {
+      identifier: native.backgroundTaskIdentifier(),
+      pending: () => native.pendingBackgroundTaskIdentifiers(),
+      schedule: () => controller.schedule(),
+      async sweepNow(): Promise<string> {
+        const outcome = await controller.sweepNow();
+        if (!outcome) return 'The sweep failed; see the diagnostics log.';
+        const processed = outcome.summary?.processed ?? 0;
+        return `Swept ${processed} job(s); ${outcome.pendingJobs} still pending (${outcome.summary?.stopReason ?? 'no window'}).`;
+      },
+    };
+  }, [controller]);
 
   /*
    * `?seed=1` seeds on open. Without it the only way to put receipts on a
@@ -64,13 +87,14 @@ export default function DebugLogRoute() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Debug' }} />
+      {/* Presentation comes from the route contract; see `src/app/routes.ts`. */}
       {composition ? (
         <DebugScreen
           repository={composition.repository}
           startupSteps={composition.startup.steps}
           allowSampleData={allowSampleData}
           notice={autoSeed}
+          background={background}
         />
       ) : (
         <LoadingState message="Loading debug services..." />

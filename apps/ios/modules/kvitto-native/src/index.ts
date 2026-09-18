@@ -3,7 +3,10 @@ import { requireNativeModule } from 'expo-modules-core';
 import type {
   ArchiveEntryIndex,
   ArchiveWriteEntry,
+  BackgroundScheduleOutcome,
   BlobMetadataRecord,
+  EventSubscription,
+  NativeBackgroundLaunch,
   FileBackedDescriptor,
   FrameAnalysisCompactResult,
   FrameAnalysisResult,
@@ -58,7 +61,23 @@ interface KvittoNativeBinding {
   }): Promise<RecognizeTextResult>;
   cancelOperation(cancellationId: string): Promise<boolean>;
   analyzeFrameCompact(frameTimestampMs: number, cancellationId?: string): Promise<FrameAnalysisResult>;
+  backgroundTaskIdentifier(): string;
+  drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
+  isBackgroundLaunchExpired(handle: string): boolean;
+  finishBackgroundLaunch(handle: string, success: boolean): boolean;
+  scheduleBackgroundProcessing(
+    earliestDelaySeconds: number,
+    requiresNetwork: boolean,
+    requiresPower: boolean,
+  ): Promise<BackgroundScheduleOutcome>;
+  cancelBackgroundProcessing(): Promise<void>;
+  pendingBackgroundTaskIdentifiers(): Promise<string[]>;
+  /** Inherited from Expo's `NativeModule`; the background window arrives here. */
+  addListener(event: string, listener: (payload: NativeBackgroundLaunch) => void): EventSubscription;
 }
+
+/** Event name the native coordinator publishes a background window under. */
+export const BACKGROUND_LAUNCH_EVENT = 'onKvittoBackgroundLaunch';
 
 function compactFrameMetadata(input: FrameAnalysisResult): FrameAnalysisCompactResult {
   return {
@@ -176,6 +195,30 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
         };
       }
       return result;
+    },
+    backgroundTaskIdentifier() {
+      return binding.backgroundTaskIdentifier();
+    },
+    drainPendingBackgroundLaunches() {
+      return binding.drainPendingBackgroundLaunches();
+    },
+    isBackgroundLaunchExpired(handle) {
+      return binding.isBackgroundLaunchExpired(handle);
+    },
+    finishBackgroundLaunch(handle, success) {
+      return binding.finishBackgroundLaunch(handle, success);
+    },
+    scheduleBackgroundProcessing(earliestDelaySeconds, requiresNetwork, requiresPower) {
+      return binding.scheduleBackgroundProcessing(earliestDelaySeconds, requiresNetwork, requiresPower);
+    },
+    cancelBackgroundProcessing() {
+      return binding.cancelBackgroundProcessing();
+    },
+    pendingBackgroundTaskIdentifiers() {
+      return binding.pendingBackgroundTaskIdentifiers();
+    },
+    onBackgroundLaunch(listener) {
+      return binding.addListener(BACKGROUND_LAUNCH_EVENT, listener);
     },
     compactFrameMetadata,
   };

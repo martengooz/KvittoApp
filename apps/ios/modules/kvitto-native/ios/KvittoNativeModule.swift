@@ -3,6 +3,9 @@ import Foundation
 import ImageIO
 import os
 
+/// Name of the event carrying an OS-granted background window to JavaScript.
+private let BACKGROUND_LAUNCH_EVENT = "onKvittoBackgroundLaunch"
+
 public final class KvittoNativeModule: Module {
   private let cancellationRegistry = CancellationRegistry()
   private let frameAdapter = VisionFrameAnalysisAdapter()
@@ -42,6 +45,64 @@ public final class KvittoNativeModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("KvittoNative")
+
+    Events(BACKGROUND_LAUNCH_EVENT)
+
+    OnStartObserving {
+      KvittoBackgroundTaskCoordinator.shared.setListener { [weak self] launch in
+        self?.sendEvent(BACKGROUND_LAUNCH_EVENT, launch.payload)
+      }
+    }
+
+    OnStopObserving {
+      KvittoBackgroundTaskCoordinator.shared.setListener(nil)
+    }
+
+    // Registration itself happens in the app delegate, which is the only place
+    // early enough for `BGTaskScheduler`. This is the idempotent second chance
+    // for a host that does not call it - the coordinator ignores the repeat.
+    OnCreate {
+      KvittoBackgroundTaskCoordinator.shared.registerLaunchHandlers()
+    }
+
+    Function("backgroundTaskIdentifier") { () -> String in
+      KvittoBackgroundTaskCoordinator.processingIdentifier
+    }
+
+    /// Hands over windows that opened before JS was listening. iOS can launch
+    /// the app straight into the background to run a task, in which case the
+    /// event fires before there is a runtime to receive it.
+    Function("drainPendingBackgroundLaunches") { () -> [[String: Any]] in
+      KvittoBackgroundTaskCoordinator.shared.drainPendingLaunches()
+    }
+
+    // Synchronous on purpose. The sweep polls this between jobs, and an
+    // awaited answer would be stale by the time it arrived.
+    Function("isBackgroundLaunchExpired") { (handle: String) -> Bool in
+      KvittoBackgroundTaskCoordinator.shared.isExpired(handle: handle)
+    }
+
+    Function("finishBackgroundLaunch") { (handle: String, success: Bool) -> Bool in
+      KvittoBackgroundTaskCoordinator.shared.finish(handle: handle, success: success)
+    }
+
+    AsyncFunction("scheduleBackgroundProcessing") { (earliestDelaySeconds: Double, requiresNetwork: Bool, requiresPower: Bool) throws -> String in
+      try KvittoBackgroundTaskCoordinator.shared.submitProcessingRequest(
+        earliestDelaySeconds: earliestDelaySeconds,
+        requiresNetwork: requiresNetwork,
+        requiresPower: requiresPower
+      )
+    }
+
+    AsyncFunction("cancelBackgroundProcessing") { () -> Void in
+      KvittoBackgroundTaskCoordinator.shared.cancelScheduledRequests()
+    }
+
+    AsyncFunction("pendingBackgroundTaskIdentifiers") { (promise: Promise) in
+      KvittoBackgroundTaskCoordinator.shared.pendingRequestIdentifiers { identifiers in
+        promise.resolve(identifiers)
+      }
+    }
 
     AsyncFunction("hashFileSha256") { (fileUri: String) -> String in
       let fileURL = try self.requireFileURL(fileUri)

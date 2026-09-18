@@ -19,6 +19,7 @@
 		A1D1F01226A5000000000001 /* KvittoNativeShardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D1F01326A5000000000001 /* KvittoNativeShardingTests.swift */; };
 		A1D1F01226A5000000000009 /* KvittoNativeBlobStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D1F01326A5000000000009 /* KvittoNativeBlobStoreTests.swift */; };
 		A1D1F01226A5000000000011 /* KvittoNativeArchiveZipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D1F01326A5000000000011 /* KvittoNativeArchiveZipTests.swift */; };
+		A1D1F01226A5000000000012 /* KvittoNativeBackgroundTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D1F01326A5000000000012 /* KvittoNativeBackgroundTaskTests.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		DC4ABF4547B59E5C0A935481 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851929A3F69E2265A799AA01 /* ExpoModulesProvider.swift */; };
 		E09FCF4214A54980A75E11D1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 27D4F82A88CD4093A684BC7F /* PrivacyInfo.xcprivacy */; };
@@ -53,6 +54,7 @@
 		A1D1F01326A5000000000001 /* KvittoNativeShardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KvittoNativeShardingTests.swift; sourceTree = "<group>"; };
 		A1D1F01326A5000000000009 /* KvittoNativeBlobStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KvittoNativeBlobStoreTests.swift; sourceTree = "<group>"; };
 		A1D1F01326A5000000000011 /* KvittoNativeArchiveZipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KvittoNativeArchiveZipTests.swift; sourceTree = "<group>"; };
+		A1D1F01326A5000000000012 /* KvittoNativeBackgroundTaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KvittoNativeBackgroundTaskTests.swift; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = KvittoAppiOS/SplashScreen.storyboard; sourceTree = "<group>"; };
 		AA6980330E4925C00E85EE7B /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-KvittoAppiOS/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 				A1D1F01326A5000000000001 /* KvittoNativeShardingTests.swift */,
 				A1D1F01326A5000000000009 /* KvittoNativeBlobStoreTests.swift */,
 				A1D1F01326A5000000000011 /* KvittoNativeArchiveZipTests.swift */,
+				A1D1F01326A5000000000012 /* KvittoNativeBackgroundTaskTests.swift */,
 			);
 			path = KvittoAppiOSTests;
 			sourceTree = "<group>";
@@ -555,6 +558,7 @@
 				A1D1F01226A5000000000001 /* KvittoNativeShardingTests.swift in Sources */,
 				A1D1F01226A5000000000009 /* KvittoNativeBlobStoreTests.swift in Sources */,
 				A1D1F01226A5000000000011 /* KvittoNativeArchiveZipTests.swift in Sources */,
+				A1D1F01226A5000000000012 /* KvittoNativeBackgroundTaskTests.swift in Sources */,
 				DC4ABF4547B59E5C0A935481 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

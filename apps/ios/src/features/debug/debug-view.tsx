@@ -18,14 +18,50 @@ export type DebugScreenProps = {
   allowSampleData: boolean;
   /** Result of a seed triggered by the route, shown alongside the screen's own. */
   notice?: string | null;
+  /** Absent when the native module is unavailable, e.g. under a host test. */
+  background?: DebugBackgroundControls;
 };
 
 type Counts = { receipts: number; items: number; categories: number; tags: number; samples: number };
 
-export function DebugScreen({ repository, startupSteps, allowSampleData, notice }: DebugScreenProps) {
+/**
+ * The background-task controls, as the screen needs them.
+ *
+ * Deliberately four plain functions rather than the controller itself. Whether
+ * iOS has accepted a request, and whether a sweep does anything, are the only
+ * two questions anyone has about background work on a device - and neither is
+ * answerable from the outside, because a `BGProcessingTask` may sit for hours
+ * before it runs and leaves nothing on screen when it does.
+ */
+export type DebugBackgroundControls = {
+  identifier: string;
+  pending(): Promise<string[]>;
+  schedule(): Promise<string>;
+  /** Runs the sweep now, as a window would, without waiting for iOS. */
+  sweepNow(): Promise<string>;
+};
+
+export function DebugScreen({ repository, startupSteps, allowSampleData, notice, background }: DebugScreenProps) {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingTasks, setPendingTasks] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!background) return;
+    let cancelled = false;
+    void background
+      .pending()
+      .then((identifiers) => {
+        if (!cancelled) setPendingTasks(identifiers);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingTasks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [background]);
 
   const refresh = useCallback(async () => {
     const [receipts, categories, tags, samples] = await Promise.all([
@@ -148,6 +184,49 @@ export function DebugScreen({ repository, startupSteps, allowSampleData, notice 
               Sample data is only available on a simulator, so it can never reach a real
               device’s receipts.
             </BodyText>
+          )}
+        </View>
+
+        <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Background processing">
+          <TitleText>Background</TitleText>
+          {background ? (
+            <>
+              <CaptionText>{background.identifier}</CaptionText>
+              <CaptionText>
+                {pendingTasks === null
+                  ? 'Checking what iOS has queued…'
+                  : pendingTasks.length === 0
+                    ? 'Nothing queued. iOS drops pending requests when Background App Refresh is off.'
+                    : `Queued: ${pendingTasks.join(', ')}`}
+              </CaptionText>
+              <View style={styles.actionRow}>
+                <PrimaryButton
+                  label="Request a window"
+                  disabled={busy}
+                  onPress={() => {
+                    void run(async () => {
+                      const outcome = await background.schedule();
+                      setPendingTasks(await background.pending());
+                      return `Scheduling: ${outcome}.`;
+                    });
+                  }}
+                />
+                <PrimaryButton
+                  label="Sweep now"
+                  disabled={busy}
+                  onPress={() => {
+                    void run(() => background.sweepNow());
+                  }}
+                />
+              </View>
+              <CaptionText>
+                “Sweep now” runs the same drain a real window would, so the job path can be
+                checked without waiting hours for iOS to grant one. It is not proof that iOS
+                will grant one.
+              </CaptionText>
+            </>
+          ) : (
+            <BodyText>Background controls need the native module, which is unavailable here.</BodyText>
           )}
         </View>
 

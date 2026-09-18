@@ -122,6 +122,32 @@ export interface StoreDownloadedBlobRequest {
   role: ImageRole;
 }
 
+/** One OS-granted background window, as the native coordinator reports it. */
+export interface NativeBackgroundLaunch {
+  /** Opaque token identifying this window; every other call takes it. */
+  handle: string;
+  identifier: string;
+  startedAt: number;
+  /**
+   * Always null on iOS. `BGTaskScheduler` never tells the app how much time it
+   * has - the expiration handler firing is the only signal, and by then the
+   * window is over. Kept in the shape because the runner's contract allows a
+   * real deadline and a future platform may supply one.
+   */
+  deadlineAt: number | null;
+}
+
+export type BackgroundScheduleOutcome =
+  | 'scheduled'
+  | 'already-scheduled'
+  /** Background App Refresh is off, by the user or by Low Power Mode. */
+  | 'not-permitted'
+  | 'unavailable';
+
+export interface EventSubscription {
+  remove(): void;
+}
+
 export interface KvittoNativeFacade {
   hashFileSha256(fileUri: string): Promise<string>;
   computeShardPath(sha256Id: string): Promise<string>;
@@ -169,4 +195,25 @@ export interface KvittoNativeFacade {
   recognizeText(request: RecognizeTextRequest): Promise<RecognizeTextResult>;
   cancelOperation(cancellationId: string): Promise<boolean>;
   analyzeFrameCompact(frameTimestampMs: number, cancellationId?: string): Promise<FrameAnalysisResult>;
+
+  /** The single `BGTaskScheduler` identifier this app registers. */
+  backgroundTaskIdentifier(): string;
+  /**
+   * Windows that opened before JS was listening. iOS can launch the app
+   * straight into the background to run a task, so the first window of a cold
+   * background launch always arrives this way rather than as an event.
+   */
+  drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
+  /** Synchronous: the sweep polls this between jobs, where a promise is stale. */
+  isBackgroundLaunchExpired(handle: string): boolean;
+  /** Completes the window. False means it was already finished. */
+  finishBackgroundLaunch(handle: string, success: boolean): boolean;
+  scheduleBackgroundProcessing(
+    earliestDelaySeconds: number,
+    requiresNetwork: boolean,
+    requiresPower: boolean,
+  ): Promise<BackgroundScheduleOutcome>;
+  cancelBackgroundProcessing(): Promise<void>;
+  pendingBackgroundTaskIdentifiers(): Promise<string[]>;
+  onBackgroundLaunch(listener: (launch: NativeBackgroundLaunch) => void): EventSubscription;
 }
