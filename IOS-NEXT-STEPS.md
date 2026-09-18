@@ -21,9 +21,13 @@ VisionCamera, and live document detection now runs as a Nitro hybrid object in
 `modules/kvitto-frames`.
 
 The app **boots on a physical device** (iPhone 15 Pro, iOS 26.6.2) as a signed
-Release build, and iOS accepts its `BGProcessingTask` submission there. What
-has *not* happened on hardware is the camera: no frame has reached the
-detector, because every attempt found the phone locked.
+Release build, and iOS accepts its `BGProcessingTask` submission there. The
+camera now runs there too: frames reach the detector at ~60fps, detection costs
+9-23ms, and a well-framed receipt scored 0.640 against the 0.35 auto-capture
+threshold. **The whole capture path has run end to end on hardware** - shutter,
+file written, perspective correction, thumbnail, row persisted, receipt visible
+in the list - driven by `--capture` on the device camera check rather than by a
+person tapping.
 
 All pushed/modal route files under `apps/ios/app` are real screens —
 `grep -rln "RouteSkeletonScreen" apps/ios/app` returns nothing. The simulator
@@ -109,6 +113,24 @@ npm run ios:device-smoke -- \
   --device <device udid> --screenshot /tmp/device.png
 ```
 
+To check the camera and the capture path, which the route walk does not touch:
+
+```bash
+node apps/ios/scripts/device-camera-check.mjs \
+  --app "$DD/Build/Products/Release-iphoneos/KvittoAppiOS.app" \
+  --device <device udid> --seconds 30 --capture --screenshot /tmp/camera.png
+```
+
+Point the camera at a receipt while it runs; it reports the best evidence score
+it saw against the 0.35 auto-capture threshold. `--capture` additionally presses
+the shutter through `KVITTO_SCAN_ACTION` and fails if no receipt is saved. That
+flag exists because the capture path is unreachable any other way - the
+component needs a camera so it cannot be host-rendered, and a simulator has
+none - and it shipped broken as a result.
+
+A missing score is reported as *inconclusive*, not a failure: it usually means
+nothing was in front of the lens. A failed `--capture` is a hard failure.
+
 **The phone must be unlocked**, or the launch is refused before the app starts.
 The check fails immediately and says so rather than waiting out its boot
 timeout. Unlike the simulator check there is no sample-data seeding — that is
@@ -129,7 +151,7 @@ npm run lint
 # then the xcodebuild build/test above, then npm run ios:smoke
 ```
 
-Current baseline: `npm run test:ios -- --runInBand` passes 46 suites / 180
+Current baseline: `npm run test:ios -- --runInBand` passes 68 suites / 416
 tests. `npm run lint` reports 10 pre-existing errors (all in files unrelated
 to recent iOS work) and a handful of unnecessary-type-assertion warnings —
 neither blocks a PR, but don't let the count silently grow.
@@ -138,6 +160,15 @@ neither blocks a PR, but don't let the count silently grow.
 
 Each of these cost real debugging time on this project. Know them before you
 repeat them.
+
+- **Opening the project in Xcode can break the build.** Accepting Xcode's
+  "update to recommended settings" sets `ENABLE_USER_SCRIPT_SANDBOXING = YES`
+  on the project, and CocoaPods' `[CP] Copy Pods Resources` phase writes
+  `resources-to-copy-KvittoAppiOS.txt` into `ios/Pods`, which that sandbox
+  denies. The build fails with `Sandbox: bash(...) deny(1) file-write-create`,
+  which names neither CocoaPods nor the setting. The committed project has it
+  off; if a working tree picks it up, either revert the pbxproj hunk or pass
+  `ENABLE_USER_SCRIPT_SANDBOXING=NO` on the `xcodebuild` command line.
 
 - **Jest passing does not mean the app runs.** The test suite was green twice
   while the app was completely unusable — once because startup crashed before
@@ -462,11 +493,9 @@ and risk notes.
   flows (handoff section 18) are the intended answer for content-level
   assertions and don't exist yet.
 
-- **Nothing camera-related has run on a physical device.** The detector is
-  built, tested and links into a device build, but no frame has reached it:
-  every attempt found the phone locked. Real-server convergence is likewise
-  untried from the native app. Simulator coverage is not a substitute for
-  either.
+- **Real-server sync convergence is untried from the native app.** Simulator
+  coverage is not a substitute. The camera path, which used to share this
+  entry, has since run on hardware; see "Where this stands".
 
 - **The device smoke check cannot see content, only survival.** Like the
   simulator one it proves no exception and no render-boundary trip per route.

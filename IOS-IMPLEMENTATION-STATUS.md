@@ -21,14 +21,74 @@ Repository reads and writes now execute as direct SQL against SQLite; the
 in-memory state mirror and full-table rewrite are gone. Sync runs automatically
 from app lifecycle, connectivity, and local edits, and pulls receipt images.
 
+The camera has now been watched doing its job on an iPhone 15 Pro: frames reach
+the detector at ~60fps, detection costs 9-23ms, a well-framed receipt scores
+0.640 against the 0.35 threshold, and the full capture path - shutter, file,
+perspective correction, thumbnail, persisted row - has run end to end there.
+
 The rewrite is not release-complete. The main remaining work is release-level
-E2E, performance and accessibility work, and verification of the camera and
-background paths against real hardware - both are now built and both boot on a
-device, but neither has been watched doing its job.
+E2E, performance and accessibility work, real-server sync convergence, and
+watching a background window that iOS actually grants.
 
 The native iOS rewrite is committed on `main`.
 
 ## Progress Log
+
+### 2026-09-18: The camera runs on a real phone, and three defects fall out
+
+Every defect in this entry was found by looking at a screenshot from a physical
+device. None was found by a test, and the suite was green throughout.
+
+**The detector works on hardware.** Detection costs 9-23ms. The skip counter
+climbs ~55 per second, which proves frames are still arriving at ~60fps and
+that the `NativeBuffer.release()` / `Frame.dispose()` pair in the worklet is
+correct - a leak there stalls the pipeline within seconds. A receipt held
+square to the lens scored 0.640 against the 0.35 auto-capture threshold.
+
+**The capture path was broken, and only a finger could find it.** Pressing the
+shutter failed with `NSCocoaErrorDomain Code=4 ... NSFilePath=/file:///var/...`.
+VisionCamera's `saveToFileAsync` wants a filesystem path and was handed a
+`file://` URI; `URL(fileURLWithPath:)` accepts it, embeds the scheme in the
+path, writes nowhere, and the failure surfaces later from whatever reads the
+file that was never written. Every other scratch URI in the app goes to our own
+native module, which parses it properly - this was the one boundary with
+third-party code wanting the other thing. Fixed with `fileUriToPath()` at that
+boundary, with the save extracted into `saveCaptureToScratch()` so it is
+testable at all.
+
+**The camera never started on relaunch.** The controller opened by asserting
+`permission: 'unknown'` instead of asking the platform, and nothing started the
+preview on mount. A relaunch showed "Preview paused" above a button offering to
+request permission the user had granted minutes earlier, while "Start capture",
+the control that would have fixed it, had wrapped below the fold. The controller
+now seeds from the platform and exposes `refreshPermission()`; the screen
+re-reads on mount and auto-starts when already granted. Permission is
+deliberately *not* requested on mount: prompting because someone opened a tab is
+worse than prompting when they press a button that says what it is for.
+
+**The shutter was off the bottom of the screen.** Third instance of the same
+defect (filters, settings, scan), so it is now covered by
+`test/app-screens-scroll.test.ts`, which walks `src/` and fails on any
+`ScreenScaffold` without a scrolling container, with a checked exemption list.
+A 3:4 preview is 524pt tall on a 393pt phone, so the preview box is now capped
+and the shutter row sits directly under it rather than two rows further down,
+past the torch and zoom controls.
+
+**The shutter is now pressable without a finger.** `devicectl` cannot tap, the
+component cannot be host-rendered (VisionCamera needs a camera), and a simulator
+has no camera - which is why this path had no check on it at all. The scan
+screen reads one action from `KVITTO_SCAN_ACTION` and presses the shutter
+itself; `--capture` on `scripts/device-camera-check.mjs` turns that into a
+pass/fail assertion. Only `capture` is recognised, so a typo in a smoke script
+fails loudly rather than quietly writing a receipt and reporting success.
+
+Also fixed: `String(colorToken(...))` on the tab tints yielded
+`"[object Object]"` - `PlatformColor` returns an opaque object - so both tints
+silently fell back to a default. Passing the `ColorValue` through, casting the
+type rather than the value, fixes it.
+
+Gates: 68 suites / 416 tests, typecheck clean, lint at its 10 pre-existing
+errors, Release builds for simulator and device.
 
 ### 2026-09-18: The shop gets looked up in the company register
 
@@ -1048,7 +1108,7 @@ warnings.
 
 - Verification evidence:
   - `npm run typecheck:ios`, `npm run typecheck`: passed.
-  - `npm run test:ios -- --runInBand`: 46 suites, 180 tests passed.
+  - `npm run test:ios -- --runInBand`: 68 suites, 416 tests passed.
   - `npm test`, `npm run ios:bundle`: passed.
   - `npm run ios:smoke`: passed, 9 routes including `/filters`, idle CPU 1-2%.
   - Screenshot confirmed the modal renders with all 20 seeded categories.
@@ -1811,6 +1871,13 @@ The following checks have passed during implementation:
 - Hosted app XCTest passed
 - Native XCTest: 14 passed, 0 failed, 0 skipped
 - Final native build after Expo SQLite/SQLCipher additions exited successfully
+- Release device `xcodebuild build` for `generic/platform=iOS`: passed, signed
+- Standalone Release app installed and launched on iPhone 15 Pro, iOS 26.6.2
+- `npm run ios:device-smoke`: 18 routes driven on that device, no exceptions
+- `scripts/device-camera-check.mjs --capture` on that device: the detector saw
+  frames at ~60fps at 9-23ms each, a receipt scored 0.640 against the 0.35
+  threshold, and the shutter produced a persisted receipt with a thumbnail,
+  visible afterwards in the receipts list
 
 ## Packet Status
 
@@ -1821,13 +1888,13 @@ The following checks have passed during implementation:
 | 3. Database repositories | Implemented | Direct SQL reads/writes, FTS5 search, keyset pagination, and relaunch persistence tests. SQLCipher-key recovery and large-data profiling remain. |
 | 4. Blob storage | Mostly complete | Content-addressed store, verified downloads, and upload-state reset are covered by native tests. Reference-safe cleanup remains. |
 | 5. Sync transport/identity | Implemented and tested | Manual and automatic sync, pair/unpair with blob upload reset. A real-server app run remains. |
-| 6. Native Vision module | Partial | Still processing/OCR compile and native fixture tests execute; the live VisionCamera frame plugin remains. |
+| 6. Native Vision module | Implemented | Still processing/OCR compile and native fixture tests execute. Live frame detection ships as a separate Nitro pod (VisionCamera 5 removed the frame-processor plugin API) and runs on device at ~60fps. |
 | 7. App shell/UI | Implemented | Real SF Symbols via expo-symbols. Needs the remaining pushed/modal routes, haptics, swipe actions, and the accessibility/appearance matrix. |
 | 8. Archive/PWA export | Mostly complete | PWA streaming ZIP exists; cross-platform interoperability still needs end-to-end validation. |
 | 9. Sync engine | Implemented and composed | Automatic triggers, real connectivity, and blob download persistence are wired and tested. Background execution and a real-server app run remain. |
 | 10. Durable jobs | Partial | Repository-backed durable queue/store, strict multi-kind foreground handlers, and lifecycle service are composed; native background bridge behavior (BGTask) remains. |
 | 11. Receipt/purchase/collection | Implemented | FlashList lists, indexed per-receipt item reads, and a real pushed receipt detail route. Needs E2E, large-data profiling, and interaction polish. |
-| 12. Scan feature | Partial | Workflow, camera adapter, VisionCamera preview, capture, torch, and zoom are implemented and build. The frame processor plugin, device auto-capture, and any hardware verification remain. |
+| 12. Scan feature | Mostly complete | Workflow, camera adapter, VisionCamera preview, capture, torch, and zoom are implemented. Live detection runs as a Nitro hybrid object (`modules/kvitto-frames`) and has been verified on an iPhone 15 Pro, as has the full capture-to-persisted-receipt path. Auto-capture arming on hardware and OCR quality against real receipts remain. |
 | 13. AI/company | Implemented foundation | Needs production credential/job wiring and optional provider smoke tests. |
 | 14. Native migration/settings | Partial | Orchestration exists; native ZIP bridge and complete Files/share UX remain. |
 | 15. Integration/release | In progress | Routes/docs/CI exist; full E2E, privacy, performance, accessibility, and release work remain. |
@@ -1911,23 +1978,31 @@ through the camera bridge. What remains:
 
 ## Recommended Resume Order
 
-1. Register a background task so `jobs.sweepBackground(...)` is actually
-  called: install `expo-background-task` (or register `BGProcessingTask`
-  natively), declare the identifier and `UIBackgroundModes` in `Info.plist`,
-  and have the handler build a `JobBackgroundWindow` from the OS deadline and
-  flip the expiration flag from the OS expiration handler. Needs a device.
-  Without hardware, the next piece is the archive import flow: the ZIP reader
-  now exists and is tested, so what remains is driving `packages/archive`'s
-  preflight over its entries and replacing the archive preflight/result
-  placeholder routes. The ZIP writer is also still missing.
-2. Implement the VisionCamera frame processor plugin (Nitro + nitrogen) and
-  enable auto-capture.
-3. Expose native ZIP and run web/native archive interoperability.
-4. Implement `BGTask` registration and bounded background sync.
-5. Add Maestro flows and real-server integration.
-6. Perform physical-device camera/background/security/performance gates,
-  including SQLCipher-key recovery and large-data query profiling.
-7. Run the complete CI matrix and begin release hardening.
+Background registration (`BGProcessingTask`), the live frame detector, and the
+device capture path are all done; see the 2026-09-18 progress entries.
+
+1. Watch a background window iOS actually grants. Registration, the coordinator
+  and the sweep are implemented and the submission is accepted on device, but
+  no granted window has been observed doing work. This needs a device left
+  plugged in and charging, and patience - iOS decides when.
+2. Expose native ZIP (the writer is still missing) and run web/native archive
+  interoperability. The reader exists and is tested; what remains is driving
+  `packages/archive`'s preflight over its entries and replacing the archive
+  preflight/result placeholder routes.
+3. Real-server integration: a sync convergence run from the native app against
+  a live server, and a real call to Anthropic/OpenAI/Ollama and to Apiverket.
+  All four need credentials that are not in this repo.
+4. Add Maestro flows. The smoke checks prove the app survives a route; they
+  cannot see whether a screen shows the right thing, which is the gap that
+  matters most now that every route renders.
+5. Remaining physical-device gates: security (SQLCipher-key recovery),
+  performance (section 20 budgets, large-data query profiling), and the
+  accessibility/appearance matrix.
+6. Run the complete CI matrix and begin release hardening.
+
+Highest-value tooling gap: `idb` is not installed, and neither are `maestro` or
+`fbsimctl`. `idb` would allow tapping a physical device, which is the single
+thing that would most reduce how much of this list needs a person.
 
 ## Resume Commands
 
