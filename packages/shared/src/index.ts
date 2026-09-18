@@ -18,4 +18,5 @@ export * from './ai-settings.js';
 export * from './dom.js';
 export * from './ui-rows.js';
 export * from './ai-settings-ui.js';
+export * from './apiverket.js';
 export * from './providers/index.js';

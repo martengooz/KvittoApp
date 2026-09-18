@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Switch, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { SettingsFeatureController, type SettingsControllerSnapshot } from '../features/settings';
 import { PrimaryButton, ScreenScaffold } from '../ui/controls';
@@ -15,6 +15,8 @@ export type SettingsFeatureScreenProps = {
   onOpenExport?: () => void;
   onOpenImport?: () => void;
   onOpenPairing?: () => void;
+  /** Today's registry name searches, for the company card's budget readout. */
+  searchBudgetUsed?: () => Promise<number>;
 };
 
 function toErrorMessage(error: unknown): string {
@@ -30,9 +32,18 @@ export function SettingsFeatureScreen({
   onOpenExport,
   onOpenImport,
   onOpenPairing,
+  searchBudgetUsed,
 }: SettingsFeatureScreenProps) {
   const [snapshot, setSnapshot] = useState<SettingsControllerSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchesToday, setSearchesToday] = useState<number | null>(null);
+  /*
+   * Draft key text is held here and never read back from the controller. A
+   * secret that has been stored is reported as present, not returned - showing
+   * it again would put it on screen every time someone opens Settings.
+   */
+  const [aiKeyDraft, setAiKeyDraft] = useState('');
+  const [companyKeyDraft, setCompanyKeyDraft] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -47,6 +58,21 @@ export function SettingsFeatureScreen({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!searchBudgetUsed) return;
+    let cancelled = false;
+    void searchBudgetUsed()
+      .then((used) => {
+        if (!cancelled) setSearchesToday(used);
+      })
+      .catch(() => {
+        if (!cancelled) setSearchesToday(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchBudgetUsed, snapshot]);
 
   const apply = useCallback(
     async (work: () => Promise<void> | void) => {
@@ -71,6 +97,13 @@ export function SettingsFeatureScreen({
 
   return (
     <ScreenScaffold style={styles.container}>
+      {/*
+        Settings grows a card every time the app grows a feature, so the whole
+        column scrolls. Without this the last cards - Credentials among them -
+        are simply clipped off the bottom of the screen and cannot be reached,
+        which is the same defect the filters sheet shipped with once.
+      */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       <TitleText accessibilityRole="header">Settings</TitleText>
       {error ? <BodyText accessibilityRole="alert">{error}</BodyText> : null}
 
@@ -146,10 +179,83 @@ export function SettingsFeatureScreen({
         </View>
       </View>
 
+      <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Company lookup settings">
+        <TitleText>Company lookup</TitleText>
+        <CaptionText>
+          Looks up the shop in the Swedish company register, using the organisation
+          number a scan reads off the receipt.
+        </CaptionText>
+        <View style={styles.toggleRow}>
+          <CaptionText>Look up after a scan</CaptionText>
+          <Switch
+            accessibilityLabel="Look up after a scan"
+            value={snapshot.company.autoLookup}
+            onValueChange={(value) => {
+              void apply(() => controller.updateCompany({ autoLookup: value }));
+            }}
+          />
+        </View>
+        <View style={styles.toggleRow}>
+          <CaptionText>Search by shop name</CaptionText>
+          <Switch
+            accessibilityLabel="Search by shop name"
+            value={snapshot.company.nameSearch}
+            onValueChange={(value) => {
+              void apply(() => controller.updateCompany({ nameSearch: value }));
+            }}
+          />
+        </View>
+        <CaptionText>
+          {`Name search is the weaker path and has its own small daily quota: ${snapshot.company.searchBudget} a day` +
+            (searchesToday === null ? '.' : `, ${searchesToday} used today.`)}
+        </CaptionText>
+        <CaptionText>{`Company API key: ${snapshot.credentialPresence.companyApiKey ? 'set' : 'not set'}`}</CaptionText>
+        <TextInput
+          accessibilityLabel="Company API key"
+          placeholder="Paste an Apiverket key"
+          value={companyKeyDraft}
+          onChangeText={setCompanyKeyDraft}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          style={styles.input}
+        />
+        <PrimaryButton
+          label="Save company key"
+          disabled={companyKeyDraft.trim().length === 0}
+          onPress={() => {
+            void apply(async () => {
+              await controller.setSecureCredentials({ companyApiKey: companyKeyDraft.trim() });
+              setCompanyKeyDraft('');
+            });
+          }}
+        />
+      </View>
+
       <View style={styles.card} accessibilityRole="summary" accessibilityLabel="Credentials">
         <TitleText>Credentials</TitleText>
         <CaptionText>{`Pairing token: ${snapshot.credentialPresence.pairingToken ? 'set' : 'not set'}`}</CaptionText>
         <CaptionText>{`AI API key: ${snapshot.credentialPresence.aiApiKey ? 'set' : 'not set'}`}</CaptionText>
+        <TextInput
+          accessibilityLabel="AI API key"
+          placeholder="Paste a provider key"
+          value={aiKeyDraft}
+          onChangeText={setAiKeyDraft}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          style={styles.input}
+        />
+        <PrimaryButton
+          label="Save AI key"
+          disabled={aiKeyDraft.trim().length === 0}
+          onPress={() => {
+            void apply(async () => {
+              await controller.setSecureCredentials({ aiApiKey: aiKeyDraft.trim() });
+              setAiKeyDraft('');
+            });
+          }}
+        />
         <CaptionText>{`Company API key: ${snapshot.credentialPresence.companyApiKey ? 'set' : 'not set'}`}</CaptionText>
         <PrimaryButton
           label="Clear secure credentials"
@@ -166,6 +272,7 @@ export function SettingsFeatureScreen({
         <CaptionText>{`${snapshot.about.appName} ${snapshot.about.appVersion}`}</CaptionText>
         <CaptionText>{`Native status: ${snapshot.about.nativeVersion}`}</CaptionText>
       </View>
+      </ScrollView>
     </ScreenScaffold>
   );
 }
@@ -177,6 +284,21 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 12,
     paddingBottom: 16,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 10,
+    paddingBottom: 24,
+  },
+  input: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colorToken('surfaceSecondary'),
+    backgroundColor: colorToken('surface'),
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,

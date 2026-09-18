@@ -3,6 +3,7 @@ import { describe, expect, test } from '@jest/globals';
 import { SettingsFeatureController } from '../src/features/settings/controller';
 import { redactDiagnostics } from '../src/features/settings/redaction';
 import type { SecureCredentialSnapshot, SecureCredentialsPort } from '../src/features/settings/types';
+import { DEFAULT_COMPANY_SETTINGS } from '../src/features/settings/types';
 
 class InMemorySecureCredentials implements SecureCredentialsPort {
   private state: SecureCredentialSnapshot = {
@@ -58,6 +59,7 @@ describe('settings redaction and secure credentials', () => {
       image: { autoCapture: true, jpegQuality: 0.9, colorMode: 'grayscale' },
       ocr: { languages: ['sv-SE'], languageCorrection: true },
       ai: { mode: 'remote', provider: 'anthropic', model: 'claude-opus-5' },
+      company: DEFAULT_COMPANY_SETTINGS,
       sync: { autoSync: true, wifiOnly: true },
       migration: { lastImportAt: null, lastExportAt: null, lastPreflightSummary: null },
       storage: { blobCount: 4, blobBytes: 1024, hasPersistentStorage: true },

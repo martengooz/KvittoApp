@@ -1,4 +1,4 @@
-import { scanReceiptText, type OcrInfo } from '@kvitto/shared';
+import { scanReceiptText, type OcrInfo, type Receipt } from '@kvitto/shared';
 
 import { advance, IDLE_WATCH, type FrameReading, type WatchState } from '../../../../web/src/scan/auto-capture';
 import type { Quad } from '../../../../web/src/cv/types';
@@ -523,7 +523,29 @@ export interface SourceFirstOcrInput {
   sourceVersion: number;
   now: () => number;
   cancellationId?: string;
+  /**
+   * Links the receipt to a company in the registry. Absent when company
+   * lookup is not configured, in which case OCR files what it read and stops -
+   * which is the whole behaviour this feature had before.
+   */
+  enrichCompany?: CompanyEnricher;
 }
+
+/**
+ * The registry step, as this function needs it.
+ *
+ * Injected rather than imported so the OCR path keeps working with nothing
+ * configured, and so its own tests never touch a network client.
+ */
+export type CompanyEnricher = (input: {
+  receipt: Receipt;
+  receiptText: string;
+  orgNumber: { digits: string; formatted: string } | null;
+}) => Promise<{
+  patch: Partial<Pick<Receipt, 'companyId' | 'merchant'>>;
+  filled: Array<'orgNumber' | 'companyName'>;
+  lookup: 'cached' | 'fetched' | null;
+}>;
 
 function buildOcrInfo(result: RecognizeTextResult, now: number): OcrInfo {
   const confidenceMean = result.observations.length === 0
@@ -569,7 +591,7 @@ export async function runSourceFirstOcrEnrichment(input: SourceFirstOcrInput): P
   const patch: Record<string, unknown> = {
     ocr: buildOcrInfo(recognized, now),
   };
-  const filled: Array<'purchasedAt' | 'orgNumber'> = [];
+  const filled: Array<'purchasedAt' | 'orgNumber' | 'companyName'> = [];
 
   if (!receipt.purchasedAt && findings.purchasedAt) {
     patch.purchasedAt = findings.purchasedAt.value;
@@ -584,9 +606,41 @@ export async function runSourceFirstOcrEnrichment(input: SourceFirstOcrInput): P
     filled.push('orgNumber');
   }
 
+  let companyLookup: 'cached' | 'fetched' | null = null;
+  if (input.enrichCompany) {
+    /*
+     * Applied into the same patch rather than a second write. A receipt whose
+     * merchant and company arrive separately is briefly inconsistent, and the
+     * detail screen is subscribed to both.
+     *
+     * A failing lookup must not lose the OCR findings, which are the part that
+     * cost the user a scan - so this cannot throw past here.
+     */
+    try {
+      const company = await input.enrichCompany({
+        receipt,
+        receiptText: recognized.text,
+        orgNumber: findings.orgNumber
+          ? { digits: findings.orgNumber.digits, formatted: findings.orgNumber.formatted }
+          : null,
+      });
+      companyLookup = company.lookup;
+      if (company.patch.companyId) patch.companyId = company.patch.companyId;
+      if (company.patch.merchant) {
+        patch.merchant = { ...(patch.merchant as Receipt['merchant'] | undefined ?? receipt.merchant), ...company.patch.merchant };
+      }
+      for (const field of company.filled) {
+        if (!filled.includes(field)) filled.push(field);
+      }
+    } catch {
+      // Left null. The lookup is an enhancement; OCR is the result.
+    }
+  }
+
   await input.repo.updateReceipt(input.receiptId, patch);
   return {
     outcome: 'applied',
     filled,
+    companyLookup,
   };
 }

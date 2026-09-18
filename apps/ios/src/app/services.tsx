@@ -54,8 +54,11 @@ import {
   createBackgroundTaskController,
   type BackgroundTaskController,
 } from '../jobs/background-task';
+import { createCompanyLookup, type CompanyLookupService } from '../company/lookup';
+import { enrichReceiptCompany } from '../company/enrich';
 import type { JobRecord, JobState } from '@kvitto/client-core/ports';
 import { bootFailed, bootReady, initialBootState, type BootState } from './boot-state';
+import { DEFAULT_COMPANY_SETTINGS } from '../features/settings/types';
 
 export interface TabFeatureServices {
   receipts: { repository: IosDataRepository; filters: ReceiptFilterStore };
@@ -91,6 +94,8 @@ export interface AppServiceComposition {
    * else should need it.
    */
   background: BackgroundTaskController;
+  /** The company registry lookup, for the settings screen's budget readout. */
+  company: CompanyLookupService;
   tabs: TabFeatureServices;
   dispose(): void;
 }
@@ -170,6 +175,7 @@ function createSettingsController(input: {
       provider: 'openai',
       model: 'gpt-4.1-mini',
     },
+    company: DEFAULT_COMPANY_SETTINGS,
     sync: {
       autoSync: input.initialSync.autoSync,
       wifiOnly: input.initialSync.wifiOnly,
@@ -470,12 +476,49 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     },
   });
 
+  /*
+   * Company settings are read per lookup, like AI settings, so switching
+   * automatic lookup off applies to the next scan rather than the next launch.
+   * The API key comes from the secure store; it is never in the snapshot.
+   */
+  const companyLookup = createCompanyLookup({
+    getCompany: (digits) => repository.get('companies', digits),
+    putCompany: async (company) => {
+      await repository.upsert('companies', company);
+    },
+    getKeyValue: (key) => repository.getKeyValue(key),
+    setKeyValue: (key, value) => repository.setKeyValue(key, value),
+    async getSettings() {
+      // Declared below; safe because this runs when a job runs, never during
+      // composition.
+      const snapshot = await settingsController.getSnapshot();
+      const credentials = await secureCredentialPorts.settingsCredentials.get();
+      return {
+        apiKey: credentials.companyApiKey ?? '',
+        baseUrl: snapshot.company.baseUrl || undefined,
+        nameSearch: snapshot.company.nameSearch,
+        searchBudget: snapshot.company.searchBudget,
+      };
+    },
+  });
+
   const runOneScanJob = createScanDurableRunOne({
     store: durableJobStore,
     repository,
     native,
     clock: { now: () => Date.now() },
     runExtraction,
+    async enrichCompany({ receipt, receiptText, orgNumber }) {
+      const snapshot = await settingsController.getSnapshot();
+      const result = await enrichReceiptCompany({
+        lookup: companyLookup,
+        receipt,
+        receiptText,
+        orgNumber,
+        autoLookup: snapshot.company.autoLookup,
+      });
+      return { patch: result.patch, filled: result.filled, lookup: result.lookup };
+    },
   });
   const jobService = createScanDurableJobService({
     store: durableJobStore,
@@ -529,6 +572,7 @@ export async function bootstrapProductionAppServices(): Promise<AppServiceCompos
     sync: syncService,
     jobs: jobService,
     background,
+    company: companyLookup,
     tabs: composeTabFeatureServices({
       repository,
       scanController,

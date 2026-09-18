@@ -122,5 +122,7 @@ export interface ScanControllerOptions {
 
 export interface ScanOcrOutcome {
   outcome: 'applied' | 'cancelled' | 'stale' | 'empty';
-  filled: Array<'purchasedAt' | 'orgNumber'>;
+  filled: Array<'purchasedAt' | 'orgNumber' | 'companyName'>;
+  /** What the registry lookup did, when one ran at all. */
+  companyLookup?: 'cached' | 'fetched' | null;
 }

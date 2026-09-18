@@ -11,6 +11,7 @@ import {
   type AppBootstrap,
   type AppServiceComposition,
 } from '../src/app/services';
+import { DEFAULT_COMPANY_SETTINGS } from '../src/features/settings/types';
 
 function makeScanState(): ScanState {
   return {
@@ -77,6 +78,7 @@ function makeFakeSettingsController(): SettingsFeatureController {
       provider: 'none',
       model: 'none',
     },
+    company: DEFAULT_COMPANY_SETTINGS,
     sync: {
       autoSync: false,
       wifiOnly: true,
@@ -157,6 +159,12 @@ function makeComposition(): AppServiceComposition {
       unpair: async () => undefined,
       updateConfig: async () => undefined,
       dispose: () => undefined,
+    },
+    company: {
+      resolve: async () => ({ status: 'skipped' as const, reason: 'not-configured' as const }),
+      resolveByName: async () => ({ status: 'skipped' as const, reason: 'not-configured' as const }),
+      searchBudgetUsed: async () => 0,
+      clearMisses: async () => undefined,
     },
     background: {
       start: async () => 'unavailable' as const,

@@ -11,6 +11,7 @@ import {
   type TabFeatureServiceKey,
 } from '../src/app/services';
 import { TAB_SPECS } from '../src/app/tabs';
+import { DEFAULT_COMPANY_SETTINGS } from '../src/features/settings/types';
 
 function makeScanState(): ScanState {
   return {
@@ -77,6 +78,7 @@ function makeFakeSettingsController(): SettingsFeatureController {
       provider: 'none',
       model: 'none',
     },
+    company: DEFAULT_COMPANY_SETTINGS,
     sync: {
       autoSync: false,
       wifiOnly: true,

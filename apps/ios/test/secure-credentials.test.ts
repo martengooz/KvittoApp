@@ -9,6 +9,7 @@ import {
 } from '../src/data/secure-credentials';
 import { SettingsFeatureController } from '../src/features/settings';
 import { createCredentialsAdapter, type IdentityStateStore } from '../src/sync/identity';
+import { DEFAULT_COMPANY_SETTINGS } from '../src/features/settings/types';
 
 type SecureWriteRecord = {
   name: string;
@@ -85,6 +86,7 @@ function createSettingsController() {
         provider: 'openai',
         model: 'gpt-4.1-mini',
       },
+      company: DEFAULT_COMPANY_SETTINGS,
       sync: {
         autoSync: true,
         wifiOnly: true,

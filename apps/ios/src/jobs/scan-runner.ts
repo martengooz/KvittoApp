@@ -4,7 +4,7 @@ import type { JobStorePort, Logger } from '@kvitto/client-core/ports';
 import type { BlobMetadataRecord, FileBackedDescriptor, KvittoNativeFacade } from '../../modules/kvitto-native/src';
 import { IosNativeBlobStore } from '../data/blobs/native-blob-store';
 import type { IosDataRepository } from '../data/repository';
-import { runSourceFirstOcrEnrichment } from '../features/scan/controller';
+import { runSourceFirstOcrEnrichment, type CompanyEnricher } from '../features/scan/controller';
 import type { ForegroundRunResult } from './foreground-runner';
 
 const SCAN_IMAGE_PROCESSING_KIND = 'scan:image-processing';
@@ -42,6 +42,12 @@ export interface ScanDurableRunOneOptions {
   logger?: Logger;
   leaseMs?: number;
   runExtraction?: ScanExtractionRunner;
+  /**
+   * Links a scanned receipt to a company in the registry, after OCR. Absent
+   * when company lookup is not configured; OCR then files what it read and
+   * stops.
+   */
+  enrichCompany?: CompanyEnricher;
 }
 
 function toDescriptor(record: BlobMetadataRecord): FileBackedDescriptor {
@@ -163,6 +169,7 @@ export function createScanDurableRunOne(options: ScanDurableRunOneOptions): () =
               sourceVersion: context.claim.sourceVersion,
               now: () => clock.now(),
               cancellationId: context.claim.claimToken,
+              enrichCompany: options.enrichCompany,
             }),
           );
 

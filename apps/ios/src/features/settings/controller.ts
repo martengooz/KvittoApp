@@ -19,6 +19,7 @@ export class SettingsFeatureController {
       image: { ...input.image },
       ocr: { ...input.ocr },
       ai: { ...input.ai },
+      company: { ...input.company },
       sync: { ...input.sync },
       migration: { ...input.migration },
       storage: { ...input.storage },
@@ -36,6 +37,10 @@ export class SettingsFeatureController {
 
   updateAi(patch: Partial<SettingsControllerInput['ai']>): void {
     this.state.ai = { ...this.state.ai, ...patch };
+  }
+
+  updateCompany(patch: Partial<SettingsControllerInput['company']>): void {
+    this.state.company = { ...this.state.company, ...patch };
   }
 
   async updateSync(patch: Partial<SettingsControllerInput['sync']>): Promise<void> {
@@ -79,6 +84,7 @@ export class SettingsFeatureController {
       image: { ...this.state.image },
       ocr: { ...this.state.ocr, languages: [...this.state.ocr.languages] },
       ai: { ...this.state.ai },
+      company: { ...this.state.company },
       sync: { ...this.state.sync },
       migration: { ...this.state.migration },
       storage: { ...this.state.storage },

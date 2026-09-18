@@ -19,6 +19,7 @@ export default function SettingsRoute() {
           onOpenExport={() => router.push('/archive/export')}
           onOpenImport={() => router.push('/archive/preflight')}
           onOpenPairing={() => router.push('/pairing/scanner')}
+          searchBudgetUsed={() => composition.company.searchBudgetUsed()}
         />
       ) : (
         <LoadingState message="Loading settings services..." />
