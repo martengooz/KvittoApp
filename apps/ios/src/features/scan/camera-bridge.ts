@@ -175,9 +175,10 @@ export function createScanCameraBridge(input: CreateScanCameraBridgeInput): Scan
     },
 
     async analyzeFrameCompact(): Promise<FrameAnalysisResult> {
-      // Until the native frame processor plugin is linked there is no live
-      // reading; reporting `unsupported` keeps auto-capture honestly disabled
-      // rather than pretending a document was found.
+      // The reading comes from the mounted preview, which owns the analyzer.
+      // Without one - no preview, or a build with the detector missing -
+      // reporting `unsupported` keeps auto-capture honestly disabled rather
+      // than pretending a document was found.
       const reading = handles?.readLatestFrameAnalysis?.();
       if (!reading) return unavailableFrame(now(), state.active ? 'unsupported' : 'no-document');
       return reading;

@@ -256,6 +256,8 @@ PODS:
   - hermes-engine (250829098.0.17):
     - hermes-engine/Pre-built (= 250829098.0.17)
   - hermes-engine/Pre-built (250829098.0.17)
+  - kvitto-frames (0.1.0):
+    - NitroModules
   - kvitto-native (0.1.0):
     - ExpoModulesCore
   - NitroImage (0.15.2):
@@ -2541,6 +2543,7 @@ DEPENDENCIES:
   - EXUpdatesInterface (from `../../../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../../../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - kvitto-frames (from `../modules/kvitto-frames/ios`)
   - kvitto-native (from `../modules/kvitto-native/ios`)
   - NitroImage (from `../../../node_modules/react-native-nitro-image`)
   - NitroModules (from `../../../node_modules/react-native-nitro-modules`)
@@ -2693,6 +2696,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v250829098.0.17
+  kvitto-frames:
+    :path: "../modules/kvitto-frames/ios"
   kvitto-native:
     :path: "../modules/kvitto-native/ios"
   NitroImage:
@@ -2895,6 +2900,7 @@ SPEC CHECKSUMS:
   EXUpdatesInterface: 4c96533f11c8cefe879bd506564cc2d537f56804
   FBLazyVector: 2138c6c2ab66c31bf5754dc18097fbc498a49c7f
   hermes-engine: 8930e5f68b09f76e00ab617da3f7587e7262efd0
+  kvitto-frames: 8249396f23b53fea9d8722e071c93938bf910ec3
   kvitto-native: 6a9ae3450687f84b433e9599728f206b6535dce8
   NitroImage: 5daf897d2f37ed419186278d6b0fcdd8aab313b0
   NitroModules: 38f8754287858ff1294e43fd43f614a664e54050
@@ -2980,6 +2986,6 @@ SPEC CHECKSUMS:
   VisionCameraWorklets: b6de1b4f950e958236366987750ed0b3c86228b9
   Yoga: 18b74b3ade30bebc1904004dfaceae1dd02a330a
 
-PODFILE CHECKSUM: 722812e74a01dac9a474581b66e397e96372af68
+PODFILE CHECKSUM: b0713241762028906c36576bd21b734f32cbbfcf
 
 COCOAPODS: 1.17.0

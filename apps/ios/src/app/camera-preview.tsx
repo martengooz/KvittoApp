@@ -3,14 +3,29 @@ import { StyleSheet, View } from 'react-native';
 import {
   Camera,
   useCameraDevice,
+  useFrameOutput,
   usePhotoOutput,
   type CameraRef,
 } from 'react-native-vision-camera';
 
 import type { ScanCameraBridge, ScanCameraCapture, ScanCameraUiState } from '../features/scan';
-import type { KvittoNativeFacade } from '../../modules/kvitto-native/src';
+import { toFrameAnalysis } from '../features/scan/frame-analysis';
+import type { FrameAnalysisResult, KvittoNativeFacade } from '../../modules/kvitto-native/src';
+import {
+  FRAME_ORIENTATION_DEGREES,
+  tryCreateFrameDocumentAnalyzer,
+} from '../../modules/kvitto-frames/src';
 import { BodyText, CaptionText } from '../ui/typography';
 import { colorToken } from '../ui/tokens';
+
+/**
+ * Shortest gap between two Vision requests, in milliseconds.
+ *
+ * Detection costs more than a frame interval, so running it on every frame
+ * only starves the pipeline. Five readings a second is far more than the scan
+ * state machine needs to decide a receipt has been held still.
+ */
+const FRAME_ANALYSIS_INTERVAL_MS = 200;
 
 export interface ScanCameraPreviewProps {
   bridge: ScanCameraBridge;
@@ -33,7 +48,57 @@ export function ScanCameraPreview({ bridge, native }: ScanCameraPreviewProps) {
   const cameraRef = useRef<CameraRef>(null);
   const device = useCameraDevice('back');
   const photoOutput = usePhotoOutput({ qualityPrioritization: 'quality' });
-  const outputs = useMemo(() => [photoOutput], [photoOutput]);
+
+  /*
+   * The live document detector. Created once per mounted preview, and null
+   * wherever the native module is missing - auto-capture is an accelerator,
+   * not the feature, so losing it must not take the camera with it.
+   */
+  const analyzer = useMemo(() => {
+    const created = tryCreateFrameDocumentAnalyzer();
+    if (created) created.minIntervalMs = FRAME_ANALYSIS_INTERVAL_MS;
+    return created;
+  }, []);
+
+  /*
+   * Frame timestamps come from `CMTime` and count from an arbitrary origin,
+   * usually boot. Sampling the offset once lets a reading be aged against wall
+   * time without putting a `Date.now()` call inside the frame worklet.
+   */
+  const frameClockOffsetMs = useRef(0);
+
+  const frameOutput = useFrameOutput({
+    onFrame: (frame) => {
+      'worklet';
+      try {
+        // `hasNativeBuffer` is false for formats Vision cannot read anyway, so
+        // there is nothing to fall back to - skipping is the whole handling.
+        if (analyzer !== null && frame.hasNativeBuffer) {
+          const buffer = frame.getNativeBuffer();
+          try {
+            analyzer.analyze(
+              buffer.pointer,
+              FRAME_ORIENTATION_DEGREES[frame.orientation] ?? 0,
+              frame.isMirrored,
+              frame.timestamp * 1000,
+            );
+          } finally {
+            // Both of these releases are load-bearing: hold either the buffer
+            // or the frame past this callback and the camera pipeline stalls,
+            // which shows up as a preview that freezes rather than as an error.
+            buffer.release();
+          }
+        }
+      } finally {
+        frame.dispose();
+      }
+    },
+  });
+
+  const outputs = useMemo(
+    () => (analyzer === null ? [photoOutput] : [photoOutput, frameOutput]),
+    [analyzer, frameOutput, photoOutput],
+  );
 
   const capturePhoto = useCallback(async (): Promise<ScanCameraCapture> => {
     const photo = await photoOutput.capturePhoto({}, {});
@@ -52,7 +117,42 @@ export function ScanCameraPreview({ bridge, native }: ScanCameraPreviewProps) {
     }
   }, [native, photoOutput]);
 
-  useEffect(() => bridge.attach({ capturePhoto }), [bridge, capturePhoto]);
+  const readLatestFrameAnalysis = useCallback((): FrameAnalysisResult | null => {
+    if (!analyzer) return null;
+    const latest = analyzer.latest;
+    if (!latest) return null;
+
+    if (frameClockOffsetMs.current === 0) {
+      // First reading seen: pin the two clocks together. Doing it here rather
+      // than at mount means the offset is measured against a timestamp that
+      // actually exists, instead of against whatever the camera had not yet
+      // produced.
+      frameClockOffsetMs.current = Date.now() - latest.timestampMs;
+    }
+
+    return toFrameAnalysis(latest, {
+      nowMs: Date.now(),
+      frameClockOffsetMs: frameClockOffsetMs.current,
+    });
+  }, [analyzer]);
+
+  useEffect(
+    () => bridge.attach({ capturePhoto, readLatestFrameAnalysis }),
+    [bridge, capturePhoto, readLatestFrameAnalysis],
+  );
+
+  /*
+   * A reading outlives the preview that produced it, and the analyzer is a
+   * native singleton. Without this, reopening the scan screen would arm
+   * auto-capture from whatever the camera last saw minutes ago.
+   */
+  useEffect(() => {
+    if (!analyzer) return;
+    return () => {
+      analyzer.reset();
+      frameClockOffsetMs.current = 0;
+    };
+  }, [analyzer]);
 
   if (!device) {
     return (

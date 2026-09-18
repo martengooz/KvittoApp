@@ -15,7 +15,7 @@ import { createScanDurableRunOne } from '../src/jobs/scan-runner';
 import { createRepositoryBackedJobStore } from '../src/jobs/store';
 import { createScanDurableJobService } from '../src/jobs/service';
 import type { NativeBackgroundLaunch } from '../modules/kvitto-native/src/contracts';
-import { NATIVE_BACKGROUND_STUB } from './support/native-background-stub';
+import { NATIVE_HOST_STUB } from './support/native-host-stub';
 
 function blobRecord(input: {
   id: string;
@@ -66,17 +66,19 @@ class NativeStub implements KvittoNativeFacade {
 
   // This runner never touches the background window; the facade just has to be
   // whole. Fields rather than methods so the shared stub supplies the bodies.
-  backgroundTaskIdentifier = () => NATIVE_BACKGROUND_STUB.backgroundTaskIdentifier();
-  drainPendingBackgroundLaunches = () => NATIVE_BACKGROUND_STUB.drainPendingBackgroundLaunches();
-  isBackgroundLaunchExpired = (handle: string) => NATIVE_BACKGROUND_STUB.isBackgroundLaunchExpired(handle);
+  launchRoutes = () => NATIVE_HOST_STUB.launchRoutes();
+  launchRouteDwellMs = () => NATIVE_HOST_STUB.launchRouteDwellMs();
+  backgroundTaskIdentifier = () => NATIVE_HOST_STUB.backgroundTaskIdentifier();
+  drainPendingBackgroundLaunches = () => NATIVE_HOST_STUB.drainPendingBackgroundLaunches();
+  isBackgroundLaunchExpired = (handle: string) => NATIVE_HOST_STUB.isBackgroundLaunchExpired(handle);
   finishBackgroundLaunch = (handle: string, success: boolean) =>
-    NATIVE_BACKGROUND_STUB.finishBackgroundLaunch(handle, success);
+    NATIVE_HOST_STUB.finishBackgroundLaunch(handle, success);
   scheduleBackgroundProcessing = (delaySeconds: number, network: boolean, power: boolean) =>
-    NATIVE_BACKGROUND_STUB.scheduleBackgroundProcessing(delaySeconds, network, power);
-  cancelBackgroundProcessing = () => NATIVE_BACKGROUND_STUB.cancelBackgroundProcessing();
-  pendingBackgroundTaskIdentifiers = () => NATIVE_BACKGROUND_STUB.pendingBackgroundTaskIdentifiers();
+    NATIVE_HOST_STUB.scheduleBackgroundProcessing(delaySeconds, network, power);
+  cancelBackgroundProcessing = () => NATIVE_HOST_STUB.cancelBackgroundProcessing();
+  pendingBackgroundTaskIdentifiers = () => NATIVE_HOST_STUB.pendingBackgroundTaskIdentifiers();
   onBackgroundLaunch = (listener: (launch: NativeBackgroundLaunch) => void) =>
-    NATIVE_BACKGROUND_STUB.onBackgroundLaunch(listener);
+    NATIVE_HOST_STUB.onBackgroundLaunch(listener);
 
   async hashFileSha256(fileUri: string): Promise<string> {
     return fileUri;

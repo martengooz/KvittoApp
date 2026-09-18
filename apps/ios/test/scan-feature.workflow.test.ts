@@ -16,7 +16,7 @@ import type {
 } from '../modules/kvitto-native/src';
 import { IosDataRepository } from '../src/data/repository';
 import { SqliteTestAdapter } from './support/sqlite-test-adapter';
-import { NATIVE_BACKGROUND_STUB } from './support/native-background-stub';
+import { NATIVE_HOST_STUB } from './support/native-host-stub';
 
 function source(uri: string): FileBackedDescriptor {
   return {
@@ -67,7 +67,7 @@ function makeNative(options: {
   recognizeDelay?: Promise<void>;
 } = {}): KvittoNativeFacade {
   return {
-    ...NATIVE_BACKGROUND_STUB,
+    ...NATIVE_HOST_STUB,
     hashFileSha256: async () => 'dd'.repeat(32),
     computeShardPath: async () => 'blobs/dd/dd',
     storeContentAddressedFile: async (input) => {

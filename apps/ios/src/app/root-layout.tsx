@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack, type ErrorBoundaryProps } from 'expo-router';
+import { Stack, router, type ErrorBoundaryProps } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { createKvittoNativeFacade } from '../../modules/kvitto-native/src';
@@ -8,9 +8,60 @@ import { AppServicesProvider, useAppServices } from './services';
 import { DiagnosticsRecoveryState, LoadingState, ScreenScaffold } from '../ui/controls';
 import { BodyText, TitleText } from '../ui/typography';
 import { PUSHED_MODAL_ROUTE_CONTRACTS } from './routes';
+import { driveRoutes } from './route-driver';
+
+/**
+ * Walks the routes named in the launch environment, once, after boot.
+ *
+ * The list is empty in every normal launch - nothing can set an environment
+ * variable on an App Store launch - so this is inert in the field. It exists
+ * because `devicectl` cannot open a URL or tap, which left every screen past
+ * the first unverifiable on the hardware the app actually ships to.
+ */
+function useLaunchRouteDriver(ready: boolean): void {
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+    let native: ReturnType<typeof createKvittoNativeFacade>;
+    try {
+      native = createKvittoNativeFacade();
+    } catch {
+      // Off-device there is no environment to read; nothing to drive.
+      return;
+    }
+
+    const routes = native.launchRoutes();
+    if (routes.length === 0) return;
+
+    void driveRoutes({
+      routes,
+      dwellMs: native.launchRouteDwellMs(),
+      navigate: (route) => {
+        router.navigate(route as Parameters<typeof router.navigate>[0]);
+      },
+      log: (category, message) => native.logDiagnostic(category, message),
+      wait: (ms) =>
+        new Promise<void>((resolve) => {
+          const handle = setTimeout(() => {
+            if (!cancelled) resolve();
+          }, ms);
+          if (cancelled) clearTimeout(handle);
+        }),
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+}
 
 function RouterShell() {
   const { boot, retryBoot } = useAppServices();
+
+  // Hooks run before the early returns below, so this cannot be moved inside
+  // the ready branch; it gates on `ready` instead.
+  useLaunchRouteDriver(boot.status === 'ready');
 
   if (boot.status === 'loading') {
     return <LoadingState message="Preparing encrypted storage and startup services..." />;

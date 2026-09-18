@@ -197,6 +197,17 @@ export interface KvittoNativeFacade {
   analyzeFrameCompact(frameTimestampMs: number, cancellationId?: string): Promise<FrameAnalysisResult>;
 
   /** The single `BGTaskScheduler` identifier this app registers. */
+  /**
+   * Routes the app should drive itself through at launch, from the process
+   * environment. Empty in every normal launch.
+   *
+   * This exists because a physical device has no `simctl openurl`: `devicectl`
+   * can launch and screenshot but cannot open a URL or tap, so without a
+   * channel like this, no screen past the first is reachable on hardware.
+   */
+  launchRoutes(): string[];
+  /** Milliseconds to hold each driven route, from the environment. */
+  launchRouteDwellMs(): number;
   backgroundTaskIdentifier(): string;
   /**
    * Windows that opened before JS was listening. iOS can launch the app

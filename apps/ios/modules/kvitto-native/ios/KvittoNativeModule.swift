@@ -65,6 +65,36 @@ public final class KvittoNativeModule: Module {
       KvittoBackgroundTaskCoordinator.shared.registerLaunchHandlers()
     }
 
+    /// Routes the app should drive itself through at launch, from the
+    /// environment.
+    ///
+    /// A physical device has no equivalent of `simctl openurl`: `devicectl` can
+    /// install, launch and screenshot, but it cannot open a URL and it cannot
+    /// tap. It *can* set environment variables on the launched process, which
+    /// is the only channel into a signed Release build on hardware - and
+    /// without one, every screen past the first was unverifiable on the device
+    /// it actually ships to.
+    ///
+    /// Nothing can set this on an App Store launch, so the path is unreachable
+    /// in the field rather than merely unused.
+    Function("launchRoutes") { () -> [String] in
+      guard let raw = ProcessInfo.processInfo.environment["KVITTO_ROUTES"], !raw.isEmpty else {
+        return []
+      }
+      return raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Milliseconds to hold each driven route. Long enough for data to load.
+    Function("launchRouteDwellMs") { () -> Double in
+      guard
+        let raw = ProcessInfo.processInfo.environment["KVITTO_ROUTE_DWELL_MS"],
+        let parsed = Double(raw)
+      else {
+        return 1200
+      }
+      return max(0, parsed)
+    }
+
     Function("backgroundTaskIdentifier") { () -> String in
       KvittoBackgroundTaskCoordinator.processingIdentifier
     }

@@ -5,17 +5,20 @@ import type {
 } from '../../modules/kvitto-native/src/contracts';
 
 /**
- * The background-task half of `KvittoNativeFacade`, inert.
+ * The host-environment half of `KvittoNativeFacade`, inert.
  *
- * Every native stub in this suite has to satisfy the whole facade, and most of
- * them care about one corner of it. Spreading this in keeps a stub about the
- * thing it is actually testing, and means adding a background method does not
- * touch eight unrelated files.
+ * Background windows and the launch environment are things only a running
+ * device has. Every native stub in this suite has to satisfy the whole facade,
+ * and most of them care about one corner of it; spreading this in keeps a stub
+ * about the thing it is actually testing, and means adding a method here does
+ * not touch eight unrelated files.
  *
- * Tests that exercise the background path build their own controllable double;
- * see `jobs-background-task.test.ts`.
+ * Tests that exercise these paths build their own controllable doubles; see
+ * `jobs-background-task.test.ts` and `app-route-driver.test.ts`.
  */
-export const NATIVE_BACKGROUND_STUB: {
+export const NATIVE_HOST_STUB: {
+  launchRoutes(): string[];
+  launchRouteDwellMs(): number;
   backgroundTaskIdentifier(): string;
   drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
   isBackgroundLaunchExpired(handle: string): boolean;
@@ -29,6 +32,8 @@ export const NATIVE_BACKGROUND_STUB: {
   pendingBackgroundTaskIdentifiers(): Promise<string[]>;
   onBackgroundLaunch(listener: (launch: NativeBackgroundLaunch) => void): EventSubscription;
 } = {
+  launchRoutes: () => [],
+  launchRouteDwellMs: () => 0,
   backgroundTaskIdentifier: () => 'com.kvitto.app.ios.jobs.processing',
   drainPendingBackgroundLaunches: () => [],
   isBackgroundLaunchExpired: () => false,

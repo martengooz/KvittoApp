@@ -6,7 +6,7 @@ import {
   type FrameAnalysisResult,
   type KvittoNativeBinding,
 } from '../modules/kvitto-native/src';
-import { NATIVE_BACKGROUND_STUB } from './support/native-background-stub';
+import { NATIVE_HOST_STUB } from './support/native-host-stub';
 
 function makeBlobRecord(id: string): BlobMetadataRecord {
   return {
@@ -43,7 +43,7 @@ function makeFrame(pluginLinked: boolean): FrameAnalysisResult {
 function createBinding(): KvittoNativeBinding {
   const record = makeBlobRecord('aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899');
   return {
-    ...NATIVE_BACKGROUND_STUB,
+    ...NATIVE_HOST_STUB,
     // The binding exposes Expo's raw `addListener`; the facade is what turns it
     // into `onBackgroundLaunch`, so the stub has to speak the lower level.
     addListener: () => ({ remove: () => undefined }),

@@ -61,6 +61,8 @@ interface KvittoNativeBinding {
   }): Promise<RecognizeTextResult>;
   cancelOperation(cancellationId: string): Promise<boolean>;
   analyzeFrameCompact(frameTimestampMs: number, cancellationId?: string): Promise<FrameAnalysisResult>;
+  launchRoutes(): string[];
+  launchRouteDwellMs(): number;
   backgroundTaskIdentifier(): string;
   drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
   isBackgroundLaunchExpired(handle: string): boolean;
@@ -195,6 +197,12 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
         };
       }
       return result;
+    },
+    launchRoutes() {
+      return binding.launchRoutes();
+    },
+    launchRouteDwellMs() {
+      return binding.launchRouteDwellMs();
     },
     backgroundTaskIdentifier() {
       return binding.backgroundTaskIdentifier();

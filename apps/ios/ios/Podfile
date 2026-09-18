@@ -47,6 +47,13 @@ target 'KvittoAppiOS' do
 
   config = use_native_modules!(config_command)
 
+  # The live frame detector. Declared by hand rather than autolinked: it is a
+  # Nitro module, not an Expo one, so it carries no `expo-module.config.json`
+  # for `use_expo_modules!` to find. It is kept out of `kvitto-native` because
+  # Nitro's C++ interop mode cannot consume Expo's precompiled ExpoModulesCore
+  # - see `modules/kvitto-frames/README.md`.
+  pod 'kvitto-frames', :path => '../modules/kvitto-frames/ios'
+
   use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
   use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
 

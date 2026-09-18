@@ -1,0 +1,20 @@
+{
+  "$schema": "https://nitro.margelo.com/nitro.schema.json",
+  "cxxNamespace": ["kvitto"],
+  "ios": {
+    "iosModuleName": "kvitto_frames"
+  },
+  "android": {
+    "androidNamespace": ["kvitto"],
+    "androidCxxLibName": "kvitto_frames"
+  },
+  "autolinking": {
+    "KvittoFrameDocumentAnalyzer": {
+      "ios": {
+        "language": "swift",
+        "implementationClassName": "HybridFrameDocumentAnalyzer"
+      }
+    }
+  },
+  "ignorePaths": ["node_modules"]
+}
