@@ -68,6 +68,7 @@ class NativeStub implements KvittoNativeFacade {
   // whole. Fields rather than methods so the shared stub supplies the bodies.
   launchRoutes = () => NATIVE_HOST_STUB.launchRoutes();
   launchRouteDwellMs = () => NATIVE_HOST_STUB.launchRouteDwellMs();
+  launchScanAction = () => NATIVE_HOST_STUB.launchScanAction();
   backgroundTaskIdentifier = () => NATIVE_HOST_STUB.backgroundTaskIdentifier();
   drainPendingBackgroundLaunches = () => NATIVE_HOST_STUB.drainPendingBackgroundLaunches();
   isBackgroundLaunchExpired = (handle: string) => NATIVE_HOST_STUB.isBackgroundLaunchExpired(handle);

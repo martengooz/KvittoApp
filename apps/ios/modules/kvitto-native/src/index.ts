@@ -63,6 +63,7 @@ interface KvittoNativeBinding {
   analyzeFrameCompact(frameTimestampMs: number, cancellationId?: string): Promise<FrameAnalysisResult>;
   launchRoutes(): string[];
   launchRouteDwellMs(): number;
+  launchScanAction(): string;
   backgroundTaskIdentifier(): string;
   drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
   isBackgroundLaunchExpired(handle: string): boolean;
@@ -203,6 +204,9 @@ export function createKvittoNativeFacade(binding: KvittoNativeBinding = defaultB
     },
     launchRouteDwellMs() {
       return binding.launchRouteDwellMs();
+    },
+    launchScanAction() {
+      return binding.launchScanAction();
     },
     backgroundTaskIdentifier() {
       return binding.backgroundTaskIdentifier();

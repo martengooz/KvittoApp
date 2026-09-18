@@ -249,15 +249,25 @@ export function ScanCameraPreview({ bridge, native }: ScanCameraPreviewProps) {
   );
 }
 
+/*
+ * A 3:4 preview is 524pt tall on a 393pt-wide phone, which on its own is more
+ * than the space under the header - so the shutter sat below the fold with the
+ * preview filling the screen above it. Capping the box lets the primary action
+ * stay visible; the camera fills it, so the framing a user sees is unchanged.
+ */
+const MAX_PREVIEW_HEIGHT = 420;
+
 const styles = StyleSheet.create({
   frame: {
     aspectRatio: 3 / 4,
+    maxHeight: MAX_PREVIEW_HEIGHT,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: colorToken('surfaceSecondary'),
   },
   placeholder: {
     aspectRatio: 3 / 4,
+    maxHeight: MAX_PREVIEW_HEIGHT,
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colorToken('surfaceSecondary'),

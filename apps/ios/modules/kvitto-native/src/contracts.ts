@@ -208,6 +208,11 @@ export interface KvittoNativeFacade {
   launchRoutes(): string[];
   /** Milliseconds to hold each driven route, from the environment. */
   launchRouteDwellMs(): number;
+  /**
+   * One action the scan screen should perform at launch, from the environment.
+   * Empty in every normal launch; only `capture` is recognised.
+   */
+  launchScanAction(): string;
   backgroundTaskIdentifier(): string;
   /**
    * Windows that opened before JS was listening. iOS can launch the app

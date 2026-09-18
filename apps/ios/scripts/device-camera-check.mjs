@@ -13,9 +13,16 @@
  * score it saw and whether that would have armed auto-capture, which needs
  * 0.35 (`MIN_EVIDENCE` in `src/features/scan/controller.ts`).
  *
+ * With `--capture` it also presses the shutter and saves the result. That path
+ * had never run on hardware until it was driven this way, and it was broken:
+ * the capture handed VisionCamera a `file://` URI where it wanted a filesystem
+ * path. No test could see it (the component needs a camera) and no simulator
+ * could reach it (a simulator has none), so it took a person tapping the button
+ * to find. `--capture` is how that stays found.
+ *
  * Usage:
  *   node apps/ios/scripts/device-camera-check.mjs --app <path> --device <udid>
- *     [--seconds 30] [--screenshot <path>]
+ *     [--seconds 30] [--screenshot <path>] [--capture]
  */
 
 import { spawn, execFile } from 'node:child_process';
@@ -31,12 +38,13 @@ const BOOT_READY = 'boot:ready';
 const MIN_EVIDENCE = 0.35;
 
 function parseArgs(argv) {
-  const args = { device: null, app: null, seconds: 30, screenshot: null };
+  const args = { device: null, app: null, seconds: 30, screenshot: null, capture: false };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--device') args.device = argv[index + 1];
     if (argv[index] === '--app') args.app = argv[index + 1];
     if (argv[index] === '--seconds') args.seconds = Number(argv[index + 1]);
     if (argv[index] === '--screenshot') args.screenshot = argv[index + 1];
+    if (argv[index] === '--capture') args.capture = true;
   }
   return args;
 }
@@ -74,6 +82,7 @@ async function main() {
       JSON.stringify({
         KVITTO_ROUTES: '/scan',
         KVITTO_ROUTE_DWELL_MS: String(args.seconds * 1000),
+        ...(args.capture ? { KVITTO_SCAN_ACTION: 'capture' } : {}),
       }),
       BUNDLE_ID,
     ],
@@ -166,6 +175,21 @@ async function main() {
   console.log(`  best score:  ${best.toFixed(3)} (auto-capture needs ${MIN_EVIDENCE})`);
   if (skipped.length > 0) {
     console.log(`  frames skipped by the interval gate: ${skipped.at(-1)}`);
+  }
+
+  if (args.capture) {
+    const failed = /scan:action:failed (.+)/.exec(log);
+    if (failed) {
+      fail(log, `the capture failed: ${failed[1].trim()}`);
+    }
+    const saved = /scan:action:saved (.+)/.exec(log);
+    if (!saved) {
+      // Distinguished from a failure on purpose: no marker at all means the
+      // screen never ran the action, which is a different bug from a capture
+      // that ran and threw.
+      fail(log, 'the capture never reported an outcome; the scan screen may not have mounted');
+    }
+    console.log(`  captured and saved receipt ${saved[1].trim()}`);
   }
 
   if (best >= MIN_EVIDENCE) {

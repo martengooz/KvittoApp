@@ -19,6 +19,7 @@ import type {
 export const NATIVE_HOST_STUB: {
   launchRoutes(): string[];
   launchRouteDwellMs(): number;
+  launchScanAction(): string;
   backgroundTaskIdentifier(): string;
   drainPendingBackgroundLaunches(): NativeBackgroundLaunch[];
   isBackgroundLaunchExpired(handle: string): boolean;
@@ -34,6 +35,7 @@ export const NATIVE_HOST_STUB: {
 } = {
   launchRoutes: () => [],
   launchRouteDwellMs: () => 0,
+  launchScanAction: () => '',
   backgroundTaskIdentifier: () => 'com.kvitto.app.ios.jobs.processing',
   drainPendingBackgroundLaunches: () => [],
   isBackgroundLaunchExpired: () => false,

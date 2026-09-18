@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
+import { driveScanAction } from '../features/scan';
 import type {
   ScanBatchOutcome,
   ScanCameraBridge,
@@ -93,6 +94,40 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
   const canCapture =
     state.permission === 'granted' && cameraState.attached && cameraState.active && !state.processing;
 
+  /*
+   * Kept in a ref because the launch-action driver polls it from inside a
+   * promise loop, where a captured `canCapture` would be the value from the
+   * render that started the loop - always false, since the camera has not
+   * attached yet.
+   */
+  const canCaptureRef = useRef(canCapture);
+  canCaptureRef.current = canCapture;
+
+  // Presses the shutter when the launch environment asks, so the capture path
+  // is verifiable on a device nothing can tap. See `features/scan/launch-action`.
+  useEffect(() => {
+    let cancelled = false;
+    void driveScanAction({
+      action: native.launchScanAction(),
+      canCapture: () => canCaptureRef.current,
+      shutter: () => controller.manualShutter(),
+      confirm: () => controller.confirm(),
+      log: (category, message) => native.logDiagnostic(category, message),
+      wait: (ms) =>
+        new Promise<void>((resolve) => {
+          const handle = setTimeout(() => {
+            if (!cancelled) resolve();
+          }, ms);
+          if (cancelled) clearTimeout(handle);
+        }),
+      now: () => Date.now(),
+    }).finally(refresh);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [controller, native, refresh]);
+
   return (
     <ScreenScaffold style={styles.container}>
       {/* The title comes from the tab's native header; see `src/app/tabs.ts`. */}
@@ -129,6 +164,32 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
       {cameraState.lastError ? (
         <BodyText accessibilityRole="alert">{cameraState.lastError}</BodyText>
       ) : null}
+
+      {/*
+        Directly under the preview, because it is what the screen is for. It
+        used to be two rows further down, past the torch and zoom controls,
+        which put it off the bottom of the screen on a phone.
+      */}
+      <View style={styles.row}>
+        <PrimaryButton
+          label="Manual shutter"
+          onPress={() => {
+            void run(async () => {
+              await controller.manualShutter();
+            });
+          }}
+          disabled={!canCapture}
+        />
+        <PrimaryButton
+          label="Confirm scan"
+          onPress={() => {
+            void run(async () => {
+              await controller.confirm();
+            });
+          }}
+          disabled={!state.review || state.processing}
+        />
+      </View>
 
       <View style={styles.row}>
         {/*
@@ -183,27 +244,6 @@ export function ScanFeatureScreen({ controller, camera, native }: ScanFeatureScr
             disabled={!cameraState.active || cameraState.zoom === step}
           />
         ))}
-      </View>
-
-      <View style={styles.row}>
-        <PrimaryButton
-          label="Manual shutter"
-          onPress={() => {
-            void run(async () => {
-              await controller.manualShutter();
-            });
-          }}
-          disabled={!canCapture}
-        />
-        <PrimaryButton
-          label="Confirm scan"
-          onPress={() => {
-            void run(async () => {
-              await controller.confirm();
-            });
-          }}
-          disabled={!state.review || state.processing}
-        />
       </View>
 
       <View style={styles.row}>

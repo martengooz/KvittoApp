@@ -95,6 +95,16 @@ public final class KvittoNativeModule: Module {
       return max(0, parsed)
     }
 
+    /// A single action the scan screen should perform at launch, from the
+    /// environment.
+    ///
+    /// `devicectl` cannot tap, so the shutter - the one control that matters
+    /// most on hardware - was reachable only by a human finger. It shipped
+    /// broken because of that. The scan screen reads this and presses it.
+    Function("launchScanAction") { () -> String in
+      ProcessInfo.processInfo.environment["KVITTO_SCAN_ACTION"] ?? ""
+    }
+
     Function("backgroundTaskIdentifier") { () -> String in
       KvittoBackgroundTaskCoordinator.processingIdentifier
     }
